@@ -23,7 +23,14 @@ final class MenuBarController {
 
     private func configure() {
         if let button = statusItem.button {
-            button.title = "AssistAnt"
+            if let image = NSImage(named: "MenubarIcon") {
+                image.isTemplate = true
+                button.image = image
+            } else {
+                // Fallback if the asset is missing for any reason
+                // (asset catalog not compiled in, name mismatch).
+                button.title = "AssistAnt"
+            }
             button.toolTip = "AssistAnt"
         }
 
