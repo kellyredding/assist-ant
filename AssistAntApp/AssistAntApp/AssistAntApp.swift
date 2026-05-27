@@ -5,17 +5,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socket: SocketListener!
     private var events: EventCoordinator!
     private var policy: ActivationPolicyManager!
+    private var mainMenu: MainMenu!
     private var mainWindow: MainWindowController?
+    private var notificationObservers: [NSObjectProtocol] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Start as accessory so no dock icon shows on launch.
         // ActivationPolicyManager flips to .regular when a window
         // opens, back to .accessory when the last closes.
         NSApp.setActivationPolicy(.accessory)
+
+        // Install the menu bar (the strip at the top of the screen)
+        // before the app finishes launching so the system menu wires
+        // are in place when AppKit starts honoring key equivalents.
+        mainMenu = MainMenu()
+        mainMenu.install()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AssistAntPaths.ensureDirectories()
+
+        // Touch SettingsManager.shared so it loads prefs from disk before
+        // any view asks for them. Lazy-init would work too, but warming
+        // here keeps first-Settings-open fast.
+        _ = SettingsManager.shared
 
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
@@ -41,14 +54,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBar = MenuBarController(
             onOpenMainWindow: { [weak self] in self?.openMainWindow() },
+            onOpenSettings: { PreferencesWindowController.showPreferences() },
             onQuit: { NSApp.terminate(nil) }
         )
+
+        // MenuActions posts named notifications from main-menu items.
+        // Observe the ones we care about and dispatch.
+        observeMenuNotifications()
 
         NSLog("AssistAnt: ready (socket=\(AssistAntPaths.socketPath.path))")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         socket?.stop()
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+    }
+
+    // MARK: - Menu notification routing
+
+    private func observeMenuNotifications() {
+        let prefsObserver = NotificationCenter.default.addObserver(
+            forName: .showPreferences,
+            object: nil,
+            queue: .main
+        ) { _ in
+            PreferencesWindowController.showPreferences()
+        }
+        notificationObservers.append(prefsObserver)
     }
 
     // MARK: - Window lifecycle

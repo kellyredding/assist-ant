@@ -1,19 +1,24 @@
 import AppKit
 
-/// Owns the NSStatusItem. Skeleton menu has two items:
-/// "Open AssistAnt..." and "Quit". The button title is the
-/// placeholder "AssistAnt" — phase 1 replaces it with the live
-/// clock.
+/// Owns the NSStatusItem. The button image is the menubar template
+/// silhouette from the asset catalog; macOS recolors it for light/dark
+/// mode automatically. The menu has Open / Settings / Quit. Keyboard
+/// shortcuts on the main menu (⌘, for Settings, ⌘Q for Quit) work
+/// app-wide when AssistAnt is focused; status-menu keyEquivalents only
+/// fire while the status menu is open, so they're omitted here.
 final class MenuBarController {
     private let statusItem: NSStatusItem
     private let onOpenMainWindow: () -> Void
+    private let onOpenSettings: () -> Void
     private let onQuit: () -> Void
 
     init(
         onOpenMainWindow: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.onOpenMainWindow = onOpenMainWindow
+        self.onOpenSettings = onOpenSettings
         self.onQuit = onQuit
         self.statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength
@@ -35,6 +40,7 @@ final class MenuBarController {
         }
 
         let menu = NSMenu()
+
         let openItem = NSMenuItem(
             title: "Open AssistAnt…",
             action: #selector(handleOpen),
@@ -42,7 +48,17 @@ final class MenuBarController {
         )
         openItem.target = self
         menu.addItem(openItem)
+
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(handleSettings),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         menu.addItem(.separator())
+
         let quitItem = NSMenuItem(
             title: "Quit AssistAnt",
             action: #selector(handleQuit),
@@ -55,5 +71,6 @@ final class MenuBarController {
     }
 
     @objc private func handleOpen() { onOpenMainWindow() }
+    @objc private func handleSettings() { onOpenSettings() }
     @objc private func handleQuit() { onQuit() }
 }
