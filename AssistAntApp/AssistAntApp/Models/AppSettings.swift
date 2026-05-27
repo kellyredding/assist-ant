@@ -10,15 +10,17 @@ import Foundation
 struct AppSettings: Codable, Equatable {
     var version: Int
     var themePreference: ThemePreference
+    var timeFormat: TimeFormat
 
     static let current = AppSettings(
         version: 1,
-        themePreference: .system
+        themePreference: .system,
+        timeFormat: .twelveHour
     )
 
-    // Custom decoder so that prefs.json files saved before themePreference
-    // existed (or written by a future version that drops fields) decode
-    // cleanly to defaults instead of failing the whole decode.
+    // Custom decoder so prefs.json files saved before a field existed (or
+    // written by a future version that drops fields) decode cleanly to
+    // defaults instead of failing the whole decode.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decodeIfPresent(
@@ -27,15 +29,24 @@ struct AppSettings: Codable, Equatable {
         self.themePreference = try container.decodeIfPresent(
             ThemePreference.self, forKey: .themePreference
         ) ?? AppSettings.current.themePreference
+        self.timeFormat = try container.decodeIfPresent(
+            TimeFormat.self, forKey: .timeFormat
+        ) ?? AppSettings.current.timeFormat
     }
 
-    init(version: Int, themePreference: ThemePreference) {
+    init(
+        version: Int,
+        themePreference: ThemePreference,
+        timeFormat: TimeFormat
+    ) {
         self.version = version
         self.themePreference = themePreference
+        self.timeFormat = timeFormat
     }
 
     private enum CodingKeys: String, CodingKey {
         case version
         case themePreference
+        case timeFormat
     }
 }

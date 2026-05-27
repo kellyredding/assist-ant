@@ -30,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // here keeps first-Settings-open fast.
         _ = SettingsManager.shared
 
+        // Touch ClockService.shared so its minute-aligned ticker starts
+        // immediately. ClockView observers see the first tick within a
+        // frame of the main window opening.
+        _ = ClockService.shared
+
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
             self?.handleEvent(envelope)

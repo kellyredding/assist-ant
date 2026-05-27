@@ -1,14 +1,10 @@
 import SwiftUI
 
+/// Root content of the main AssistAnt window. Currently just the clock;
+/// future widgets (next upcoming reminder, standing-desk timer, todo
+/// preview) compose alongside as the feature surface grows.
 struct ContentView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            Text("AssistAnt")
-                .font(.largeTitle)
-            Text("Coming soon.")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+        ClockView()
     }
 }

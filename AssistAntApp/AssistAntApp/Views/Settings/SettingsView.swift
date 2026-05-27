@@ -33,6 +33,8 @@ struct SettingsView: View {
                 switch selectedTab {
                 case .general:
                     GeneralSettingsTab(settingsManager: settingsManager)
+                case .time:
+                    TimeSettingsTab(settingsManager: settingsManager)
                 }
             }
         }
