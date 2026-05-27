@@ -1,0 +1,16 @@
+# Crystal
+tools/*/build/
+tools/*/lib/
+tools/*/.crystal/
+tools/*/bin/
+tools/*/shard.lock
+
+# Swift / Xcode
+AssistAntApp/build/
+AssistAntApp/*.xcodeproj/
+AssistAntApp/*.xcworkspace/
+AssistAntApp/DerivedData/
+*.swp
+
+# macOS
+.DS_Store

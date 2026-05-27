@@ -1,0 +1,12 @@
+name: assist-ant
+version: 0.0.1
+description: |
+  AssistAnt CLI — companion to AssistAntApp.
+
+targets:
+  assist-ant:
+    main: src/assist_ant.cr
+
+crystal: ">= 1.0.0"
+
+license: MIT

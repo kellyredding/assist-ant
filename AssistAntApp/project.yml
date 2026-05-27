@@ -1,0 +1,38 @@
+name: AssistAntApp
+options:
+  bundleIdPrefix: com.kellyredding
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.2"
+
+targets:
+  AssistAntApp:
+    type: application
+    platform: macOS
+    sources:
+      - AssistAntApp
+    info:
+      path: AssistAntApp/Info.plist
+      properties:
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleDisplayName: AssistAnt
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundlePackageType: APPL
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHighResolutionCapable: true
+        CFBundleIconName: AppIcon
+        # NB: NOT LSUIElement=true. The app toggles
+        # NSApp.setActivationPolicy(.accessory) <-> .regular at
+        # runtime so the dock icon appears only while a window
+        # is open.
+    settings:
+      base:
+        PRODUCT_NAME: AssistAnt
+        PRODUCT_BUNDLE_IDENTIFIER: com.kellyredding.AssistAnt
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.10"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
