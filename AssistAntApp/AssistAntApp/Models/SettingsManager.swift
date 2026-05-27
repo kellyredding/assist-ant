@@ -2,45 +2,38 @@ import Foundation
 import Combine
 
 /// Singleton store for AppSettings. Loads from
-/// ~/.assist-ant/data/prefs.json on init, persists changes back via a
-/// trailing-debounced timer. The `data/` directory is a symlink into the
-/// user's Syncthing folder so the file rides the user's external sync setup
+/// ~/.assist-ant/data/prefs.json on init; persists synchronously on every
+/// change via didSet. The data directory is a symlink into the user's
+/// Syncthing folder so prefs.json rides the user's external sync setup
 /// automatically.
 ///
-/// Mirrors the singleton + @Published + trailing-debounce pattern used by
-/// Galaxy's SettingsManager
-/// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/Models/SettingsManager.swift).
+/// Persistence pattern mirrors Galaxy's SettingsManager
+/// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/Models/SettingsManager.swift):
+/// `didSet { save() }` with a single atomic Data.write. Foundation's
+/// `.atomic` flag writes to a sibling temp file and rename(2)s it into
+/// place — the rename is atomic at the kernel level, so a crash mid-write
+/// can never leave a half-written prefs.json on disk (especially important
+/// since the file lives in the user's synced folder).
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
-    @Published var settings: AppSettings
-
-    private var saveCancellable: AnyCancellable?
-    private let saveQueue = DispatchQueue(
-        label: "com.kellyredding.AssistAnt.settings-save"
-    )
+    @Published var settings: AppSettings {
+        didSet {
+            save()
+        }
+    }
 
     private var fileURL: URL {
         AssistAntPaths.dataDir.appendingPathComponent("prefs.json")
     }
 
     private init() {
-        // Load from disk, falling back to defaults on any error.
-        if let loaded = Self.load(from: AssistAntPaths.dataDir
-                .appendingPathComponent("prefs.json")) {
+        let url = AssistAntPaths.dataDir.appendingPathComponent("prefs.json")
+        if let loaded = Self.load(from: url) {
             self.settings = loaded
         } else {
             self.settings = .current
         }
-
-        // Trailing-debounce: any change to `settings` schedules a save 500ms
-        // later. Rapid edits collapse into one write.
-        saveCancellable = $settings
-            .dropFirst()
-            .debounce(for: .milliseconds(500), scheduler: saveQueue)
-            .sink { [weak self] newSettings in
-                self?.persist(newSettings)
-            }
     }
 
     private static func load(from url: URL) -> AppSettings? {
@@ -48,7 +41,7 @@ final class SettingsManager: ObservableObject {
         return try? JSONDecoder().decode(AppSettings.self, from: data)
     }
 
-    private func persist(_ settings: AppSettings) {
+    private func save() {
         do {
             try FileManager.default.createDirectory(
                 at: AssistAntPaths.dataDir,
@@ -57,18 +50,9 @@ final class SettingsManager: ObservableObject {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(settings)
-
-            // Atomic write via temp + rename so a crashed write doesn't
-            // leave a half-written prefs.json on disk (especially
-            // important since the file lives inside the user's synced
-            // folder).
-            let tempURL = fileURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("prefs.json.tmp")
-            try data.write(to: tempURL, options: .atomic)
-            _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tempURL)
+            try data.write(to: fileURL, options: .atomic)
         } catch {
-            NSLog("SettingsManager: failed to persist prefs.json: \(error.localizedDescription)")
+            NSLog("SettingsManager: failed to save prefs.json: \(error.localizedDescription)")
         }
     }
 }

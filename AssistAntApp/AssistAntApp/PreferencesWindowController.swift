@@ -9,11 +9,10 @@ import Combine
 ///
 /// Mirrors Galaxy's PreferencesWindowController
 /// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/PreferencesWindowController.swift).
-/// The theme-observer plumbing is in place but inert until a
-/// ThemePreference is added to AppSettings in a follow-up effort.
 class PreferencesWindowController: NSWindowController {
     private static var shared: PreferencesWindowController?
     private var escapeMonitor: Any?
+    private var themeObserver: AnyCancellable?
 
     /// Show the preferences window as an app-modal dialog. Creates the
     /// controller on first call; reuses it on subsequent calls.
@@ -24,6 +23,7 @@ class PreferencesWindowController: NSWindowController {
 
         guard let controller = shared else { return }
 
+        controller.applyAppearance(SettingsManager.shared.settings.themePreference)
         controller.window?.center()
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -64,8 +64,8 @@ class PreferencesWindowController: NSWindowController {
         window.delegate = self
 
         // Hosting view sized to fit the SwiftUI content. Created once and
-        // never recreated so future theme observers can update the window
-        // appearance without rebuilding the view hierarchy.
+        // never recreated so the theme observer can update window appearance
+        // without rebuilding the view hierarchy.
         let settingsView = SettingsView()
             .environmentObject(SettingsManager.shared)
         let hostingView = NSHostingView(rootView: settingsView)
@@ -75,10 +75,36 @@ class PreferencesWindowController: NSWindowController {
         let fittingSize = hostingView.fittingSize
         window.setContentSize(fittingSize)
         window.center()
+
+        // Apply initial appearance from current settings.
+        applyAppearance(SettingsManager.shared.settings.themePreference)
+
+        // Observe theme changes and update window.appearance without
+        // recreating the view hierarchy.
+        themeObserver = SettingsManager.shared.$settings
+            .map(\.themePreference)
+            .removeDuplicates()
+            .sink { [weak self] newTheme in
+                self?.applyAppearance(newTheme)
+            }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Update the window's NSAppearance. Passing nil makes the window
+    /// inherit the system appearance — that is how "Match system" works.
+    private func applyAppearance(_ theme: ThemePreference) {
+        window?.appearance = nsAppearance(for: theme)
+    }
+
+    private func nsAppearance(for theme: ThemePreference) -> NSAppearance? {
+        switch theme {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
     }
 
     private func dismiss() {

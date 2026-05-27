@@ -1,23 +1,31 @@
 import SwiftUI
 
-/// Placeholder content for the General tab. Theme selection (light/dark/
-/// system) will land here in a follow-up effort. For now the tab proves the
-/// modal + tab-switching plumbing without claiming any real settings.
+/// General settings tab. Currently hosts the Appearance card with a Theme
+/// picker. Future general settings (quiet hours, etc.) wrap themselves in
+/// their own SettingsCard and slot in here.
 struct GeneralSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
 
     var body: some View {
         VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "gear")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text("General settings coming soon.")
-                .font(.body)
-                .foregroundStyle(.secondary)
+            SettingsCard(title: "Appearance") {
+                SettingsRow(label: "Theme") {
+                    Picker("", selection: $settingsManager.settings.themePreference) {
+                        ForEach(ThemePreference.allCases, id: \.self) { preference in
+                            Label(
+                                preference.displayName,
+                                systemImage: preference.iconName
+                            )
+                            .tag(preference)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                }
+            }
+
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
+        .padding(20)
     }
 }
