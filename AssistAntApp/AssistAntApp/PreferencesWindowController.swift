@@ -52,15 +52,18 @@ class PreferencesWindowController: NSWindowController {
 
     private init() {
         // NSHostingController informs its window of SwiftUI's preferred
-        // content size automatically. As the user switches tabs, enables
-        // days, or adds time ranges, the SwiftUI view's intrinsic size
-        // changes; the controller propagates that to the window, which
-        // resizes to match. No explicit sizing required here — the
+        // content size as the user switches tabs, enables days, or adds
+        // time ranges. The default `sizingOptions` ([]) only propagates
+        // grows reliably — shrinks can stall, leaving the window at the
+        // tallest tab's height. Setting `.preferredContentSize` makes
+        // the controller publish a fresh preferred size on every
+        // SwiftUI layout pass, so the window tracks shrinks too. The
         // window opens at whatever size the initial SwiftUI content
-        // wants.
+        // wants and resizes from the top-left on every change.
         let settingsView = SettingsView()
             .environmentObject(SettingsManager.shared)
         let hostingController = NSHostingController(rootView: settingsView)
+        hostingController.sizingOptions = [.preferredContentSize]
 
         let window = NSWindow(contentViewController: hostingController)
         window.styleMask = [.titled, .closable]
