@@ -11,6 +11,14 @@ import Combine
 /// battery without visibly drifting the display. Subscribes to
 /// NSWorkspace.didWakeNotification so that a missed tick during sleep is
 /// caught up immediately on wake.
+///
+/// Run loop mode: the Timer is added to `.common`, NOT `.default`. The
+/// difference matters because `Timer.scheduledTimer(...)` (the
+/// convenience form) only adds to `.default`, which means the timer
+/// stalls whenever the run loop is in `.modalPanel` (Settings modal),
+/// `.eventTracking` (scroll/drag), or `.tracking` (menu open). `.common`
+/// is a meta-mode that fires in all of those plus idle — keeping the
+/// clock and announcements alive through any UI mode.
 final class ClockService: ObservableObject {
     static let shared = ClockService()
 
@@ -44,13 +52,15 @@ final class ClockService: ObservableObject {
 
         let delay = next.timeIntervalSince(now)
 
-        timer = Timer.scheduledTimer(
-            withTimeInterval: delay,
-            repeats: false
-        ) { [weak self] _ in
+        let t = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             self?.tick()
         }
-        timer?.tolerance = 0.5
+        t.tolerance = 0.5
+        // Explicit add to `.common` rather than `.scheduledTimer` (which
+        // adds to `.default` only) — see type doc for the run-loop-mode
+        // rationale.
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     private func tick() {
