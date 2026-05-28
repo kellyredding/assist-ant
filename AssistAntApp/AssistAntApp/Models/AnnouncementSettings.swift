@@ -17,6 +17,12 @@ import Foundation
 /// `VoiceCatalog.voice(forIdentifier:)`. If a stored identifier later
 /// fails to resolve (voice uninstalled), the synthesizer falls back to
 /// the system default voice for the utterance's locale.
+///
+/// `muteUntil` is the ad-hoc-mute window's expiry. nil = not muted.
+/// Non-nil = wall-clock time at which mute lifts. A past Date is
+/// treated as not muted (the live check is just `now < muteUntil`).
+/// Mute is gated as the final check in `AnnouncementService.shouldFire`
+/// so it suppresses both sound and speech outputs atomically.
 struct AnnouncementSettings: Codable, Equatable {
     var enabled: Bool
     var playSound: Bool
@@ -25,6 +31,7 @@ struct AnnouncementSettings: Codable, Equatable {
     var voiceIdentifier: String?
     var interval: AnnouncementInterval
     var schedule: WeeklySchedule
+    var muteUntil: Date?
 
     static let defaults = AnnouncementSettings(
         enabled: false,
@@ -33,7 +40,8 @@ struct AnnouncementSettings: Codable, Equatable {
         speakTime: false,
         voiceIdentifier: nil,
         interval: .hourly,
-        schedule: .workdayDefault
+        schedule: .workdayDefault,
+        muteUntil: nil
     )
 }
 
@@ -42,7 +50,7 @@ struct AnnouncementSettings: Codable, Equatable {
 extension AnnouncementSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, playSound, sound, speakTime, voiceIdentifier,
-             interval, schedule
+             interval, schedule, muteUntil
     }
 
     /// Custom decoder so a prefs.json written before this phase's
@@ -80,5 +88,8 @@ extension AnnouncementSettings {
         self.schedule        = try c.decodeIfPresent(
             WeeklySchedule.self,       forKey: .schedule
         ) ?? d.schedule
+        self.muteUntil       = try c.decodeIfPresent(
+            Date.self,                 forKey: .muteUntil
+        ) ?? d.muteUntil
     }
 }

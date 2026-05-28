@@ -7,7 +7,13 @@ import SwiftUI
 /// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/Views/SettingsView.swift).
 struct SettingsView: View {
     @ObservedObject var settingsManager = SettingsManager.shared
-    @State private var selectedTab: SettingsTab = .general
+
+    /// Tab selection is owned by the shared `SettingsNavigator` rather
+    /// than a local `@State` so that `PreferencesWindowController.
+    /// showPreferences(initialTab:)` can switch the active tab before
+    /// any open — including the second-and-later opens that wouldn't
+    /// re-run a `@State` initializer.
+    @ObservedObject private var navigator = SettingsNavigator.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,9 +22,9 @@ struct SettingsView: View {
                 ForEach(SettingsTab.allCases, id: \.self) { tab in
                     SettingsTabButton(
                         tab: tab,
-                        isSelected: selectedTab == tab
+                        isSelected: navigator.selectedTab == tab
                     ) {
-                        selectedTab = tab
+                        navigator.selectedTab = tab
                     }
                 }
             }
@@ -34,7 +40,7 @@ struct SettingsView: View {
             // schedule editor expands. No explicit max-height; the view
             // is exactly as tall as it needs to be.
             Group {
-                switch selectedTab {
+                switch navigator.selectedTab {
                 case .general:
                     GeneralSettingsTab(settingsManager: settingsManager)
                 case .time:

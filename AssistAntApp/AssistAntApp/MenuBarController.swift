@@ -2,15 +2,22 @@ import AppKit
 
 /// Owns the NSStatusItem. The button image is the menubar template
 /// silhouette from the asset catalog; macOS recolors it for light/dark
-/// mode automatically. The menu has Open / Settings / Quit. Keyboard
-/// shortcuts on the main menu (⌘, for Settings, ⌘Q for Quit) work
-/// app-wide when AssistAnt is focused; status-menu keyEquivalents only
-/// fire while the status menu is open, so they're omitted here.
-final class MenuBarController {
+/// mode automatically. The menu has Open / Settings / Mute /
+/// announcements / Quit. The Mute item is hidden when master Enable
+/// is off, and its title + submenu reflect mute state at show time
+/// (rebuilt via NSMenuDelegate.menuNeedsUpdate). Keyboard shortcuts
+/// on the main menu (⌘, for Settings, ⌘Q for Quit) work app-wide
+/// when AssistAnt is focused; status-menu keyEquivalents only fire
+/// while the status menu is open, so they're omitted here.
+final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let onOpenMainWindow: () -> Void
     private let onOpenSettings: () -> Void
     private let onQuit: () -> Void
+
+    /// Held so `menuNeedsUpdate(_:)` can update title / hidden /
+    /// submenu without rebuilding the entire menu on every show.
+    private var muteItem: NSMenuItem?
 
     init(
         onOpenMainWindow: @escaping () -> Void,
@@ -23,6 +30,7 @@ final class MenuBarController {
         self.statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.variableLength
         )
+        super.init()
         configure()
     }
 
@@ -40,6 +48,7 @@ final class MenuBarController {
         }
 
         let menu = NSMenu()
+        menu.delegate = self
 
         let openItem = NSMenuItem(
             title: "Open AssistAnt…",
@@ -57,6 +66,18 @@ final class MenuBarController {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        // Mute item — title, hidden state, and submenu are all set
+        // by menuNeedsUpdate(_:) just before the menu shows. Action
+        // is nil because the item has a submenu (AppKit shows the
+        // submenu on hover; submenu items have their own actions).
+        let muteItem = NSMenuItem(
+            title: "Mute announcements",
+            action: nil,
+            keyEquivalent: ""
+        )
+        menu.addItem(muteItem)
+        self.muteItem = muteItem
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
@@ -70,7 +91,84 @@ final class MenuBarController {
         statusItem.menu = menu
     }
 
+    // MARK: - NSMenuDelegate
+
+    /// Refresh the mute item just before the menu displays. Avoids
+    /// needing a live observer on settings + clock for the menu bar
+    /// menu — the menu state is only relevant when the menu is open.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let item = muteItem else { return }
+        let now = Date()
+        let appSettings = SettingsManager.shared.settings
+        let state = appSettings.announcement.iconState(at: now)
+
+        switch state {
+        case .disabled:
+            item.isHidden = true
+
+        case .scheduled, .active:
+            item.isHidden = false
+            item.title = "Mute announcements"
+            item.submenu = buildMuteSubmenu()
+
+        case .muted:
+            item.isHidden = false
+            let display = MuteController.currentMuteEndDisplay(
+                format: appSettings.timeFormat,
+                now: now
+            )
+            item.title = display.map { "Muted until \($0)" }
+                ?? "Announcements muted"
+            item.submenu = buildUnmuteSubmenu()
+        }
+    }
+
+    private func buildMuteSubmenu() -> NSMenu {
+        let sub = NSMenu()
+        sub.addItem(
+            NSMenuItem.sectionHeader(title: "Mute announcements for")
+        )
+        for duration in MuteDuration.allCases {
+            let item = NSMenuItem(
+                title: duration.displayName,
+                action: #selector(handleMute(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = duration
+            sub.addItem(item)
+        }
+        return sub
+    }
+
+    private func buildUnmuteSubmenu() -> NSMenu {
+        let sub = NSMenu()
+        // No section header here — the parent menu item already reads
+        // "Muted until X", so repeating it as a submenu header is
+        // redundant. The submenu is just the unmute action. (The
+        // in-window AnnounceStatusButton keeps its header because its
+        // parent affordance is an icon with no visible title.)
+        let unmuteItem = NSMenuItem(
+            title: "Unmute now",
+            action: #selector(handleUnmute),
+            keyEquivalent: ""
+        )
+        unmuteItem.target = self
+        sub.addItem(unmuteItem)
+        return sub
+    }
+
     @objc private func handleOpen() { onOpenMainWindow() }
     @objc private func handleSettings() { onOpenSettings() }
     @objc private func handleQuit() { onQuit() }
+
+    @objc private func handleMute(_ sender: NSMenuItem) {
+        guard let duration = sender.representedObject as? MuteDuration
+        else { return }
+        MuteController.mute(for: duration)
+    }
+
+    @objc private func handleUnmute() {
+        MuteController.unmute()
+    }
 }

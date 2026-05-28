@@ -16,7 +16,17 @@ class PreferencesWindowController: NSWindowController {
 
     /// Show the preferences window as an app-modal dialog. Creates the
     /// controller on first call; reuses it on subsequent calls.
-    static func showPreferences() {
+    ///
+    /// `initialTab` — when non-nil, switches the Settings tab strip
+    /// to that tab before showing the window. Used by callers like
+    /// the disabled-state `AnnounceStatusButton`, which wants to
+    /// open Settings directly to Time. nil keeps whatever tab was
+    /// selected last (the default behavior).
+    static func showPreferences(initialTab: SettingsTab? = nil) {
+        if let tab = initialTab {
+            SettingsNavigator.shared.selectedTab = tab
+        }
+
         if shared == nil {
             shared = PreferencesWindowController()
         }

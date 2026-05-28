@@ -69,6 +69,16 @@ final class AnnouncementService {
         guard settings.schedule.isActive(at: timeOfDay, weekday: weekday)
         else { return nil }
 
+        // Mute override: explicit user-set silence window. Applied
+        // last so the schedule/interval reasoning is independent of
+        // mute state — mute just suppresses an otherwise-firing
+        // boundary. Gates both sound and speech outputs atomically
+        // because both dispatches downstream of this point are
+        // gated on the boundary return.
+        if let muteUntil = settings.muteUntil, now < muteUntil {
+            return nil
+        }
+
         // Boundary type: how many chimes to play, and the speech delay
         // when sound is also on.
         return AnnouncementBoundary.from(minute: minute)
