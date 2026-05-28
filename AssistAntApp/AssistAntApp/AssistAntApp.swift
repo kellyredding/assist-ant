@@ -4,20 +4,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var socket: SocketListener!
     private var events: EventCoordinator!
-    private var policy: ActivationPolicyManager!
     private var mainMenu: MainMenu!
     private var mainWindow: MainWindowController?
     private var notificationObservers: [NSObjectProtocol] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Start as accessory so no dock icon shows on launch.
-        // ActivationPolicyManager flips to .regular when a window
-        // opens, back to .accessory when the last closes.
-        NSApp.setActivationPolicy(.accessory)
+        // Regular dock app from launch: icon visible, Cmd-Tab lists us,
+        // main window opens automatically in applicationDidFinishLaunching.
+        // The status item is an additional affordance, not the primary
+        // entry point.
+        NSApp.setActivationPolicy(.regular)
 
-        // Install the menu bar (the strip at the top of the screen)
-        // before the app finishes launching so the system menu wires
-        // are in place when AppKit starts honoring key equivalents.
+        // Install the menu bar (the strip at the top of the screen) before
+        // the app finishes launching so system menu wires are in place
+        // when AppKit starts honoring key equivalents.
         mainMenu = MainMenu()
         mainMenu.install()
     }
@@ -55,8 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        policy = ActivationPolicyManager()
-
         menuBar = MenuBarController(
             onOpenMainWindow: { [weak self] in self?.openMainWindow() },
             onOpenSettings: { PreferencesWindowController.showPreferences() },
@@ -67,15 +65,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Observe the ones we care about and dispatch.
         observeMenuNotifications()
 
+        // Auto-open the main window on launch. WindowStatePersistence
+        // restores the previous frame/screen if one was saved.
+        openMainWindow()
+
         NSLog("AssistAnt: ready (socket=\(AssistAntPaths.socketPath.path))")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Synchronously flush any pending window-state write so a quit
+        // mid-drag still records the final frame.
+        WindowStatePersistence.shared.flushSync()
+
         socket?.stop()
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
         notificationObservers.removeAll()
+    }
+
+    /// Keep the app running when the user closes the main window. Dock
+    /// icon stays visible; main window can be reopened from the menu bar
+    /// item, the status item, or by clicking the dock icon.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    /// Reopen the main window when the user clicks the dock icon and no
+    /// windows are currently visible.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if !flag {
+            openMainWindow()
+        }
+        return true
     }
 
     // MARK: - Menu notification routing
@@ -95,13 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openMainWindow() {
         if mainWindow == nil {
-            mainWindow = MainWindowController(onClose: { [weak self] in
-                self?.mainWindow = nil
-                self?.policy.windowClosed()
-            })
+            mainWindow = MainWindowController()
         }
-        policy.windowOpened()
         mainWindow?.showWindow(nil)
+        mainWindow?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
