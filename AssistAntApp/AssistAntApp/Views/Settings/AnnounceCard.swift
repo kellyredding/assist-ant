@@ -1,9 +1,14 @@
 import SwiftUI
 
-/// "Announce" settings card. Sits in the Time tab below the Format card.
-/// Master Enable toggle gates the whole card; when off, the inner
-/// controls grey out. Phase 1 has "Play a sound" with sound picker +
-/// preview, an interval picker, and the schedule editor.
+/// "Announce" settings card. Sits in the Time tab below the Format
+/// card. Master Enable gates the whole card; when off, the inner
+/// controls grey out.
+///
+/// Two independent output toggles — "Play a sound" and "Speak the
+/// time" — control what fires. Either, both, or neither can be on.
+/// When both are on, the chime sequence plays first and speech
+/// follows at the inter-chime cadence (see
+/// `AnnouncementService.evaluate`).
 struct AnnounceCard: View {
     @ObservedObject var settingsManager: SettingsManager
 
@@ -18,6 +23,7 @@ struct AnnounceCard: View {
 
                 Group {
                     soundRow
+                    speechRow
                     intervalRow
                     scheduleSection
                 }
@@ -62,6 +68,73 @@ struct AnnounceCard: View {
                 }
             }
         }
+    }
+
+    private var speechRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(
+                "Speak the time",
+                isOn: $settingsManager.settings.announcement.speakTime
+            )
+            .toggleStyle(.checkbox)
+
+            if settingsManager.settings.announcement.speakTime {
+                voicePickerRow
+            }
+        }
+    }
+
+    private var voicePickerRow: some View {
+        HStack {
+            Text("Voice")
+                .padding(.leading, 22)  // align with Toggle text
+            Spacer()
+            Picker(
+                "",
+                selection: $settingsManager.settings.announcement.voiceIdentifier
+            ) {
+                Text("System default").tag(String?.none)
+                ForEach(voiceEntries) { entry in
+                    Text(entry.displayName).tag(String?.some(entry.id))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 220)
+
+            Button {
+                previewSpeech()
+            } label: {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Preview")
+        }
+    }
+
+    /// Voice list shown in the picker. Filtered to the current locale
+    /// — most users want the voices that match the system language,
+    /// not the full cross-locale catalog. Recomputes on each render;
+    /// the underlying `AVSpeechSynthesisVoice.speechVoices()` call is
+    /// cached by AVFoundation, so this is cheap.
+    private var voiceEntries: [VoiceEntry] {
+        VoiceCatalog.localeVoices()
+    }
+
+    /// Speak a fixed demo time (3:00 PM in 12-hour mode, 15:00 in
+    /// 24-hour) through the currently selected voice. Demo time is
+    /// fixed rather than `now` so the preview is consistent and so
+    /// the preview doesn't reveal the current minute to anyone who
+    /// happens to be listening.
+    private func previewSpeech() {
+        let calendar = Calendar.current
+        let demo = calendar.date(
+            bySettingHour: 15, minute: 0, second: 0, of: Date()
+        ) ?? Date()
+        SpeechAnnouncer.shared.speak(
+            time: demo,
+            format: settingsManager.settings.timeFormat,
+            voiceIdentifier: settingsManager.settings.announcement.voiceIdentifier
+        )
     }
 
     private var intervalRow: some View {
