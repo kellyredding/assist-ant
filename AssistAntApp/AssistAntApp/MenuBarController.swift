@@ -100,7 +100,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let item = muteItem else { return }
         let now = Date()
         let appSettings = SettingsManager.shared.settings
-        let state = appSettings.announcement.iconState(at: now)
+        let state = appSettings.announcement.iconState(
+            at: now,
+            micInUse: MicActivityService.shared.isMicInUse
+        )
 
         switch state {
         case .disabled:
@@ -111,7 +114,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.title = "Mute announcements"
             item.submenu = buildMuteSubmenu()
 
-        case .muted:
+        case .mutedByTimer:
             item.isHidden = false
             let display = MuteController.currentMuteEndDisplay(
                 format: appSettings.timeFormat,
@@ -120,6 +123,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.title = display.map { "Muted until \($0)" }
                 ?? "Announcements muted"
             item.submenu = buildUnmuteSubmenu()
+
+        case .mutedByMic:
+            // Mic-mute clears itself when the mic frees — nothing to
+            // act on, so the item is informational with no submenu.
+            item.isHidden = false
+            item.title = "Muted while microphone in use"
+            item.submenu = nil
         }
     }
 

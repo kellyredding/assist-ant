@@ -39,6 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // from the moment the app is up — otherwise it would only start
         // observing on first access (e.g., when the settings UI is opened),
         // and any scheduled chime in the meantime would be missed.
+        // Start mic-activity monitoring before AnnouncementService so the
+        // service's subscription sees a settled initial state. Drives the
+        // "mute while microphone in use" behavior.
+        MicActivityService.shared.start()
+
         _ = AnnouncementService.shared
 
         events = EventCoordinator()

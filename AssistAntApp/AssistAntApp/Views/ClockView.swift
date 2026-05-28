@@ -14,23 +14,34 @@ import SwiftUI
 struct ClockView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
+    @ObservedObject private var mic = MicActivityService.shared
 
-    /// Live icon state — drives whether the muted status row renders.
-    /// Reuses the same state machine the corner `AnnounceStatusButton`
-    /// consults so the two surfaces always agree on whether mute is
-    /// active.
+    /// Live icon state — drives whether (and how) the muted status row
+    /// renders. Reuses the same state machine the inline
+    /// `AnnounceStatusButton` consults so the two surfaces always agree
+    /// on whether mute is active and why.
     private var iconState: AnnouncementIconState {
-        settings.settings.announcement.iconState(at: clock.currentTime)
+        settings.settings.announcement.iconState(
+            at: clock.currentTime,
+            micInUse: mic.isMicInUse
+        )
     }
 
-    /// Formatted mute end time ("3:30 PM" / "15:30") for the current
-    /// mute window, or nil when no mute is active. Defense in depth —
-    /// when `iconState == .muted`, this should always be non-nil.
-    private var muteEndDisplay: String? {
-        MuteController.currentMuteEndDisplay(
-            format: settings.settings.timeFormat,
-            now: clock.currentTime
-        )
+    /// Status row text under the timezone when muted, or nil when not
+    /// muted. Mic-mute names its reason; timed mute shows its end time.
+    private var mutedStatusText: String? {
+        switch iconState {
+        case .mutedByMic:
+            return "Muted while microphone in use"
+        case .mutedByTimer:
+            let display = MuteController.currentMuteEndDisplay(
+                format: settings.settings.timeFormat,
+                now: clock.currentTime
+            )
+            return display.map { "Muted until \($0)" }
+        case .disabled, .scheduled, .active:
+            return nil
+        }
     }
 
     var body: some View {
@@ -54,14 +65,15 @@ struct ClockView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
 
-            // Muted status row — only renders when state == .muted.
-            // System orange auto-adapts to light/dark; matches the
-            // inline AnnounceStatusButton's muted icon color so the
-            // two read as one connected indicator. The fade comes
-            // from the parent VStack's `.animation(value: iconState)`
-            // paired with this view's `.transition(.opacity)`.
-            if iconState == .muted, let display = muteEndDisplay {
-                Text("Muted until \(display)")
+            // Muted status row — renders for either mute reason, with
+            // text naming the reason. System orange auto-adapts to
+            // light/dark; matches the inline AnnounceStatusButton's
+            // muted icon color so the two read as one connected
+            // indicator. The fade comes from the parent VStack's
+            // `.animation(value: iconState)` paired with this view's
+            // `.transition(.opacity)`.
+            if let mutedStatusText {
+                Text(mutedStatusText)
                     .font(.system(size: 15))
                     .foregroundStyle(.orange)
                     .transition(.opacity)

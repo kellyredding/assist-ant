@@ -12,15 +12,19 @@ import SwiftUI
 ///   would be pointless; the useful action is jumping to the
 ///   schedule to review/adjust it.
 /// - Active → shows a menu of mute durations.
-/// - Muted → shows a menu with the mute end time + Unmute Now.
+/// - Muted by timer → shows a menu with Unmute Now.
+/// - Muted by mic → non-interactive (the mic-mute clears itself when
+///   the mic frees, so there's nothing to act on).
 ///
-/// Re-renders on minute boundaries (driven by `ClockService`) and on
-/// settings changes (driven by `SettingsManager`), so state
-/// transitions happen automatically as schedule windows open/close
-/// and as the mute window expires.
+/// Re-renders on minute boundaries (driven by `ClockService`), on
+/// settings changes (driven by `SettingsManager`), and on mic
+/// engage/free (driven by `MicActivityService`), so state transitions
+/// happen automatically as schedule windows open/close, the timed
+/// mute expires, and calls start/end.
 struct AnnounceStatusButton: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
+    @ObservedObject private var mic = MicActivityService.shared
 
     /// Rendered height of the speaker glyph — sized to sit as a visual
     /// peer to the large clock it lives beside (see ClockView's 96pt
@@ -37,19 +41,22 @@ struct AnnounceStatusButton: View {
     private let slotWidth: CGFloat = 96
 
     private var state: AnnouncementIconState {
-        settings.settings.announcement.iconState(at: clock.currentTime)
+        settings.settings.announcement.iconState(
+            at: clock.currentTime,
+            micInUse: mic.isMicInUse
+        )
     }
 
     /// Color per state, applied via `.foregroundStyle` on the glyph.
     /// Works now that the menus use `.buttonStyle(.plain)` (the old
     /// `.borderlessButton` style ignored foregroundStyle on its
-    /// label). Muted is system orange to match the ClockView status
-    /// row so the two read as one connected indicator.
+    /// label). Both muted states are system orange to match the
+    /// ClockView status row so the two read as one connected indicator.
     private var iconTint: Color {
         switch state {
-        case .disabled:           return .secondary.opacity(0.5)
-        case .scheduled, .active: return .primary
-        case .muted:              return .orange
+        case .disabled:                 return .secondary.opacity(0.5)
+        case .scheduled, .active:       return .primary
+        case .mutedByTimer, .mutedByMic: return .orange
         }
     }
 
@@ -60,8 +67,12 @@ struct AnnounceStatusButton: View {
                 openSettingsButton
             case .active:
                 muteMenu
-            case .muted:
+            case .mutedByTimer:
                 unmuteMenu
+            case .mutedByMic:
+                // Mic-mute clears itself when the mic frees — nothing
+                // to act on, so the icon is purely informational.
+                glyph
             }
         }
         .frame(width: slotWidth)

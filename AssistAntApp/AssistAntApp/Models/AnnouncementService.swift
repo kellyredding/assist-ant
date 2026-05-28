@@ -23,12 +23,37 @@ final class AnnouncementService {
     private static let chimeBeat: TimeInterval = 1.0
 
     private var clockObserver: AnyCancellable?
+    private var micObserver: AnyCancellable?
     private var lastFiredMinute: Date?
+
+    /// Set when a boundary that would otherwise have fired was
+    /// suppressed *specifically* because the mic was in use. When the
+    /// mic later frees (and nothing else is muting), this triggers a
+    /// one-shot spoken catch-up of the current time so the user isn't
+    /// left unaware of the time after a call. In-memory only — a
+    /// pending catch-up does not survive relaunch. A single flag, not
+    /// a queue: any number of mic-suppressed boundaries yields at most
+    /// one catch-up.
+    private var pendingMicCatchUp = false
 
     private init() {
         clockObserver = ClockService.shared.$currentTime
             .sink { [weak self] now in
                 self?.evaluate(at: now)
+            }
+
+        // React to mic engaging/freeing. ON is immediate (cancel any
+        // in-flight announcement so it can't leak into a call); OFF is
+        // already debounced by MicActivityService, and is where the
+        // catch-up fires.
+        micObserver = MicActivityService.shared.$isMicInUse
+            .removeDuplicates()
+            .sink { [weak self] inUse in
+                if inUse {
+                    self?.handleMicEngaged()
+                } else {
+                    self?.handleMicReleased()
+                }
             }
     }
 
@@ -111,6 +136,20 @@ final class AnnouncementService {
             return
         }
 
+        // Mic gate: if the mic is live and "mute while mic in use" is
+        // on, suppress this boundary and remember it so a spoken
+        // catch-up can fire when the mic frees. This is the only
+        // suppression path that sets the catch-up flag — timed mute
+        // and out-of-window are handled inside shouldFire and never
+        // reach here, so a catch-up only ever stands in for an
+        // announcement the mic specifically swallowed.
+        if settings.muteWhileMicInUse,
+           MicActivityService.shared.isMicInUse {
+            pendingMicCatchUp = true
+            lastFiredMinute = minuteKey
+            return
+        }
+
         // Sound dispatch — chime count derived from the boundary type
         // (4 / 2 / 1 for top / half / quarter).
         if settings.playSound {
@@ -140,6 +179,49 @@ final class AnnouncementService {
             }
         }
 
+        // A normal announcement just fired, so there's nothing for a
+        // catch-up to stand in for.
+        pendingMicCatchUp = false
         lastFiredMinute = minuteKey
+    }
+
+    /// Mic just went live. Abort any announcement already in flight so
+    /// its tail can't leak into the call. Gated on the toggle so this
+    /// is a no-op when the user hasn't opted into mic-muting.
+    private func handleMicEngaged() {
+        guard SettingsManager.shared.settings.announcement.muteWhileMicInUse
+        else { return }
+        SoundSequencer.shared.stop()
+        SpeechAnnouncer.shared.stop()
+    }
+
+    /// Mic freed (after MicActivityService's release cooldown). If a
+    /// boundary was swallowed by the mic while it was live, speak the
+    /// *current* time once as a catch-up — speech only, and regardless
+    /// of whether we're still inside the schedule window. A still-
+    /// active timed mute, a disabled master, the toggle being off, or
+    /// speech being off all cancel the catch-up (the flag is dropped
+    /// either way).
+    private func handleMicReleased() {
+        guard pendingMicCatchUp else { return }
+        pendingMicCatchUp = false
+
+        let appSettings = SettingsManager.shared.settings
+        let settings = appSettings.announcement
+        guard settings.enabled,
+              settings.muteWhileMicInUse,
+              settings.speakTime
+        else { return }
+
+        // Timed mute still wins — if the user is muted until a later
+        // time, honor that silence rather than the catch-up.
+        let now = Date()
+        if let until = settings.muteUntil, now < until { return }
+
+        SpeechAnnouncer.shared.speak(
+            time: now,
+            format: appSettings.timeFormat,
+            voiceIdentifier: settings.voiceIdentifier
+        )
     }
 }

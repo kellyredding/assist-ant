@@ -27,6 +27,12 @@ final class SoundSequencer {
     /// being superseded by the new sequence anyway.
     private var activeSounds: [NSSound] = []
 
+    /// Pending chime closures, tracked as cancellable work items so a
+    /// `stop()` (e.g. the mic going live mid-sequence) can drop chimes
+    /// that haven't fired yet, not just silence the ones already
+    /// playing.
+    private var pendingChimes: [DispatchWorkItem] = []
+
     private init() {}
 
     /// Play `sound` `count` times sequentially. `count <= 0` is a no-op.
@@ -34,15 +40,29 @@ final class SoundSequencer {
     /// sequence (last-write-wins).
     func play(_ sound: AnnouncementSound, count: Int) {
         guard count > 0 else { return }
-        activeSounds.removeAll()
+        stop()
 
         for i in 0..<count {
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + Double(i) * Self.interChimeDelay
-            ) { [weak self] in
+            let item = DispatchWorkItem { [weak self] in
                 self?.playOne(sound)
             }
+            pendingChimes.append(item)
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Double(i) * Self.interChimeDelay,
+                execute: item
+            )
         }
+    }
+
+    /// Cancel any not-yet-played chimes and silence any currently
+    /// playing ones. Used to abort a sequence immediately — e.g. when
+    /// the microphone goes live and an announcement must not leak into
+    /// a call.
+    func stop() {
+        pendingChimes.forEach { $0.cancel() }
+        pendingChimes.removeAll()
+        activeSounds.forEach { $0.stop() }
+        activeSounds.removeAll()
     }
 
     private func playOne(_ sound: AnnouncementSound) {

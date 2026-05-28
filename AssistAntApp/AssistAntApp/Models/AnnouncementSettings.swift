@@ -32,6 +32,7 @@ struct AnnouncementSettings: Codable, Equatable {
     var interval: AnnouncementInterval
     var schedule: WeeklySchedule
     var muteUntil: Date?
+    var muteWhileMicInUse: Bool
 
     static let defaults = AnnouncementSettings(
         enabled: false,
@@ -41,7 +42,8 @@ struct AnnouncementSettings: Codable, Equatable {
         voiceIdentifier: nil,
         interval: .hourly,
         schedule: .workdayDefault,
-        muteUntil: nil
+        muteUntil: nil,
+        muteWhileMicInUse: true
     )
 }
 
@@ -50,7 +52,7 @@ struct AnnouncementSettings: Codable, Equatable {
 extension AnnouncementSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, playSound, sound, speakTime, voiceIdentifier,
-             interval, schedule, muteUntil
+             interval, schedule, muteUntil, muteWhileMicInUse
     }
 
     /// Custom decoder so a prefs.json written before this phase's
@@ -91,5 +93,8 @@ extension AnnouncementSettings {
         self.muteUntil       = try c.decodeIfPresent(
             Date.self,                 forKey: .muteUntil
         ) ?? d.muteUntil
+        self.muteWhileMicInUse = try c.decodeIfPresent(
+            Bool.self,                 forKey: .muteWhileMicInUse
+        ) ?? d.muteWhileMicInUse
     }
 }

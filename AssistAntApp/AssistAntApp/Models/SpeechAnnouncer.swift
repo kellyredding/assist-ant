@@ -40,6 +40,15 @@ final class SpeechAnnouncer {
         synthesizer.speak(utterance)
     }
 
+    /// Stop any in-flight utterance immediately. Used to abort speech
+    /// when the microphone goes live mid-announcement so it doesn't
+    /// leak into a call.
+    func stop() {
+        if synthesizer.isSpeaking {
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+    }
+
     /// Build the spoken phrase for `date`.
     ///
     /// 12-hour mode omits AM/PM entirely — at the top of the hour it

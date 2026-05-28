@@ -24,6 +24,7 @@ struct AnnounceCard: View {
                 Group {
                     soundRow
                     speechRow
+                    micMuteRow
                     intervalRow
                     scheduleSection
                 }
@@ -82,6 +83,14 @@ struct AnnounceCard: View {
                 voicePickerRow
             }
         }
+    }
+
+    private var micMuteRow: some View {
+        Toggle(
+            "Mute while microphone in use",
+            isOn: $settingsManager.settings.announcement.muteWhileMicInUse
+        )
+        .toggleStyle(.checkbox)
     }
 
     private var voicePickerRow: some View {
