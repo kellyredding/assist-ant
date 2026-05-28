@@ -23,6 +23,12 @@ import Foundation
 /// treated as not muted (the live check is just `now < muteUntil`).
 /// Mute is gated as the final check in `AnnouncementService.shouldFire`
 /// so it suppresses both sound and speech outputs atomically.
+///
+/// The weekly `schedule` and the `muteWhileMicInUse` toggle used to
+/// live here but moved up to `AppSettings` — they are shared with the
+/// desk timer, so they sit at the app level rather than looking
+/// announcement-owned. `muteUntil` stays here for now; it has no second
+/// consumer until desk audio lands.
 struct AnnouncementSettings: Codable, Equatable {
     var enabled: Bool
     var playSound: Bool
@@ -30,9 +36,7 @@ struct AnnouncementSettings: Codable, Equatable {
     var speakTime: Bool
     var voiceIdentifier: String?
     var interval: AnnouncementInterval
-    var schedule: WeeklySchedule
     var muteUntil: Date?
-    var muteWhileMicInUse: Bool
 
     static let defaults = AnnouncementSettings(
         enabled: false,
@@ -41,9 +45,7 @@ struct AnnouncementSettings: Codable, Equatable {
         speakTime: false,
         voiceIdentifier: nil,
         interval: .hourly,
-        schedule: .workdayDefault,
-        muteUntil: nil,
-        muteWhileMicInUse: true
+        muteUntil: nil
     )
 }
 
@@ -52,7 +54,7 @@ struct AnnouncementSettings: Codable, Equatable {
 extension AnnouncementSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, playSound, sound, speakTime, voiceIdentifier,
-             interval, schedule, muteUntil, muteWhileMicInUse
+             interval, muteUntil
     }
 
     /// Custom decoder so a prefs.json written before this phase's
@@ -87,14 +89,8 @@ extension AnnouncementSettings {
         self.interval        = try c.decodeIfPresent(
             AnnouncementInterval.self, forKey: .interval
         ) ?? d.interval
-        self.schedule        = try c.decodeIfPresent(
-            WeeklySchedule.self,       forKey: .schedule
-        ) ?? d.schedule
         self.muteUntil       = try c.decodeIfPresent(
             Date.self,                 forKey: .muteUntil
         ) ?? d.muteUntil
-        self.muteWhileMicInUse = try c.decodeIfPresent(
-            Bool.self,                 forKey: .muteWhileMicInUse
-        ) ?? d.muteWhileMicInUse
     }
 }

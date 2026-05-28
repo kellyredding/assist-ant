@@ -1,8 +1,15 @@
 import SwiftUI
 
-/// Per-day editor for an AnnouncementSettings.schedule. Lists each day in
-/// fixed order (Sunday first), letting each row decide whether it's
-/// collapsed (just the checkbox) or expanded (showing its time ranges).
+/// Per-day editor for a `WeeklySchedule`. Lists each day in fixed order
+/// (Sunday first), letting each row decide whether it's collapsed (just
+/// the checkbox) or expanded (showing its time ranges). Bound to the
+/// shared `AppSettings.schedule` from the Announcements tab.
+///
+/// Renders as a bare column with no background of its own — it's the sole
+/// occupant of the Schedule `SettingsCard`, which already supplies the
+/// box chrome and content padding. Carrying its own padded box here would
+/// nest a box-in-box and push the day checkboxes inboard of the card's
+/// other controls (e.g. the Mute toggle).
 struct ScheduleEditor: View {
     @Binding var schedule: WeeklySchedule
 
@@ -15,9 +22,6 @@ struct ScheduleEditor: View {
                 )
             }
         }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(6)
     }
 
     /// Translates `schedule.days[day]` to a Binding<DaySchedule> for the

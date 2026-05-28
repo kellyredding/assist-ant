@@ -41,7 +41,7 @@ struct AnnounceStatusButton: View {
     private let slotWidth: CGFloat = 96
 
     private var state: AnnouncementIconState {
-        settings.settings.announcement.iconState(
+        settings.settings.iconState(
             at: clock.currentTime,
             micInUse: mic.isMicInUse
         )

@@ -21,7 +21,7 @@ struct ClockView: View {
     /// `AnnounceStatusButton` consults so the two surfaces always agree
     /// on whether mute is active and why.
     private var iconState: AnnouncementIconState {
-        settings.settings.announcement.iconState(
+        settings.settings.iconState(
             at: clock.currentTime,
             micInUse: mic.isMicInUse
         )

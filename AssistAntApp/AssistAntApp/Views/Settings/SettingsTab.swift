@@ -6,11 +6,13 @@ import Foundation
 /// extend SettingsView's switch.
 enum SettingsTab: String, CaseIterable {
     case general
+    case announcements
     case time
 
     var title: String {
         switch self {
         case .general: return "General"
+        case .announcements: return "Announcements"
         case .time: return "Time"
         }
     }
@@ -18,6 +20,7 @@ enum SettingsTab: String, CaseIterable {
     var icon: String {
         switch self {
         case .general: return "gear"
+        case .announcements: return "speaker.wave.3.fill"
         case .time: return "clock"
         }
     }

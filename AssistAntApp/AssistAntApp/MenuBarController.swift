@@ -100,7 +100,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let item = muteItem else { return }
         let now = Date()
         let appSettings = SettingsManager.shared.settings
-        let state = appSettings.announcement.iconState(
+        let state = appSettings.iconState(
             at: now,
             micInUse: MicActivityService.shared.isMicInUse
         )

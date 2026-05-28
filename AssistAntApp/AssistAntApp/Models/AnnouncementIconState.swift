@@ -47,25 +47,32 @@ enum AnnouncementIconState: Equatable {
     }
 }
 
-extension AnnouncementSettings {
+extension AppSettings {
     /// Pure decision: what is the icon state at `now`, given these
     /// settings and the live `micInUse` flag? Side-effect-free so it
     /// can be exercised without touching the system clock or the audio
     /// hardware. Returns `.scheduled` as the fallback when calendar
     /// component extraction fails (defense in depth — the input Date
     /// should always yield valid components in practice).
+    ///
+    /// Lives on `AppSettings` (not `AnnouncementSettings`) because it
+    /// reads the top-level shared `schedule` and `muteWhileMicInUse`
+    /// alongside the announcement sub-fields. Today only time
+    /// announcements feed this; a later phase broadens the disabled-
+    /// detection to also weigh the desk timer.
     func iconState(
         at now: Date,
         micInUse: Bool,
         calendar: Calendar = .current
     ) -> AnnouncementIconState {
-        guard enabled else { return .disabled }
+        let a = announcement
+        guard a.enabled else { return .disabled }
 
         // No output selected → nothing will ever fire, so the icon is
         // inert (shown as .scheduled: speaker.fill, click routes to
         // Settings). Checked before mute because a mute is meaningless
         // when there's nothing to suppress.
-        guard playSound || speakTime else { return .scheduled }
+        guard a.playSound || a.speakTime else { return .scheduled }
 
         // Mic-mute outranks the timed mute: a live call wins the
         // display even if a timed mute is also running underneath.
@@ -73,7 +80,7 @@ extension AnnouncementSettings {
             return .mutedByMic
         }
 
-        if let until = muteUntil, now < until {
+        if let until = a.muteUntil, now < until {
             return .mutedByTimer
         }
 

@@ -43,6 +43,8 @@ struct SettingsView: View {
                 switch navigator.selectedTab {
                 case .general:
                     GeneralSettingsTab(settingsManager: settingsManager)
+                case .announcements:
+                    AnnouncementsSettingsTab(settingsManager: settingsManager)
                 case .time:
                     TimeSettingsTab(settingsManager: settingsManager)
                 }

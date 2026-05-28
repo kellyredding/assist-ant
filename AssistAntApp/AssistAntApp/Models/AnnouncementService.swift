@@ -70,6 +70,7 @@ final class AnnouncementService {
     static func shouldFire(
         at now: Date,
         settings: AnnouncementSettings,
+        schedule: WeeklySchedule,
         calendar: Calendar = .current
     ) -> AnnouncementBoundary? {
         guard settings.enabled else { return nil }
@@ -89,9 +90,11 @@ final class AnnouncementService {
             return nil
         }
 
-        // Schedule gate: is today's slot active right now?
+        // Schedule gate: is today's slot active right now? The schedule
+        // is passed in (it now lives on AppSettings, shared with the
+        // desk timer) rather than reached through `settings`.
         let timeOfDay = TimeOfDay(hour: hour, minute: minute)
-        guard settings.schedule.isActive(at: timeOfDay, weekday: weekday)
+        guard schedule.isActive(at: timeOfDay, weekday: weekday)
         else { return nil }
 
         // Mute override: explicit user-set silence window. Applied
@@ -125,8 +128,9 @@ final class AnnouncementService {
             return
         }
 
-        guard let boundary = Self.shouldFire(at: now, settings: settings)
-        else { return }
+        guard let boundary = Self.shouldFire(
+            at: now, settings: settings, schedule: appSettings.schedule
+        ) else { return }
 
         // Early-out if neither output is on. Still mark the minute as
         // fired so subsequent ticks within the same minute don't
@@ -143,7 +147,7 @@ final class AnnouncementService {
         // and out-of-window are handled inside shouldFire and never
         // reach here, so a catch-up only ever stands in for an
         // announcement the mic specifically swallowed.
-        if settings.muteWhileMicInUse,
+        if appSettings.muteWhileMicInUse,
            MicActivityService.shared.isMicInUse {
             pendingMicCatchUp = true
             lastFiredMinute = minuteKey
@@ -189,7 +193,7 @@ final class AnnouncementService {
     /// its tail can't leak into the call. Gated on the toggle so this
     /// is a no-op when the user hasn't opted into mic-muting.
     private func handleMicEngaged() {
-        guard SettingsManager.shared.settings.announcement.muteWhileMicInUse
+        guard SettingsManager.shared.settings.muteWhileMicInUse
         else { return }
         SoundSequencer.shared.stop()
         SpeechAnnouncer.shared.stop()
@@ -209,7 +213,7 @@ final class AnnouncementService {
         let appSettings = SettingsManager.shared.settings
         let settings = appSettings.announcement
         guard settings.enabled,
-              settings.muteWhileMicInUse,
+              appSettings.muteWhileMicInUse,
               settings.speakTime
         else { return }
 

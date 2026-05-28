@@ -24,9 +24,7 @@ struct AnnounceCard: View {
                 Group {
                     soundRow
                     speechRow
-                    micMuteRow
                     intervalRow
-                    scheduleSection
                 }
                 .disabled(!settingsManager.settings.announcement.enabled)
             }
@@ -83,14 +81,6 @@ struct AnnounceCard: View {
                 voicePickerRow
             }
         }
-    }
-
-    private var micMuteRow: some View {
-        Toggle(
-            "Mute while microphone in use",
-            isOn: $settingsManager.settings.announcement.muteWhileMicInUse
-        )
-        .toggleStyle(.checkbox)
     }
 
     private var voicePickerRow: some View {
@@ -158,15 +148,6 @@ struct AnnounceCard: View {
             }
             .labelsHidden()
             .frame(width: 200)
-        }
-    }
-
-    private var scheduleSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Schedule")
-            ScheduleEditor(
-                schedule: $settingsManager.settings.announcement.schedule
-            )
         }
     }
 }
