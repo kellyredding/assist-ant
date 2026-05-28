@@ -35,6 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // frame of the main window opening.
         _ = ClockService.shared
 
+        // Touch AnnouncementService.shared so it subscribes to ClockService
+        // from the moment the app is up — otherwise it would only start
+        // observing on first access (e.g., when the settings UI is opened),
+        // and any scheduled chime in the meantime would be missed.
+        _ = AnnouncementService.shared
+
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
             self?.handleEvent(envelope)

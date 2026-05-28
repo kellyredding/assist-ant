@@ -51,29 +51,24 @@ class PreferencesWindowController: NSWindowController {
     }
 
     private init() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+        // NSHostingController informs its window of SwiftUI's preferred
+        // content size automatically. As the user switches tabs, enables
+        // days, or adds time ranges, the SwiftUI view's intrinsic size
+        // changes; the controller propagates that to the window, which
+        // resizes to match. No explicit sizing required here — the
+        // window opens at whatever size the initial SwiftUI content
+        // wants.
+        let settingsView = SettingsView()
+            .environmentObject(SettingsManager.shared)
+        let hostingController = NSHostingController(rootView: settingsView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.styleMask = [.titled, .closable]
         window.title = "Settings"
 
         super.init(window: window)
 
         window.delegate = self
-
-        // Hosting view sized to fit the SwiftUI content. Created once and
-        // never recreated so the theme observer can update window appearance
-        // without rebuilding the view hierarchy.
-        let settingsView = SettingsView()
-            .environmentObject(SettingsManager.shared)
-        let hostingView = NSHostingView(rootView: settingsView)
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView = hostingView
-
-        let fittingSize = hostingView.fittingSize
-        window.setContentSize(fittingSize)
         window.center()
 
         // Apply initial appearance from current settings.

@@ -28,7 +28,11 @@ struct SettingsView: View {
 
             Divider()
 
-            // Tab content
+            // Tab content lays out at its natural height. NSHostingController
+            // observes the SwiftUI view's intrinsic size and resizes its
+            // window to match — General is short, Time grows as the
+            // schedule editor expands. No explicit max-height; the view
+            // is exactly as tall as it needs to be.
             Group {
                 switch selectedTab {
                 case .general:
@@ -38,6 +42,9 @@ struct SettingsView: View {
                 }
             }
         }
-        .frame(width: 420, height: 320)
+        // Width is fixed because picker widths and the tab strip are
+        // designed around 480pt. Height stays unconstrained so the
+        // controller's auto-sizing has room to grow.
+        .frame(width: 480)
     }
 }
