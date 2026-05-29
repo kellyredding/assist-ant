@@ -58,7 +58,11 @@ struct AnnounceCard: View {
                     .frame(width: 140)
 
                     Button {
-                        settingsManager.settings.announcement.sound.play()
+                        AudioAnnouncementCoordinator.shared.preview(
+                            sound: settingsManager.settings.announcement.sound,
+                            speech: nil,
+                            voiceIdentifier: nil
+                        )
                     } label: {
                         Image(systemName: "play.fill")
                     }
@@ -129,8 +133,9 @@ struct AnnounceCard: View {
         let demo = calendar.date(
             bySettingHour: 15, minute: 0, second: 0, of: Date()
         ) ?? Date()
-        SpeechAnnouncer.shared.speak(
-            text: SpeechAnnouncer.phrase(
+        AudioAnnouncementCoordinator.shared.preview(
+            sound: nil,
+            speech: SpeechAnnouncer.phrase(
                 for: demo, format: settingsManager.settings.timeFormat
             ),
             voiceIdentifier: settingsManager.settings.announcement.voiceIdentifier

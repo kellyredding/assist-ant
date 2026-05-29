@@ -91,7 +91,11 @@ struct DeskSettingsTab: View {
                     .frame(width: 140)
 
                     Button {
-                        settingsManager.settings.desk.sound.play()
+                        AudioAnnouncementCoordinator.shared.preview(
+                            sound: settingsManager.settings.desk.sound,
+                            speech: nil,
+                            voiceIdentifier: nil
+                        )
                     } label: {
                         Image(systemName: "play.fill")
                     }
@@ -128,8 +132,9 @@ struct DeskSettingsTab: View {
                     .frame(width: 220)
 
                     Button {
-                        SpeechAnnouncer.shared.speak(
-                            text: "Time to stand",
+                        AudioAnnouncementCoordinator.shared.preview(
+                            sound: nil,
+                            speech: "Time to stand",
                             voiceIdentifier:
                                 settingsManager.settings.desk.voiceIdentifier
                         )

@@ -17,8 +17,9 @@ final class AudioAnnouncementCoordinator {
 
     /// Higher rawValue plays first. Time announcements outrank the desk
     /// nudge, so on a mic-release flush the time catch-up speaks before
-    /// the desk nudge.
-    enum Priority: Int { case desk = 0, time = 1 }
+    /// the desk nudge. A settings preview outranks both — when you tap it
+    /// you want to hear it next, ahead of anything merely queued.
+    enum Priority: Int { case desk = 0, time = 1, preview = 2 }
 
     struct Job {
         var sound: AnnouncementSound?
@@ -59,6 +60,26 @@ final class AudioAnnouncementCoordinator {
         queue.append(job)
         queue.sort { $0.priority.rawValue > $1.priority.rawValue }
         DispatchQueue.main.async { [weak self] in self?.playNextIfIdle() }
+    }
+
+    /// Play a one-off settings preview (a sound, a spoken phrase, or both).
+    /// Routed through the coordinator like every other producer so the
+    /// coordinator stays the *single* client of the players — no preview
+    /// can run concurrently with an announcement and strand the queue.
+    /// Ungated by design: a preview is always audible when invoked, it
+    /// just waits its turn behind whatever is currently playing.
+    func preview(
+        sound: AnnouncementSound?,
+        speech: String?,
+        voiceIdentifier: String?
+    ) {
+        submit(Job(
+            sound: sound,
+            soundCount: sound != nil ? 1 : 0,
+            speech: speech,
+            voiceIdentifier: voiceIdentifier,
+            priority: .preview
+        ))
     }
 
     /// Stop all playback and clear the queue immediately. Used on

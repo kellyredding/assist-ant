@@ -1,8 +1,10 @@
-import AppKit
+import Foundation
 
 /// The 14 macOS system sounds, addressable via NSSound(named:).
 /// AssistAnt does not bundle any custom audio assets — every value here
-/// resolves to a file in /System/Library/Sounds/.
+/// resolves to a file in /System/Library/Sounds/. Playback always goes
+/// through `SoundSequencer` (driven by `AudioAnnouncementCoordinator`);
+/// this type just identifies which sound.
 enum AnnouncementSound: String, Codable, CaseIterable {
     case basso     = "Basso"
     case blow      = "Blow"
@@ -20,11 +22,4 @@ enum AnnouncementSound: String, Codable, CaseIterable {
     case tink      = "Tink"
 
     var displayName: String { rawValue }
-
-    /// Play the sound once. Used by the Sound preview button next to the
-    /// picker. Scheduled playback uses SoundSequencer.play instead so the
-    /// boundary's chime count can be applied.
-    func play() {
-        NSSound(named: NSSound.Name(rawValue))?.play()
-    }
 }
