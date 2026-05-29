@@ -130,8 +130,9 @@ struct AnnounceCard: View {
             bySettingHour: 15, minute: 0, second: 0, of: Date()
         ) ?? Date()
         SpeechAnnouncer.shared.speak(
-            time: demo,
-            format: settingsManager.settings.timeFormat,
+            text: SpeechAnnouncer.phrase(
+                for: demo, format: settingsManager.settings.timeFormat
+            ),
             voiceIdentifier: settingsManager.settings.announcement.voiceIdentifier
         )
     }

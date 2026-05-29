@@ -1,52 +1,79 @@
 import AVFoundation
 import Foundation
 
-/// Speaks a time announcement through `AVSpeechSynthesizer`. Singleton
-/// so the underlying synthesizer outlives any single utterance — a
-/// short-lived local synthesizer is GC'd before speech completes,
-/// cutting off mid-word.
+/// Speaks arbitrary text through `AVSpeechSynthesizer`. Singleton so the
+/// underlying synthesizer outlives any single utterance — a short-lived
+/// local synthesizer is GC'd before speech completes, cutting off
+/// mid-word.
 ///
-/// Phase 2: invoked from `AnnouncementService.evaluate` after the
-/// chime sequence finishes, and from `AnnounceCard`'s preview button.
-/// Last-write-wins: a new `speak(...)` call stops any in-flight
-/// utterance immediately so rapid taps on preview don't queue speech.
-final class SpeechAnnouncer {
+/// Owned by `AudioAnnouncementCoordinator` for scheduled announcements
+/// (which passes a `completion` so the coordinator knows when an
+/// utterance finishes), and called directly by the settings previews
+/// (which pass no completion). Last-write-wins: a new `speak(...)` call
+/// stops any in-flight utterance immediately.
+///
+/// `phrase(for:format:)` stays here as the time-phrase builder; the desk
+/// nudge supplies its own short phrase ("Time to stand").
+final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = SpeechAnnouncer()
 
     private let synthesizer = AVSpeechSynthesizer()
+    private var completion: (() -> Void)?
 
-    private init() {}
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
-    /// Speak the time `date` using `format` to choose 12/24-hour, with
-    /// the given voice identifier (nil = system default). A previous
-    /// in-flight utterance is stopped immediately so rapid invocations
-    /// don't queue — matches `SoundSequencer`'s last-write-wins
-    /// behavior. The utterance's `rate` is left at
-    /// `AVSpeechUtteranceDefaultSpeechRate` (0.5); per-voice rate
-    /// tuning produced uneven cadence across voices and the slider
-    /// was removed in favor of trusting each voice's natural pace.
+    /// Speak arbitrary `text` with the given voice (nil = system
+    /// default), calling `completion` when the utterance finishes or is
+    /// cancelled. A new call stops any in-flight utterance first; the
+    /// previous utterance's completion fires (via the cancel delegate)
+    /// before the new one is set.
     func speak(
-        time date: Date,
-        format: TimeFormat,
-        voiceIdentifier: String?
+        text: String,
+        voiceIdentifier: String?,
+        completion: (() -> Void)? = nil
     ) {
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
-
-        let phrase = Self.phrase(for: date, format: format)
-        let utterance = AVSpeechUtterance(string: phrase)
+        self.completion = completion
+        let utterance = AVSpeechUtterance(string: text)
         utterance.voice = VoiceCatalog.voice(forIdentifier: voiceIdentifier)
         synthesizer.speak(utterance)
     }
 
-    /// Stop any in-flight utterance immediately. Used to abort speech
-    /// when the microphone goes live mid-announcement so it doesn't
-    /// leak into a call.
+    /// Stop any in-flight utterance immediately and fire its completion.
+    /// Used to abort speech when the microphone goes live mid-announcement
+    /// so it doesn't leak into a call.
     func stop() {
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
+        fireCompletion()
+    }
+
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
+        fireCompletion()
+    }
+
+    func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
+        fireCompletion()
+    }
+
+    /// Fire the pending completion at most once (nils it first), so the
+    /// stop()/delegate double-path can't invoke it twice.
+    private func fireCompletion() {
+        let c = completion
+        completion = nil
+        c?()
     }
 
     /// Build the spoken phrase for `date`.

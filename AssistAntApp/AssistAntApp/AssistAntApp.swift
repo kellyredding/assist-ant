@@ -44,11 +44,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "mute while microphone in use" behavior.
         MicActivityService.shared.start()
 
+        // Warm the audio coordinator so its mic observer is live before
+        // any announcement can fire — it owns cancel-on-mic-engage for
+        // all audible output.
+        _ = AudioAnnouncementCoordinator.shared
+
         _ = AnnouncementService.shared
 
-        // Warm DeskService so its one-time launch consistency fixup runs
-        // (start a fresh timer if the desk was left enabled with no start
-        // time). The visible countdown/nudge is derived live by the views.
+        // Warm DeskService so its launch fixup runs, its clock/mic
+        // observers wire up, and a nudge pending on launch begins its
+        // audible repeat. The visible countdown/nudge is derived live by
+        // the views.
         DeskService.shared.start()
 
         events = EventCoordinator()
@@ -130,6 +136,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PreferencesWindowController.showPreferences()
         }
         notificationObservers.append(prefsObserver)
+
+        // Surfaced by DeskService when a desk nudge first becomes audible,
+        // so the actionable banner is in front when it speaks.
+        let raiseObserver = NotificationCenter.default.addObserver(
+            forName: .raiseMainWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openMainWindow()
+        }
+        notificationObservers.append(raiseObserver)
     }
 
     // MARK: - Window lifecycle
@@ -150,4 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let message = envelope.detailValue("message", as: String.self) ?? "<no message>"
         NSLog("AssistAnt: received event '\(envelope.event)' message=\(message)")
     }
+}
+
+extension Notification.Name {
+    /// Posted by `DeskService` when a desk nudge first becomes audible, so
+    /// the AppDelegate can bring the main window forward.
+    static let raiseMainWindow = Notification.Name("raiseMainWindow")
 }

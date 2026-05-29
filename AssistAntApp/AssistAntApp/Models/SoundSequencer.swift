@@ -37,9 +37,15 @@ final class SoundSequencer {
 
     /// Play `sound` `count` times sequentially. `count <= 0` is a no-op.
     /// A new call while a sequence is in flight replaces the pending
-    /// sequence (last-write-wins).
-    func play(_ sound: AnnouncementSound, count: Int) {
-        guard count > 0 else { return }
+    /// sequence (last-write-wins). `completion` (if given) fires after the
+    /// last chime's audio is expected to end, and is cancelled by `stop()`
+    /// along with the pending chimes.
+    func play(
+        _ sound: AnnouncementSound,
+        count: Int,
+        completion: (() -> Void)? = nil
+    ) {
+        guard count > 0 else { completion?(); return }
         stop()
 
         for i in 0..<count {
@@ -52,6 +58,16 @@ final class SoundSequencer {
                 execute: item
             )
         }
+
+        guard let completion else { return }
+        // After the final chime's start offset plus its own duration.
+        let lastStart = Double(count - 1) * Self.interChimeDelay
+        let tail = NSSound(named: NSSound.Name(sound.rawValue))?.duration ?? 1.0
+        let doneItem = DispatchWorkItem { completion() }
+        pendingChimes.append(doneItem)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + lastStart + tail, execute: doneItem
+        )
     }
 
     /// Cancel any not-yet-played chimes and silence any currently

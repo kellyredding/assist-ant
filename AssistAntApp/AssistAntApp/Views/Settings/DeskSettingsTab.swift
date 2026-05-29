@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Desk tab: enable the sit/stand timer and set the two interval
-/// durations. No audio settings yet — the output toggles (a sound, a
-/// spoken alert) plus an own sound and an own voice arrive once the
-/// shared audio pipeline lands.
+/// Desk tab: enable the sit/stand timer, set the two interval durations,
+/// and configure the desk's own audio (independent of time
+/// announcements) — Play a sound (with its own sound choice) and Speak
+/// the alert (with its own voice).
 struct DeskSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
 
@@ -26,6 +26,8 @@ struct DeskSettingsTab: View {
                             label: "Stand for",
                             minutes: $settingsManager.settings.desk.standMinutes
                         )
+                        soundRow
+                        speechRow
                     }
                     .disabled(!settingsManager.settings.desk.enabled)
                 }
@@ -58,6 +60,85 @@ struct DeskSettingsTab: View {
                     .foregroundStyle(.secondary)
                 Stepper("", value: clamped, in: 1...Int.max, step: 1)
                     .labelsHidden()
+            }
+        }
+    }
+
+    private var soundRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(
+                "Play a sound",
+                isOn: $settingsManager.settings.desk.playSound
+            )
+            .toggleStyle(.checkbox)
+
+            if settingsManager.settings.desk.playSound {
+                HStack {
+                    Text("Sound")
+                        // Align label with toggle text — the checkbox glyph
+                        // takes about 22pt.
+                        .padding(.leading, 22)
+                    Spacer()
+                    Picker(
+                        "",
+                        selection: $settingsManager.settings.desk.sound
+                    ) {
+                        ForEach(AnnouncementSound.allCases, id: \.self) { s in
+                            Text(s.displayName).tag(s)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 140)
+
+                    Button {
+                        settingsManager.settings.desk.sound.play()
+                    } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Preview")
+                }
+            }
+        }
+    }
+
+    private var speechRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(
+                "Speak the alert",
+                isOn: $settingsManager.settings.desk.speakAlert
+            )
+            .toggleStyle(.checkbox)
+
+            if settingsManager.settings.desk.speakAlert {
+                HStack {
+                    Text("Voice")
+                        .padding(.leading, 22)  // align with Toggle text
+                    Spacer()
+                    Picker(
+                        "",
+                        selection: $settingsManager.settings.desk.voiceIdentifier
+                    ) {
+                        Text("System default").tag(String?.none)
+                        ForEach(VoiceCatalog.localeVoices()) { entry in
+                            Text(entry.displayName).tag(String?.some(entry.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+
+                    Button {
+                        SpeechAnnouncer.shared.speak(
+                            text: "Time to stand",
+                            voiceIdentifier:
+                                settingsManager.settings.desk.voiceIdentifier
+                        )
+                    } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Preview")
+                }
             }
         }
     }

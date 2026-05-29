@@ -1,9 +1,10 @@
 import Foundation
 
-/// Thin facade for applying and clearing the mute window on
-/// `AnnouncementSettings`. Keeps the `SettingsManager` mutation in
-/// one place so both the in-window status button and the menu bar
-/// item use the same write path.
+/// Thin facade for applying and clearing the global ad-hoc mute window on
+/// `AppSettings`. Keeps the `SettingsManager` mutation in one place so
+/// both the in-window status button and the menu bar item use the same
+/// write path. The mute is global — it silences time announcements and
+/// the desk nudge alike.
 ///
 /// Stateless — every method just computes a new `muteUntil` and
 /// writes it through `SettingsManager`. Persistence happens
@@ -17,13 +18,13 @@ enum MuteController {
     /// previous `muteUntil` — durations do not accumulate.
     static func mute(for duration: MuteDuration, now: Date = Date()) {
         let until = now.addingTimeInterval(duration.timeInterval)
-        SettingsManager.shared.settings.announcement.muteUntil = until
+        SettingsManager.shared.settings.muteUntil = until
     }
 
     /// Clear the mute window immediately. Sets `muteUntil` to nil so
     /// the next announcement boundary fires normally.
     static func unmute() {
-        SettingsManager.shared.settings.announcement.muteUntil = nil
+        SettingsManager.shared.settings.muteUntil = nil
     }
 
     /// Formatted end-time for the current mute, e.g. "3:45 PM" or
@@ -35,8 +36,8 @@ enum MuteController {
         format: TimeFormat,
         now: Date = Date()
     ) -> String? {
-        let settings = SettingsManager.shared.settings.announcement
-        guard let until = settings.muteUntil, now < until else {
+        guard let until = SettingsManager.shared.settings.muteUntil,
+              now < until else {
             return nil
         }
         let formatter = DateFormatter()

@@ -8,13 +8,13 @@ import Foundation
 /// fallback so existing prefs.json files keep working across schema
 /// additions.
 ///
-/// `schedule` and `muteWhileMicInUse` are app-level (not announcement-
-/// owned) because they are the shared inputs to the audio gate: the
-/// weekly window that says "when I'm working" and the global "don't
-/// make noise during calls" toggle. Time announcements read them today;
-/// the desk timer reads the same two values without any further
-/// restructuring. They used to live nested under `announcement` and are
-/// migrated up transparently — see `init(from:)`.
+/// `schedule`, `muteWhileMicInUse`, and `muteUntil` are app-level (not
+/// announcement-owned) because they are the shared inputs to the audio
+/// gate: the weekly window that says "when I'm working", the global
+/// "don't make noise during calls" toggle, and the ad-hoc snooze. Both
+/// time announcements and the desk timer read them. They used to live
+/// nested under `announcement` and are migrated up transparently — see
+/// `init(from:)`.
 struct AppSettings: Codable, Equatable {
     var version: Int
     var themePreference: ThemePreference
@@ -22,6 +22,7 @@ struct AppSettings: Codable, Equatable {
     var announcement: AnnouncementSettings
     var schedule: WeeklySchedule          // shared by announcements + desk
     var muteWhileMicInUse: Bool           // global: silences all audio
+    var muteUntil: Date?                  // global ad-hoc mute (snooze)
     var desk: DeskSettings                // standing-desk sit/stand timer
 
     static let current = AppSettings(
@@ -31,6 +32,7 @@ struct AppSettings: Codable, Equatable {
         announcement: .defaults,
         schedule: .workdayDefault,
         muteWhileMicInUse: true,
+        muteUntil: nil,
         desk: .defaults
     )
 
@@ -52,14 +54,16 @@ struct AppSettings: Codable, Equatable {
             AnnouncementSettings.self, forKey: .announcement
         ) ?? AppSettings.current.announcement
 
-        // One-time migration: `schedule` and `muteWhileMicInUse` used
-        // to live nested under `announcement`. Read them from there as
-        // a fallback so an existing prefs.json keeps the user's
-        // customized schedule + toggle when they move to the top level.
-        // Reading the `announcement` key a second time as a legacy
-        // container is safe with JSONDecoder (keyed containers re-read).
+        // One-time migration: `schedule`, `muteWhileMicInUse`, and
+        // `muteUntil` used to live nested under `announcement`. Read them
+        // from there as a fallback so an existing prefs.json keeps the
+        // user's customized schedule, toggle, and an in-flight snooze when
+        // they move to the top level. Reading the `announcement` key a
+        // second time as a legacy container is safe with JSONDecoder
+        // (keyed containers re-read).
         var legacySchedule: WeeklySchedule?
         var legacyMuteMic: Bool?
+        var legacyMuteUntil: Date?
         if let legacy = try? container.nestedContainer(
             keyedBy: LegacyAnnouncementKeys.self, forKey: .announcement
         ) {
@@ -69,6 +73,9 @@ struct AppSettings: Codable, Equatable {
             legacyMuteMic = try? legacy.decodeIfPresent(
                 Bool.self, forKey: .muteWhileMicInUse
             )
+            legacyMuteUntil = try? legacy.decodeIfPresent(
+                Date.self, forKey: .muteUntil
+            )
         }
 
         self.schedule = try container.decodeIfPresent(
@@ -77,6 +84,9 @@ struct AppSettings: Codable, Equatable {
         self.muteWhileMicInUse = try container.decodeIfPresent(
             Bool.self, forKey: .muteWhileMicInUse
         ) ?? legacyMuteMic ?? AppSettings.current.muteWhileMicInUse
+        self.muteUntil = try container.decodeIfPresent(
+            Date.self, forKey: .muteUntil
+        ) ?? legacyMuteUntil ?? AppSettings.current.muteUntil
         self.desk = try container.decodeIfPresent(
             DeskSettings.self, forKey: .desk
         ) ?? AppSettings.current.desk
@@ -89,6 +99,7 @@ struct AppSettings: Codable, Equatable {
         announcement: AnnouncementSettings,
         schedule: WeeklySchedule,
         muteWhileMicInUse: Bool,
+        muteUntil: Date?,
         desk: DeskSettings
     ) {
         self.version = version
@@ -97,7 +108,27 @@ struct AppSettings: Codable, Equatable {
         self.announcement = announcement
         self.schedule = schedule
         self.muteWhileMicInUse = muteWhileMicInUse
+        self.muteUntil = muteUntil
         self.desk = desk
+    }
+
+    /// Whether audible announcements (time or desk) may play right now:
+    /// inside the schedule window, not snoozed by the mute timer, and not
+    /// suppressed by the mic. Visual is never subject to this — only audio
+    /// passes through this gate.
+    func audioGateOpen(
+        at now: Date,
+        micInUse: Bool,
+        calendar: Calendar = .current
+    ) -> Bool {
+        if muteWhileMicInUse, micInUse { return false }
+        if let until = muteUntil, now < until { return false }
+        let c = calendar.dateComponents([.weekday, .hour, .minute], from: now)
+        guard let wi = c.weekday, let weekday = Weekday(rawValue: wi),
+              let h = c.hour, let m = c.minute else { return false }
+        return schedule.isActive(
+            at: TimeOfDay(hour: h, minute: m), weekday: weekday
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -107,13 +138,16 @@ struct AppSettings: Codable, Equatable {
         case announcement
         case schedule
         case muteWhileMicInUse
+        case muteUntil
         case desk
     }
 
-    /// Legacy keys for reading schedule + muteWhileMicInUse out of the
-    /// old nested `announcement` block during one-time migration.
+    /// Legacy keys for reading schedule + muteWhileMicInUse + muteUntil
+    /// out of the old nested `announcement` block during one-time
+    /// migration.
     private enum LegacyAnnouncementKeys: String, CodingKey {
         case schedule
         case muteWhileMicInUse
+        case muteUntil
     }
 }

@@ -56,23 +56,22 @@ extension AppSettings {
     /// should always yield valid components in practice).
     ///
     /// Lives on `AppSettings` (not `AnnouncementSettings`) because it
-    /// reads the top-level shared `schedule` and `muteWhileMicInUse`
-    /// alongside the announcement sub-fields. Today only time
-    /// announcements feed this; a later phase broadens the disabled-
-    /// detection to also weigh the desk timer.
+    /// reads the top-level shared `schedule`, `muteWhileMicInUse`, and
+    /// `muteUntil` alongside both features' sub-fields. "Disabled" spans
+    /// both: it's shown only when neither time announcements nor the desk
+    /// timer can emit audio.
     func iconState(
         at now: Date,
         micInUse: Bool,
         calendar: Calendar = .current
     ) -> AnnouncementIconState {
-        let a = announcement
-        guard a.enabled else { return .disabled }
-
-        // No output selected → nothing will ever fire, so the icon is
-        // inert (shown as .scheduled: speaker.fill, click routes to
-        // Settings). Checked before mute because a mute is meaningless
-        // when there's nothing to suppress.
-        guard a.playSound || a.speakTime else { return .scheduled }
+        // Audio-capable per feature: master enable on AND at least one
+        // output selected. Disabled only when neither feature can speak.
+        let timeCapable = announcement.enabled
+            && (announcement.playSound || announcement.speakTime)
+        let deskCapable = desk.enabled
+            && (desk.playSound || desk.speakAlert)
+        guard timeCapable || deskCapable else { return .disabled }
 
         // Mic-mute outranks the timed mute: a live call wins the
         // display even if a timed mute is also running underneath.
@@ -80,7 +79,7 @@ extension AppSettings {
             return .mutedByMic
         }
 
-        if let until = a.muteUntil, now < until {
+        if let until = muteUntil, now < until {
             return .mutedByTimer
         }
 
