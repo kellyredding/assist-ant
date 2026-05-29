@@ -22,6 +22,7 @@ struct AppSettings: Codable, Equatable {
     var announcement: AnnouncementSettings
     var schedule: WeeklySchedule          // shared by announcements + desk
     var muteWhileMicInUse: Bool           // global: silences all audio
+    var desk: DeskSettings                // standing-desk sit/stand timer
 
     static let current = AppSettings(
         version: 1,
@@ -29,7 +30,8 @@ struct AppSettings: Codable, Equatable {
         timeFormat: .twelveHour,
         announcement: .defaults,
         schedule: .workdayDefault,
-        muteWhileMicInUse: true
+        muteWhileMicInUse: true,
+        desk: .defaults
     )
 
     // Custom decoder so prefs.json files saved before a field existed (or
@@ -75,6 +77,9 @@ struct AppSettings: Codable, Equatable {
         self.muteWhileMicInUse = try container.decodeIfPresent(
             Bool.self, forKey: .muteWhileMicInUse
         ) ?? legacyMuteMic ?? AppSettings.current.muteWhileMicInUse
+        self.desk = try container.decodeIfPresent(
+            DeskSettings.self, forKey: .desk
+        ) ?? AppSettings.current.desk
     }
 
     init(
@@ -83,7 +88,8 @@ struct AppSettings: Codable, Equatable {
         timeFormat: TimeFormat,
         announcement: AnnouncementSettings,
         schedule: WeeklySchedule,
-        muteWhileMicInUse: Bool
+        muteWhileMicInUse: Bool,
+        desk: DeskSettings
     ) {
         self.version = version
         self.themePreference = themePreference
@@ -91,6 +97,7 @@ struct AppSettings: Codable, Equatable {
         self.announcement = announcement
         self.schedule = schedule
         self.muteWhileMicInUse = muteWhileMicInUse
+        self.desk = desk
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,6 +107,7 @@ struct AppSettings: Codable, Equatable {
         case announcement
         case schedule
         case muteWhileMicInUse
+        case desk
     }
 
     /// Legacy keys for reading schedule + muteWhileMicInUse out of the

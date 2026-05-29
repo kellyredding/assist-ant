@@ -46,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         _ = AnnouncementService.shared
 
+        // Warm DeskService so its one-time launch consistency fixup runs
+        // (start a fresh timer if the desk was left enabled with no start
+        // time). The visible countdown/nudge is derived live by the views.
+        DeskService.shared.start()
+
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
             self?.handleEvent(envelope)

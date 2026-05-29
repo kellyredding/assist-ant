@@ -19,6 +19,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// submenu without rebuilding the entire menu on every show.
     private var muteItem: NSMenuItem?
 
+    /// Standing-desk switch nudge item. Hidden except while a desk
+    /// nudge is pending; its title ("Time to Stand" / "Time to Sit")
+    /// and "I Switched" submenu are set by `menuNeedsUpdate(_:)`.
+    private var deskItem: NSMenuItem?
+
     init(
         onOpenMainWindow: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
@@ -78,6 +83,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(muteItem)
         self.muteItem = muteItem
 
+        // Desk switch nudge — title/hidden/submenu set in
+        // menuNeedsUpdate(_:). Action nil because it carries a submenu.
+        let deskItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        menu.addItem(deskItem)
+        self.deskItem = deskItem
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
@@ -131,6 +142,27 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.title = "Muted while microphone in use"
             item.submenu = nil
         }
+
+        updateDeskItem(at: now)
+    }
+
+    /// Refresh the desk nudge item. Visible only while a switch is
+    /// pending; the title names the position to move *to* ("Time to
+    /// Stand" / "Time to Sit") and the submenu acknowledges. Counting
+    /// and inactive phases hide it — the desk timer surfaces in the
+    /// menu bar only when it needs the user to act.
+    private func updateDeskItem(at now: Date) {
+        guard let deskItem = deskItem else { return }
+        let phase = SettingsManager.shared.settings.desk.timerPhase(at: now)
+        switch phase {
+        case .nudge(let from):
+            deskItem.isHidden = false
+            deskItem.title = "Time to \(from.opposite.verb.capitalized)"
+            deskItem.submenu = buildDeskSwitchSubmenu()
+        case .counting, .inactive:
+            deskItem.isHidden = true
+            deskItem.submenu = nil
+        }
     }
 
     private func buildMuteSubmenu() -> NSMenu {
@@ -180,5 +212,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func handleUnmute() {
         MuteController.unmute()
+    }
+
+    private func buildDeskSwitchSubmenu() -> NSMenu {
+        let sub = NSMenu()
+        let item = NSMenuItem(
+            title: "I Switched",
+            action: #selector(handleDeskSwitch),
+            keyEquivalent: ""
+        )
+        item.target = self
+        sub.addItem(item)
+        return sub
+    }
+
+    @objc private func handleDeskSwitch() {
+        DeskService.shared.acknowledgeSwitch()
     }
 }

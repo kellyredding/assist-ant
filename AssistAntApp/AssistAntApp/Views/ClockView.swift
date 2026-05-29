@@ -79,6 +79,12 @@ struct ClockView: View {
                     .transition(.opacity)
             }
 
+            // Standing-desk status (countdown / switch nudge). Renders
+            // nothing when the desk timer is disabled or unstarted, so
+            // it's inert for users who never enable it. Independent of
+            // the announcement/mute rows above.
+            DeskStatusView()
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

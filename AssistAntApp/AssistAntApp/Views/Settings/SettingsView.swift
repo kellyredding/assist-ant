@@ -47,6 +47,8 @@ struct SettingsView: View {
                     AnnouncementsSettingsTab(settingsManager: settingsManager)
                 case .time:
                     TimeSettingsTab(settingsManager: settingsManager)
+                case .desk:
+                    DeskSettingsTab(settingsManager: settingsManager)
                 }
             }
         }
