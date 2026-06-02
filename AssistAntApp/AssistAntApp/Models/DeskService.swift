@@ -85,18 +85,52 @@ final class DeskService {
         evaluateNudge()
     }
 
+    /// Step away from the desk for `duration`, pausing the timer. While
+    /// away the phase is `.away`, so counting/nudge and all desk audio stop
+    /// until the window elapses or the user returns.
+    func goAway(for duration: AwayDuration) {
+        var desk = SettingsManager.shared.settings.desk
+        guard desk.enabled else { return }
+        desk.awayUntil = duration.until(from: Date())
+        SettingsManager.shared.settings.desk = desk
+        evaluateNudge()
+    }
+
+    /// "I'm back at my desk" (or the away window elapsing): clear the away
+    /// state and start a *fresh sit interval* — you just sat back down, so
+    /// no nudge accrued while away.
+    func returnToDesk() {
+        var desk = SettingsManager.shared.settings.desk
+        guard desk.enabled else { return }
+        desk.awayUntil = nil
+        desk.currentPosition = .sitting
+        desk.positionStartedAt = Date()
+        SettingsManager.shared.settings.desk = desk
+        evaluateNudge()
+    }
+
     /// Start the audible repeat on entering the nudge phase, stop it on
     /// leaving. Idempotent: while already nudging it leaves the running
-    /// timer alone (no restart, no re-raise).
+    /// timer alone (no restart, no re-raise). Also auto-returns from an
+    /// away window that has elapsed (a fresh sit interval), so the timer
+    /// resumes on its own if the user never taps "I'm back".
     private func evaluateNudge() {
         let desk = SettingsManager.shared.settings.desk
-        if case .nudge = desk.timerPhase(at: Date()) {
+        let now = Date()
+
+        if let awayUntil = desk.awayUntil, now >= awayUntil {
+            returnToDesk()        // re-enters evaluateNudge with away cleared
+            return
+        }
+
+        if case .nudge = desk.timerPhase(at: now) {
             if repeatTimer == nil {
                 raisedForCurrentNudge = false
                 fireDeskAudioIfAllowed()      // first audible attempt
                 startRepeatTimer()
             }
         } else {
+            // Covers .away, .counting, .inactive — no audible repeat.
             stopRepeatTimer()
         }
     }

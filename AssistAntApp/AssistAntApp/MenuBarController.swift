@@ -159,7 +159,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             deskItem.isHidden = false
             deskItem.title = "Time to \(from.opposite.verb.capitalized)"
             deskItem.submenu = buildDeskSwitchSubmenu()
-        case .counting, .inactive:
+        case .counting, .inactive, .away:
             deskItem.isHidden = true
             deskItem.submenu = nil
         }

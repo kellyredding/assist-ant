@@ -10,6 +10,9 @@ enum DeskTimerPhase: Equatable {
     /// The current position's interval has elapsed — switch to the
     /// opposite. `from` is the position you're being asked to leave.
     case nudge(from: DeskPosition)
+    /// User stepped away from the desk; the timer is paused until `until`
+    /// (or until they return). Takes precedence over counting/nudge.
+    case away(until: Date)
 }
 
 /// Standing-desk timer settings + runtime position state. Persisted in
@@ -21,6 +24,12 @@ enum DeskTimerPhase: Equatable {
 /// so a posture nudge is audibly distinct. The shared gate + serializer
 /// (schedule window, snooze, mic) are applied by `DeskService` via
 /// `AppSettings.audioGateOpen` and `AudioAnnouncementCoordinator`.
+///
+/// `awayUntil` is the one thing that *pauses* the otherwise-never-pausing
+/// timer: while set and in the future, the timer doesn't count or nudge —
+/// posture tracking is meaningless when you're not at the desk. On return
+/// (manual or expiry) `DeskService` clears it and starts a fresh sit
+/// interval.
 struct DeskSettings: Codable, Equatable {
     var enabled: Bool
     var sitMinutes: Int
@@ -34,6 +43,10 @@ struct DeskSettings: Codable, Equatable {
     var currentPosition: DeskPosition
     var positionStartedAt: Date?
 
+    /// When non-nil and in the future, the timer is paused ("away from
+    /// desk") until this instant. nil = not away.
+    var awayUntil: Date?
+
     // Audio outputs (independent of time announcements).
     var playSound: Bool
     var sound: AnnouncementSound
@@ -46,6 +59,7 @@ struct DeskSettings: Codable, Equatable {
         standMinutes: 8,
         currentPosition: .sitting,
         positionStartedAt: nil,
+        awayUntil: nil,
         playSound: true,
         sound: .funk,
         speakAlert: true,
@@ -59,10 +73,17 @@ struct DeskSettings: Codable, Equatable {
     }
 
     /// Pure decision: the timer phase at `now`. Side-effect-free.
+    ///
+    /// `away` outranks counting/nudge while the away window is in the
+    /// future. Once it elapses this falls through to counting/nudge —
+    /// `DeskService` watches for that and resets to a fresh sit interval,
+    /// so a stale pre-away `positionStartedAt` never surfaces a nudge.
     func timerPhase(at now: Date) -> DeskTimerPhase {
-        guard enabled, let startedAt = positionStartedAt else {
-            return .inactive
+        guard enabled else { return .inactive }
+        if let awayUntil, now < awayUntil {
+            return .away(until: awayUntil)
         }
+        guard let startedAt = positionStartedAt else { return .inactive }
         let elapsed = now.timeIntervalSince(startedAt)
         let interval = currentInterval()
         if elapsed >= interval {
@@ -80,13 +101,14 @@ struct DeskSettings: Codable, Equatable {
 extension DeskSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, sitMinutes, standMinutes, currentPosition,
-             positionStartedAt, playSound, sound, speakAlert, voiceIdentifier
+             positionStartedAt, awayUntil, playSound, sound, speakAlert,
+             voiceIdentifier
     }
 
     /// Custom decoder so an existing prefs.json `desk` block written
-    /// before the audio fields existed still decodes — the new keys fall
-    /// back to `.defaults` rather than throwing (which would fail the
-    /// whole `AppSettings` decode and reset all settings). Declared in an
+    /// before a field existed still decodes — the new keys fall back to
+    /// `.defaults` rather than throwing (which would fail the whole
+    /// `AppSettings` decode and reset all settings). Declared in an
     /// extension so the synthesized memberwise initializer survives intact.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -106,6 +128,9 @@ extension DeskSettings {
         self.positionStartedAt = try c.decodeIfPresent(
             Date.self, forKey: .positionStartedAt
         ) ?? d.positionStartedAt
+        self.awayUntil = try c.decodeIfPresent(
+            Date.self, forKey: .awayUntil
+        ) ?? d.awayUntil
         self.playSound = try c.decodeIfPresent(
             Bool.self, forKey: .playSound
         ) ?? d.playSound
