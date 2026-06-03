@@ -79,9 +79,12 @@ final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Build the spoken phrase for `date`.
     ///
     /// 12-hour mode omits AM/PM entirely — at the top of the hour it
-    /// reads "It's 3 o'clock", otherwise "It's 3:30". (A bare "It's 3"
-    /// at the top of the hour reads too abruptly, so the o'clock form
-    /// stands in for the dropped period.)
+    /// reads "It's 3 o'clock", otherwise it spells the minutes out so the
+    /// pronunciation is deterministic: "It's 3 thirty", and crucially
+    /// "It's 3 oh six" rather than the synthesizer's literal "three zero
+    /// six" for a leading-zero minute. (A bare "It's 3" at the top of the
+    /// hour reads too abruptly, so the o'clock form stands in for the
+    /// dropped period.)
     ///
     /// 24-hour mode reads as military time, with every component
     /// spelled out so the pronunciation is deterministic across voices
@@ -103,8 +106,7 @@ final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             if minute == 0 {
                 return "It's \(displayHour) o'clock"
             } else {
-                let mm = String(format: "%02d", minute)
-                return "It's \(displayHour):\(mm)"
+                return "It's \(displayHour) \(spokenMinute(minute))"
             }
 
         case .twentyFourHour:
@@ -121,7 +123,7 @@ final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         if minute == 0 {
             return "\(hourPart) hundred"
         }
-        return "\(hourPart) \(militaryMinute(minute))"
+        return "\(hourPart) \(spokenMinute(minute))"
     }
 
     /// Hour component of military time. Hours 1–9 take an "oh" prefix
@@ -137,11 +139,12 @@ final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         return hour < 10 ? "oh \(word)" : word
     }
 
-    /// Minute component of military time. Minutes 1–9 take an "oh"
-    /// prefix ("oh five"); 10–59 read plainly ("thirty",
-    /// "forty-five"). Minute 0 is handled by the caller (it becomes
-    /// "hundred" on the hour), so this is only reached for 1–59.
-    private static func militaryMinute(_ minute: Int) -> String {
+    /// Spoken minute component, shared by both 12- and 24-hour phrasing.
+    /// Minutes 1–9 take an "oh" prefix ("oh five"); 10–59 read plainly
+    /// ("thirty", "forty-five"). Minute 0 never reaches here — each caller
+    /// handles it (the o'clock form in 12-hour, the "hundred" form in
+    /// 24-hour), so this is only invoked for 1–59.
+    private static func spokenMinute(_ minute: Int) -> String {
         let word = spelledOut(minute)
         return minute < 10 ? "oh \(word)" : word
     }
