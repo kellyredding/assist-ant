@@ -9,8 +9,9 @@ import SwiftUI
 /// When announcements are muted, a "Muted until …" row renders below
 /// the timezone in system orange — matching the corner
 /// `AnnounceStatusButton`'s muted-state color so the two surfaces read
-/// as one connected indicator. The row fades in/out on mute apply,
-/// clear, and natural expiry.
+/// as one connected indicator. For a timed mute the row carries an
+/// inline "Unmute now" button (the speaker icon is non-interactive in
+/// that state). The row fades in/out on mute apply, clear, and expiry.
 struct ClockView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
@@ -76,10 +77,11 @@ struct ClockView: View {
             // `.animation(value: iconState)` paired with this view's
             // `.transition(.opacity)`.
             if let mutedStatusText {
-                Text(mutedStatusText)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.orange)
-                    .transition(.opacity)
+                MutedStatusRow(
+                    text: mutedStatusText,
+                    showsUnmute: iconState == .mutedByTimer
+                )
+                .transition(.opacity)
             }
 
             // Standing-desk status (countdown / switch nudge). Renders
@@ -121,5 +123,41 @@ struct ClockView: View {
         let style: NSTimeZone.NameStyle = isDST ? .daylightSaving : .standard
         return tz.localizedName(for: style, locale: .current)
             ?? tz.identifier
+    }
+}
+
+/// The muted status row under the clock: why announcements are silenced,
+/// in system orange. For a timed mute it also carries an inline "Unmute
+/// now" button — the speaker icon is non-interactive in that state, so
+/// this is where the mute is cleared. The button matches the desk row's
+/// secondary capsule (brightens on hover, pointing-hand cursor).
+private struct MutedStatusRow: View {
+    let text: String
+    let showsUnmute: Bool
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(text)
+                .font(.system(size: 15))
+                .foregroundStyle(.orange)
+
+            if showsUnmute {
+                Text("Unmute now")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(
+                        Color.primary.opacity(isHovering ? 0.16 : 0.08),
+                        in: Capsule()
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+                    .pointerButton(onHoverChange: { isHovering = $0 }) {
+                        MuteController.unmute()
+                    }
+            }
+        }
     }
 }

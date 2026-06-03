@@ -17,10 +17,9 @@ import AppKit
 ///   would be pointless; the useful action is jumping to the
 ///   schedule to review/adjust it.
 /// - Active → pops up a menu of mute durations.
-/// - Muted by timer → pops up a menu with Unmute Now.
-/// - Muted by mic / away → non-interactive (these clear themselves when
-///   the mic frees or you return to the desk, so there's nothing to act
-///   on, and no pointer cursor).
+/// - Muted by timer / mic / away → non-interactive (no pointer cursor).
+///   A timed mute is cleared from the "Unmute now" button on the clock's
+///   status row; mic and away clear themselves.
 ///
 /// Re-renders on minute boundaries (driven by `ClockService`), on
 /// settings changes (driven by `SettingsManager`), and on mic
@@ -72,12 +71,10 @@ struct AnnounceStatusButton: View {
                 glyph.pointerButton { openSettings() }
             case .active:
                 glyph.pointerMenu { muteDurationsMenu() }
-            case .mutedByTimer:
-                glyph.pointerMenu { unmuteMenu() }
-            case .mutedByMic, .mutedByAway:
-                // Mic-mute clears when the mic frees; away clears when
-                // you return to your desk — nothing to act on here, so
-                // the icon is purely informational (no pointer cursor).
+            case .mutedByTimer, .mutedByMic, .mutedByAway:
+                // Muted: informational, no pointer cursor. A timed mute is
+                // cleared from the "Unmute now" button on the ClockView
+                // status row; mic and away clear themselves.
                 glyph
             }
         }
@@ -126,17 +123,6 @@ struct AnnounceStatusButton: View {
                 MuteController.mute(for: duration)
             })
         }
-        return menu
-    }
-
-    /// Native pop-up with the single unmute action, shown from the
-    /// timed-mute state. No "Muted until X" header — the ClockView status
-    /// row below the clock already shows it.
-    private func unmuteMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(ClosureMenuItem(title: "Unmute now") {
-            MuteController.unmute()
-        })
         return menu
     }
 }
