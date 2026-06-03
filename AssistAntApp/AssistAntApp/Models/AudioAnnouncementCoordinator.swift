@@ -12,6 +12,14 @@ import Foundation
 /// (desk uses count 1). Completion is the speech finishing (via the
 /// synthesizer delegate); for a sound-only job it's a short estimated
 /// tail.
+///
+/// Desk nudges are coalesced: only one may be outstanding (in flight or
+/// queued) at a time. A posture nudge is idempotent — a second "Time to
+/// stand" tells the user nothing the pending one didn't — so dropping the
+/// duplicate keeps a backlog from building while playback is stalled
+/// (e.g. the audio route torn down across display/system sleep) and then
+/// flushing as a burst of repeated nudges on return. Time announcements
+/// and previews carry distinct content and are never coalesced.
 final class AudioAnnouncementCoordinator {
     static let shared = AudioAnnouncementCoordinator()
 
@@ -35,6 +43,11 @@ final class AudioAnnouncementCoordinator {
 
     private var queue: [Job] = []
     private var isPlaying = false
+
+    /// Priority of the job currently playing, `nil` while idle. Used to
+    /// coalesce desk nudges: a new one is dropped while another is already
+    /// in flight, not just while one waits in `queue`.
+    private var playingPriority: Priority?
     private var pendingSpeechStart: DispatchWorkItem?
     private var micObserver: AnyCancellable?
 
@@ -57,6 +70,15 @@ final class AudioAnnouncementCoordinator {
     /// the first playback starts, so the priority sort orders them
     /// correctly regardless of which producer's observer fired first.
     func submit(_ job: Job) {
+        // Coalesce desk nudges: collapse to a single outstanding job (in
+        // flight or queued) so a stalled-playback backlog can't flush as a
+        // burst of repeated "Time to stand" on return. See the type doc.
+        if job.priority == .desk,
+           playingPriority == .desk
+               || queue.contains(where: { $0.priority == .desk }) {
+            return
+        }
+
         queue.append(job)
         queue.sort { $0.priority.rawValue > $1.priority.rawValue }
         DispatchQueue.main.async { [weak self] in self?.playNextIfIdle() }
@@ -91,14 +113,17 @@ final class AudioAnnouncementCoordinator {
         SoundSequencer.shared.stop()
         SpeechAnnouncer.shared.stop()
         isPlaying = false
+        playingPriority = nil
     }
 
     private func playNextIfIdle() {
         guard !isPlaying, !queue.isEmpty else { return }
         let job = queue.removeFirst()
         isPlaying = true
+        playingPriority = job.priority
         play(job) { [weak self] in
             self?.isPlaying = false
+            self?.playingPriority = nil
             self?.playNextIfIdle()
         }
     }
