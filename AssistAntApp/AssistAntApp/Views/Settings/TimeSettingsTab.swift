@@ -21,7 +21,10 @@ struct TimeSettingsTab: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 160)
+                    // Hug + pin trailing so the right edge lands on the
+                    // card margin, flush with the Announce card's preview
+                    // buttons below (matching the Desk tab's alignment).
+                    .fixedSize()
                 }
             }
 

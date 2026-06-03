@@ -22,9 +22,9 @@ struct AnnounceCard: View {
                 .toggleStyle(.checkbox)
 
                 Group {
+                    intervalRow
                     soundRow
                     speechRow
-                    intervalRow
                 }
                 .disabled(!settingsManager.settings.announcement.enabled)
             }
@@ -153,7 +153,10 @@ struct AnnounceCard: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 200)
+            // Hug the content and pin to the trailing edge so the right
+            // edge lands on the card margin — flush with the Sound and
+            // Voice preview buttons below, matching the Desk tab.
+            .fixedSize()
         }
     }
 }
