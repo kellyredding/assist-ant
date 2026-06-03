@@ -94,6 +94,15 @@ struct DeskSettings: Codable, Equatable {
             position: currentPosition
         )
     }
+
+    /// True while the away window is active — enabled and not yet
+    /// elapsed. The audio gate and icon state read this so being away
+    /// mutes time announcements and surfaces the away reason, the same
+    /// way mic-in-use does.
+    func isAway(at now: Date) -> Bool {
+        if case .away = timerPhase(at: now) { return true }
+        return false
+    }
 }
 
 // MARK: - Backward-compatible decoding

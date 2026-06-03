@@ -6,12 +6,12 @@ import Foundation
 /// up but currently quiet, currently inside an active schedule window,
 /// or temporarily muted — and if muted, why.
 ///
-/// Precedence (highest first): `disabled`, then inert-no-output
-/// (`scheduled`), then `mutedByMic`, then `mutedByTimer`, then the
-/// schedule window (`active` / `scheduled`). Mic-mute outranks the
-/// timed mute so that picking up a call while a timed mute is running
-/// shows the mic reason, reverting to the timer reason when the mic
-/// frees.
+/// Precedence (highest first): `disabled`, then `mutedByAway`, then
+/// `mutedByMic`, then `mutedByTimer`, then the schedule window
+/// (`active` / `scheduled`). Away outranks the call and timed mutes —
+/// stepping away is the most deliberate silence signal — and mic-mute
+/// outranks the timed mute so a live call shows the mic reason while a
+/// timed mute runs underneath, each reverting as it clears.
 enum AnnouncementIconState: Equatable {
     case disabled       // master enable off
     case scheduled      // on with at least one output, not muted,
@@ -21,12 +21,13 @@ enum AnnouncementIconState: Equatable {
     case active         // on, not muted, currently inside today's window
     case mutedByTimer   // on, ad-hoc timed mute (muteUntil) in effect
     case mutedByMic     // on, mic in use and "mute while mic in use" on
+    case mutedByAway    // on, stepped away from the desk (away window)
 
     /// SF Symbol name for this state. Glyph progression encodes
     /// "intensity": no waves (quiet) → 3 waves (active), with the
-    /// slash variants reserved for the off/muted states. Both mute
-    /// reasons share the slashed-fill glyph — the reason is conveyed
-    /// by the status text, not the icon.
+    /// slash variants reserved for the off/muted states. The mute
+    /// reasons all share the slashed-fill glyph — the reason is
+    /// conveyed by the status text, not the icon.
     var sfSymbol: String {
         switch self {
         case .disabled:     return "speaker.slash"
@@ -34,14 +35,15 @@ enum AnnouncementIconState: Equatable {
         case .active:       return "speaker.wave.3.fill"
         case .mutedByTimer: return "speaker.slash.fill"
         case .mutedByMic:   return "speaker.slash.fill"
+        case .mutedByAway:  return "speaker.slash.fill"
         }
     }
 
-    /// Whether this is one of the two muted states. Both render in
-    /// system orange and show a status row under the clock.
+    /// Whether this is one of the muted states. They render in system
+    /// orange and show a status row under the clock.
     var isMuted: Bool {
         switch self {
-        case .mutedByTimer, .mutedByMic: return true
+        case .mutedByTimer, .mutedByMic, .mutedByAway: return true
         case .disabled, .scheduled, .active: return false
         }
     }
@@ -72,6 +74,13 @@ extension AppSettings {
         let deskCapable = desk.enabled
             && (desk.playSound || desk.speakAlert)
         guard timeCapable || deskCapable else { return .disabled }
+
+        // Away outranks every other mute reason: stepping away is the
+        // most deliberate "silence everything" signal, so it wins the
+        // display even over a live call or a running timed mute.
+        if desk.isAway(at: now) {
+            return .mutedByAway
+        }
 
         // Mic-mute outranks the timed mute: a live call wins the
         // display even if a timed mute is also running underneath.

@@ -28,9 +28,12 @@ struct ClockView: View {
     }
 
     /// Status row text under the timezone when muted, or nil when not
-    /// muted. Mic-mute names its reason; timed mute shows its end time.
+    /// muted. Away and mic mutes name their reason; the timed mute shows
+    /// its end time.
     private var mutedStatusText: String? {
         switch iconState {
+        case .mutedByAway:
+            return "Muted while away from desk"
         case .mutedByMic:
             return "Muted while microphone in use"
         case .mutedByTimer:

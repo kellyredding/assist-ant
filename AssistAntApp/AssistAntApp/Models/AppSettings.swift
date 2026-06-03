@@ -113,15 +113,16 @@ struct AppSettings: Codable, Equatable {
     }
 
     /// Whether audible announcements (time or desk) may play right now:
-    /// inside the schedule window, not snoozed by the mute timer, and not
-    /// suppressed by the mic. Visual is never subject to this — only audio
-    /// passes through this gate.
+    /// inside the schedule window, not snoozed by the mute timer, not away
+    /// from the desk, and not suppressed by the mic. Visual is never
+    /// subject to this — only audio passes through this gate.
     func audioGateOpen(
         at now: Date,
         micInUse: Bool,
         calendar: Calendar = .current
     ) -> Bool {
         if muteWhileMicInUse, micInUse { return false }
+        if desk.isAway(at: now) { return false }
         if let until = muteUntil, now < until { return false }
         let c = calendar.dateComponents([.weekday, .hour, .minute], from: now)
         guard let wi = c.weekday, let weekday = Weekday(rawValue: wi),

@@ -56,6 +56,7 @@ final class AnnouncementService {
         settings: AnnouncementSettings,
         schedule: WeeklySchedule,
         muteUntil: Date?,
+        isAway: Bool,
         calendar: Calendar = .current
     ) -> AnnouncementBoundary? {
         guard settings.enabled else { return nil }
@@ -79,6 +80,13 @@ final class AnnouncementService {
         let timeOfDay = TimeOfDay(hour: hour, minute: minute)
         guard schedule.isActive(at: timeOfDay, weekday: weekday)
         else { return nil }
+
+        // Away override: stepping away from the desk silences time
+        // announcements too, superseding the manual mute and the
+        // schedule — the same way mic-in-use does.
+        if isAway {
+            return nil
+        }
 
         // Mute override: the global ad-hoc snooze. Applied last so the
         // schedule/interval reasoning is independent of mute state.
@@ -109,7 +117,8 @@ final class AnnouncementService {
             at: now,
             settings: settings,
             schedule: appSettings.schedule,
-            muteUntil: appSettings.muteUntil
+            muteUntil: appSettings.muteUntil,
+            isAway: appSettings.desk.isAway(at: now)
         ) else { return }
 
         // Early-out if neither output is on. Still mark the minute as

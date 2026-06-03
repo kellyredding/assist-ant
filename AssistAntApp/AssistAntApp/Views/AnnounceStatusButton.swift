@@ -56,7 +56,7 @@ struct AnnounceStatusButton: View {
         switch state {
         case .disabled:                 return .secondary.opacity(0.5)
         case .scheduled, .active:       return .primary
-        case .mutedByTimer, .mutedByMic: return .orange
+        case .mutedByTimer, .mutedByMic, .mutedByAway: return .orange
         }
     }
 
@@ -69,9 +69,10 @@ struct AnnounceStatusButton: View {
                 muteMenu
             case .mutedByTimer:
                 unmuteMenu
-            case .mutedByMic:
-                // Mic-mute clears itself when the mic frees — nothing
-                // to act on, so the icon is purely informational.
+            case .mutedByMic, .mutedByAway:
+                // Mic-mute clears when the mic frees; away clears when
+                // you return to your desk — nothing to act on here, so
+                // the icon is purely informational.
                 glyph
             }
         }

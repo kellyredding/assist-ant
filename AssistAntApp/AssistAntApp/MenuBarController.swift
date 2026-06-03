@@ -141,6 +141,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.isHidden = false
             item.title = "Muted while microphone in use"
             item.submenu = nil
+
+        case .mutedByAway:
+            // Cleared by returning to the desk (the away banner), not
+            // from this menu — informational, no submenu.
+            item.isHidden = false
+            item.title = "Muted while away from desk"
+            item.submenu = nil
         }
 
         updateDeskItem(at: now)
