@@ -54,6 +54,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         let menu = NSMenu()
         menu.delegate = self
+        // Manage item enabled-state ourselves. Under AppKit's automatic
+        // enabling, the action-less mute item is disabled when its
+        // submenu is cleared for the informational mic / away states,
+        // but reassigning a submenu afterward doesn't reliably re-enable
+        // it — so the item stayed greyed even after the mic freed.
+        // Setting isEnabled explicitly in menuNeedsUpdate(_:) keeps the
+        // enable/disable transitions symmetric.
+        menu.autoenablesItems = false
 
         let openItem = NSMenuItem(
             title: "Open AssistAnt…",
@@ -122,11 +130,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         case .scheduled, .active:
             item.isHidden = false
+            item.isEnabled = true
             item.title = "Mute announcements"
             item.submenu = buildMuteSubmenu()
 
         case .mutedByTimer:
             item.isHidden = false
+            item.isEnabled = true
             let display = MuteController.currentMuteEndDisplay(
                 format: appSettings.timeFormat,
                 now: now
@@ -137,15 +147,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         case .mutedByMic:
             // Mic-mute clears itself when the mic frees — nothing to
-            // act on, so the item is informational with no submenu.
+            // act on, so the item is informational: disabled, no submenu.
             item.isHidden = false
+            item.isEnabled = false
             item.title = "Muted while microphone in use"
             item.submenu = nil
 
         case .mutedByAway:
             // Cleared by returning to the desk (the away banner), not
-            // from this menu — informational, no submenu.
+            // from this menu — informational: disabled, no submenu.
             item.isHidden = false
+            item.isEnabled = false
             item.title = "Muted while away from desk"
             item.submenu = nil
         }
@@ -164,6 +176,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         switch phase {
         case .nudge(let from):
             deskItem.isHidden = false
+            deskItem.isEnabled = true
             deskItem.title = "Time to \(from.opposite.verb.capitalized)"
             deskItem.submenu = buildDeskSwitchSubmenu()
         case .counting, .inactive, .away:
