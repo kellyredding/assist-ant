@@ -6,6 +6,11 @@ import AppKit
 /// minute tick and any settings change automatically. Always visible
 /// when the desk timer is enabled — visual is never schedule-gated.
 struct DeskStatusView: View {
+    /// Scale factor applied to every font, spacing, and padding so the desk
+    /// affordances track the adaptively-scaled clock above them. 1 = natural
+    /// size.
+    var scale: CGFloat = 1
+
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
 
@@ -20,14 +25,18 @@ struct DeskStatusView: View {
                 EmptyView()
 
             case .counting(let remaining, let position):
-                DeskCountingRow(remaining: remaining, position: position)
+                DeskCountingRow(
+                    remaining: remaining,
+                    position: position,
+                    scale: scale
+                )
 
             case .nudge(let from):
-                DeskNudgeBanner(target: from.opposite)
+                DeskNudgeBanner(target: from.opposite, scale: scale)
                     .transition(.opacity)
 
             case .away:
-                DeskAwayBanner()
+                DeskAwayBanner(scale: scale)
                     .transition(.opacity)
             }
         }
@@ -59,31 +68,37 @@ private func deskCountingText(
 private struct DeskCountingRow: View {
     let remaining: TimeInterval
     let position: DeskPosition
+    let scale: CGFloat
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: deskGlyph(for: position))
-            Text(deskCountingText(remaining: remaining, position: position))
+        VStack(spacing: 6 * scale) {
+            HStack(spacing: 8 * scale) {
+                Image(systemName: deskGlyph(for: position))
+                Text(deskCountingText(remaining: remaining, position: position))
+                    .lineLimit(1)
+            }
 
-            Text("Switch now")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
-                .background(
-                    Color.primary.opacity(isHovering ? 0.16 : 0.08),
-                    in: Capsule()
-                )
-                .animation(.easeInOut(duration: 0.15), value: isHovering)
-                .pointerButton(onHoverChange: { isHovering = $0 }) {
-                    DeskService.shared.acknowledgeSwitch()
-                }
+            HStack(spacing: 8 * scale) {
+                Text("Switch now")
+                    .font(.system(size: 14 * scale, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10 * scale)
+                    .padding(.vertical, 3 * scale)
+                    .background(
+                        Color.primary.opacity(isHovering ? 0.16 : 0.08),
+                        in: Capsule()
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+                    .pointerButton(onHoverChange: { isHovering = $0 }) {
+                        DeskService.shared.acknowledgeSwitch()
+                    }
 
-            AwayButton(onAccent: false)
+                AwayButton(onAccent: false, scale: scale)
+            }
         }
-        .font(.system(size: 15))
+        .font(.system(size: 16 * scale))
         .foregroundStyle(.secondary)
     }
 }
@@ -103,38 +118,41 @@ private struct DeskCountingRow: View {
 private struct DeskNudgeBanner: View {
     /// The posture to switch *into* — drives both the glyph and the verb.
     let target: DeskPosition
+    let scale: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 6) {
+        VStack(spacing: 6 * scale) {
+            HStack(spacing: 6 * scale) {
                 Image(systemName: deskGlyph(for: target))
                 Text("Time to \(target.verb)")
             }
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(size: 16 * scale, weight: .semibold))
             .foregroundStyle(.white)
 
-            Text("I've switched")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(
-                    .white.opacity(isHovering ? 0.38 : 0.22),
-                    in: Capsule()
-                )
-                .animation(.easeInOut(duration: 0.15), value: isHovering)
-                .pointerButton(onHoverChange: { isHovering = $0 }) {
-                    DeskService.shared.acknowledgeSwitch()
-                }
+            HStack(spacing: 8 * scale) {
+                Text("I've switched")
+                    .font(.system(size: 14 * scale, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12 * scale)
+                    .padding(.vertical, 5 * scale)
+                    .background(
+                        .white.opacity(isHovering ? 0.38 : 0.22),
+                        in: Capsule()
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+                    .pointerButton(onHoverChange: { isHovering = $0 }) {
+                        DeskService.shared.acknowledgeSwitch()
+                    }
 
-            AwayButton(onAccent: true)
+                AwayButton(onAccent: true, scale: scale)
+            }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 18 * scale)
+        .padding(.vertical, 10 * scale)
         .background(pill)
         .onAppear {
             guard !reduceMotion else { return }
@@ -173,8 +191,8 @@ private struct DeskNudgeBanner: View {
     }
 
     private var glowRadius: CGFloat {
-        if reduceMotion { return 14 }
-        return pulse ? 20 : 6
+        if reduceMotion { return 14 * scale }
+        return pulse ? 20 * scale : 6 * scale
     }
 }
 
@@ -185,14 +203,15 @@ private struct DeskNudgeBanner: View {
 /// primary-tinted one for the plain window row.
 private struct AwayButton: View {
     let onAccent: Bool
+    let scale: CGFloat
     @State private var isHovering = false
 
     var body: some View {
         Text("Away from desk")
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 14 * scale, weight: .medium))
             .foregroundStyle(labelStyle)
-            .padding(.horizontal, onAccent ? 12 : 10)
-            .padding(.vertical, onAccent ? 5 : 3)
+            .padding(.horizontal, (onAccent ? 12 : 10) * scale)
+            .padding(.vertical, (onAccent ? 5 : 3) * scale)
             .background(fillStyle, in: Capsule())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
             .pointerButton(onHoverChange: { isHovering = $0 }) {
@@ -217,18 +236,19 @@ private struct AwayButton: View {
 /// like the counting row — being away is informational, not an alert. Not
 /// time-bound, so there's no return time to show.
 private struct DeskAwayBanner: View {
+    let scale: CGFloat
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 8 * scale) {
             Image(systemName: "figure.walk.departure")
             Text("Away from desk")
 
             Text("I'm back at my desk")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 14 * scale, weight: .medium))
                 .foregroundStyle(.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
+                .padding(.horizontal, 10 * scale)
+                .padding(.vertical, 3 * scale)
                 .background(
                     Color.primary.opacity(isHovering ? 0.16 : 0.08),
                     in: Capsule()
@@ -238,7 +258,7 @@ private struct DeskAwayBanner: View {
                     DeskService.shared.returnToDesk()
                 }
         }
-        .font(.system(size: 15))
+        .font(.system(size: 16 * scale))
         .foregroundStyle(.secondary)
     }
 }

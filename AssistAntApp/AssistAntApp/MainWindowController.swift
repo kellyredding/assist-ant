@@ -15,10 +15,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         let hosting = NSHostingController(rootView: ContentView())
         let window = NSWindow(contentViewController: hosting)
         window.title = "Assist Ant"
+        // The app name is redundant now that the titlebar carries the sidebar
+        // toggle, so hide the text but keep the title bar chrome.
+        window.titleVisibility = .hidden
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 480, height: 320))
+        window.setContentSize(NSSize(width: 1680, height: 840))
+        window.minSize = NSSize(width: 800, height: 500)
         window.center()
         window.isReleasedWhenClosed = false
+
+        // Titlebar control to toggle the sidebar between its quarter and half
+        // widths (snaps to the far end from the current width).
+        let sidebarToggleVC = NSTitlebarAccessoryViewController()
+        sidebarToggleVC.layoutAttribute = .leading
+        let sidebarToggleHost = NSHostingView(rootView: SidebarToggleButton())
+        sidebarToggleHost.frame = NSRect(x: 0, y: 0, width: 34, height: 22)
+        sidebarToggleVC.view = sidebarToggleHost
+        window.addTitlebarAccessoryViewController(sidebarToggleVC)
 
         super.init(window: window)
         window.delegate = self
@@ -96,11 +109,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
             )
         }
 
-        // Final safety: ensure the title bar is accessible.
-        let constrained = window.constrainFrameRect(
-            window.frame,
-            to: window.screen
-        )
+        // Final safety: floor the restored size to the window's minimum
+        // first — a saved frame from before the sidebar split can be smaller
+        // than the current minSize, and a programmatic setFrame doesn't
+        // reliably clamp to it — then constrain to the screen so the title
+        // bar stays reachable.
+        var floored = window.frame
+        floored.size.width = max(floored.size.width, window.minSize.width)
+        floored.size.height = max(floored.size.height, window.minSize.height)
+        let constrained = window.constrainFrameRect(floored, to: window.screen)
         if constrained != window.frame {
             window.setFrame(constrained, display: true)
         }

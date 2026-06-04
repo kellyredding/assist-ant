@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// Drives the adaptive font scaling of the clock display. Every element is
+/// `base × scale`, where `scale = sidebarWidth / referenceWidth`, capped at
+/// `maxScale` with no lower floor. `referenceWidth` is the width at which the
+/// clock fills the column at its base sizes: below it everything scales down
+/// (still filling); at/above it the scale caps at 1.0, so the clock holds its
+/// base size and the extra width becomes centered padding. Tuned by eye.
+enum ClockMetrics {
+    static let referenceWidth: CGFloat = 500
+    static let maxScale: CGFloat = 1.0
+
+    static func scale(forWidth width: CGFloat) -> CGFloat {
+        min(width / referenceWidth, maxScale)
+    }
+}
+
 /// Big digital clock at the center of the main window. Date line above,
 /// clock in the middle, timezone label below. Pulls the current time from
 /// ClockService and the format preference from SettingsManager. Re-renders
@@ -43,52 +58,56 @@ struct ClockView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Text(formattedDate)
-                .font(.system(size: 24, weight: .regular, design: .rounded))
-                .foregroundStyle(.secondary)
-            // Time + announcement status icon as a centered unit. The
-            // icon sits inline after the time, sized as a visual peer
-            // to the clock, so the [time + icon] group centers together
-            // rather than the icon floating in a window corner.
-            HStack(spacing: 12) {
-                Text(formattedTime)
-                    .font(.system(size: 96, weight: .light, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-                AnnounceStatusButton()
+        GeometryReader { geo in
+            let scale = ClockMetrics.scale(forWidth: geo.size.width)
+            VStack(spacing: 12 * scale) {
+                Text(formattedDate)
+                    .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
+                    .foregroundStyle(.secondary)
+                // Time + announcement status icon as a centered unit. The
+                // icon sits inline after the time, sized as a visual peer
+                // to the clock, so the [time + icon] group centers together
+                // rather than the icon floating in a window corner.
+                HStack(spacing: 12 * scale) {
+                    Text(formattedTime)
+                        .font(.system(size: 80 * scale, weight: .light, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+                    AnnounceStatusButton(scale: scale)
+                }
+                Text(timezoneName)
+                    .font(.system(size: 15 * scale))
+                    .foregroundStyle(.secondary)
+
+                // Standing-desk status (countdown / switch nudge). Renders
+                // nothing when the desk timer is disabled or unstarted, so
+                // it's inert for users who never enable it. Scales with the
+                // clock.
+                DeskStatusView(scale: scale)
+
+                // Muted status row — renders last, for either mute reason,
+                // with text naming the reason. System orange auto-adapts to
+                // light/dark; matches the inline AnnounceStatusButton's
+                // muted icon color so the two read as one connected
+                // indicator. The fade comes from the parent VStack's
+                // `.animation(value: iconState)` paired with this view's
+                // `.transition(.opacity)`.
+                if let mutedStatusText {
+                    MutedStatusRow(
+                        text: mutedStatusText,
+                        showsUnmute: iconState == .mutedManually,
+                        scale: scale
+                    )
+                    .transition(.opacity)
+                }
+
+                Spacer()
             }
-            Text(timezoneName)
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-
-            // Muted status row — renders for either mute reason, with
-            // text naming the reason. System orange auto-adapts to
-            // light/dark; matches the inline AnnounceStatusButton's
-            // muted icon color so the two read as one connected
-            // indicator. The fade comes from the parent VStack's
-            // `.animation(value: iconState)` paired with this view's
-            // `.transition(.opacity)`.
-            if let mutedStatusText {
-                MutedStatusRow(
-                    text: mutedStatusText,
-                    showsUnmute: iconState == .mutedManually
-                )
-                .transition(.opacity)
-            }
-
-            // Standing-desk status (countdown / switch nudge). Renders
-            // nothing when the desk timer is disabled or unstarted, so
-            // it's inert for users who never enable it. Independent of
-            // the announcement/mute rows above.
-            DeskStatusView()
-
-            Spacer()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(4 * scale)
+            .animation(.easeInOut(duration: 0.25), value: iconState)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-        .animation(.easeInOut(duration: 0.25), value: iconState)
     }
 
     /// Full weekday, full month name, day of month, and year. Renders as
@@ -128,21 +147,22 @@ struct ClockView: View {
 private struct MutedStatusRow: View {
     let text: String
     let showsUnmute: Bool
+    let scale: CGFloat
 
     @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 10 * scale) {
             Text(text)
-                .font(.system(size: 15))
+                .font(.system(size: 16 * scale))
                 .foregroundStyle(.orange)
 
             if showsUnmute {
                 Text("Unmute now")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14 * scale, weight: .medium))
                     .foregroundStyle(.primary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 10 * scale)
+                    .padding(.vertical, 3 * scale)
                     .background(
                         Color.primary.opacity(isHovering ? 0.16 : 0.08),
                         in: Capsule()

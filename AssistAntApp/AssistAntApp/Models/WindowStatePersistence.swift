@@ -20,12 +20,50 @@ struct PersistedWindowFrame: Codable {
 }
 
 /// Complete window state persisted to disk. Owns all window position, size,
-/// and screen identity — no UserDefaults dependency.
+/// screen identity, and the resizable sidebar fraction — no UserDefaults
+/// dependency.
 struct PersistedWindowState: Codable {
     let version: Int
     let windowFrame: PersistedWindowFrame
     let screenIdentifier: String
     let screenFrame: PersistedScreenFrame
+    /// Sidebar width as a fraction of the window (0.25–0.50). Absent from
+    /// window-state.json files written before the fraction model shipped;
+    /// such files decode with the default below so an old file restores
+    /// cleanly.
+    let sidebarFraction: Double
+
+    init(
+        version: Int,
+        windowFrame: PersistedWindowFrame,
+        screenIdentifier: String,
+        screenFrame: PersistedScreenFrame,
+        sidebarFraction: Double
+    ) {
+        self.version = version
+        self.windowFrame = windowFrame
+        self.screenIdentifier = screenIdentifier
+        self.screenFrame = screenFrame
+        self.sidebarFraction = sidebarFraction
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        windowFrame = try c.decode(
+            PersistedWindowFrame.self, forKey: .windowFrame
+        )
+        screenIdentifier = try c.decode(
+            String.self, forKey: .screenIdentifier
+        )
+        screenFrame = try c.decode(
+            PersistedScreenFrame.self, forKey: .screenFrame
+        )
+        // Backward-compat: fall back to the default when the key is absent.
+        sidebarFraction = try c.decodeIfPresent(
+            Double.self, forKey: .sidebarFraction
+        ) ?? Double(SidebarMetrics.defaultFraction)
+    }
 }
 
 // MARK: - Persistence Manager
@@ -51,6 +89,12 @@ final class WindowStatePersistence {
     private var trailingTimer: Timer?
     private var maxCapTimer: Timer?
     private var currentState: PersistedWindowState?
+
+    /// Latest sidebar fraction to persist. Seeded from disk on first read via
+    /// `loadSidebarFraction()` and updated by `saveSidebarFraction(_:)`.
+    /// Window-state writes include this so a frame change never drops a
+    /// freshly-set fraction (and vice versa).
+    private var sidebarFraction: Double = Double(SidebarMetrics.defaultFraction)
 
     private init() {
         let appSupport = FileManager.default.urls(
@@ -92,27 +136,55 @@ final class WindowStatePersistence {
                 y: screen.frame.origin.y,
                 width: screen.frame.size.width,
                 height: screen.frame.size.height
-            )
+            ),
+            sidebarFraction: sidebarFraction
         )
 
-        // Reset trailing timer on every change (1s after last change).
-        trailingTimer?.invalidate()
-        trailingTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.trailingDebounce,
-            repeats: false
-        ) { [weak self] _ in
-            self?.flush()
+        scheduleDebouncedFlush()
+    }
+
+    /// Persist a new sidebar fraction. Updates the in-memory copy and
+    /// schedules a debounced write through the same coalescing path as
+    /// window-frame changes, so the write merges with any pending frame write
+    /// instead of racing it. Clamps defensively to the allowed band.
+    func saveSidebarFraction(_ fraction: CGFloat) {
+        let clamped = min(
+            max(fraction, SidebarMetrics.minFraction),
+            SidebarMetrics.maxFraction
+        )
+        sidebarFraction = Double(clamped)
+        isDirty = true
+
+        // Rebuild currentState with the new fraction when we already have a
+        // frame snapshot; otherwise the next saveWindowState picks it up.
+        // Keeps a fraction-only change persistable even if the window hasn't
+        // moved yet.
+        if let existing = currentState {
+            currentState = PersistedWindowState(
+                version: existing.version,
+                windowFrame: existing.windowFrame,
+                screenIdentifier: existing.screenIdentifier,
+                screenFrame: existing.screenFrame,
+                sidebarFraction: sidebarFraction
+            )
         }
 
-        // Start max-cap timer if not already running (3s ceiling).
-        if maxCapTimer == nil {
-            maxCapTimer = Timer.scheduledTimer(
-                withTimeInterval: Self.maxDelayCap,
-                repeats: false
-            ) { [weak self] _ in
-                self?.flush()
-            }
-        }
+        scheduleDebouncedFlush()
+    }
+
+    /// The persisted sidebar fraction, or the default if no file exists yet or
+    /// it predates the fraction model. Also seeds the in-memory copy so a
+    /// later window-state write carries the same value.
+    func loadSidebarFraction() -> CGFloat {
+        let raw = load()?.sidebarFraction
+            ?? Double(SidebarMetrics.defaultFraction)
+        // Clamp into the allowed band so any out-of-range value snaps back in.
+        let clamped = min(
+            max(CGFloat(raw), SidebarMetrics.minFraction),
+            SidebarMetrics.maxFraction
+        )
+        sidebarFraction = Double(clamped)
+        return clamped
     }
 
     /// Flush pending state to disk asynchronously.
@@ -156,6 +228,30 @@ final class WindowStatePersistence {
     }
 
     // MARK: - Private
+
+    /// Schedule the trailing-debounce (1s) + max-cap (3s) flush pair. Shared
+    /// by `saveWindowState(for:)` and `saveSidebarWidth(_:)` so both write
+    /// paths coalesce through one timer set.
+    private func scheduleDebouncedFlush() {
+        // Reset trailing timer on every change (1s after last change).
+        trailingTimer?.invalidate()
+        trailingTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.trailingDebounce,
+            repeats: false
+        ) { [weak self] _ in
+            self?.flush()
+        }
+
+        // Start the max-cap timer if not already running (3s ceiling).
+        if maxCapTimer == nil {
+            maxCapTimer = Timer.scheduledTimer(
+                withTimeInterval: Self.maxDelayCap,
+                repeats: false
+            ) { [weak self] _ in
+                self?.flush()
+            }
+        }
+    }
 
     private func cancelTimers() {
         trailingTimer?.invalidate()

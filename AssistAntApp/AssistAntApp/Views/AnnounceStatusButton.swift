@@ -25,6 +25,10 @@ import SwiftUI
 /// happen automatically as schedule windows open/close, the mute
 /// toggles, and calls start/end.
 struct AnnounceStatusButton: View {
+    /// Scale factor applied to the glyph height + slot width so the icon
+    /// tracks the adaptively-scaled clock it sits beside. 1 = natural size.
+    var scale: CGFloat = 1
+
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
     @ObservedObject private var mic = MicActivityService.shared
@@ -34,13 +38,13 @@ struct AnnounceStatusButton: View {
     /// time). Applied via `.resizable().scaledToFit().frame(height:)`
     /// on the Image so it renders at an explicit size regardless of any
     /// ambient font.
-    private let iconHeight: CGFloat = 56
+    private var iconHeight: CGFloat { 56 * scale }
 
     /// Fixed slot width so swapping between glyphs of different widths
     /// (slash / fill / wave.3.fill) doesn't shift the centered time
     /// beside it. Sized to fit the widest glyph (speaker.wave.3.fill)
     /// at `iconHeight`.
-    private let slotWidth: CGFloat = 96
+    private var slotWidth: CGFloat { 96 * scale }
 
     private var state: AnnouncementIconState {
         settings.settings.iconState(
