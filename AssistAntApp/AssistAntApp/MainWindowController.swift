@@ -14,7 +14,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     init() {
         let hosting = NSHostingController(rootView: ContentView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "AssistAnt"
+        window.title = "Assist Ant"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 480, height: 320))
         window.center()

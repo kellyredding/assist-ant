@@ -14,7 +14,7 @@ final class MainMenu: NSObject {
         let mainMenu = NSMenu()
 
         // Application menu — title is the app name and gets used by macOS
-        // for the bold "AssistAnt" label at the left of the menu bar.
+        // for the bold "Assist Ant" label at the left of the menu bar.
         let appMenu = NSMenu()
         let appMenuItem = NSMenuItem()
         appMenuItem.submenu = appMenu
@@ -47,7 +47,10 @@ final class MainMenu: NSObject {
     // MARK: - App menu
 
     private func buildAppMenu(_ menu: NSMenu) {
-        let appName = ProcessInfo.processInfo.processName
+        // The presented app name. The executable (and thus processName)
+        // is "AssistAnt"; the user-facing name is "Assist Ant", matching
+        // CFBundleDisplayName.
+        let appName = "Assist Ant"
 
         let aboutItem = NSMenuItem(
             title: "About \(appName)",

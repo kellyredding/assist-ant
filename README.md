@@ -1,4 +1,4 @@
-# AssistAnt
+# Assist Ant
 
 Personal assistant macOS app with a companion CLI.
 

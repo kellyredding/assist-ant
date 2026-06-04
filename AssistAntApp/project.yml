@@ -14,8 +14,8 @@ targets:
     info:
       path: AssistAntApp/Info.plist
       properties:
-        CFBundleName: $(PRODUCT_NAME)
-        CFBundleDisplayName: AssistAnt
+        CFBundleName: "Assist Ant"
+        CFBundleDisplayName: "Assist Ant"
         CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -30,7 +30,13 @@ targets:
         # is open.
     settings:
       base:
-        PRODUCT_NAME: AssistAnt
+        # The bundle wrapper is "Assist Ant.app" (the user-facing name the
+        # Dock, ⌘-Tab switcher, and Spotlight key off the .app filename),
+        # but the Mach-O executable stays "AssistAnt" — no space — so
+        # process matching and scripts don't have to quote it. The bundle
+        # identifier is unchanged, so settings and permissions persist.
+        PRODUCT_NAME: "Assist Ant"
+        EXECUTABLE_NAME: AssistAnt
         PRODUCT_BUNDLE_IDENTIFIER: com.kellyredding.AssistAnt
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

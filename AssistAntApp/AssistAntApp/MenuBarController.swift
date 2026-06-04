@@ -47,9 +47,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             } else {
                 // Fallback if the asset is missing for any reason
                 // (asset catalog not compiled in, name mismatch).
-                button.title = "AssistAnt"
+                button.title = "Assist Ant"
             }
-            button.toolTip = "AssistAnt"
+            button.toolTip = "Assist Ant"
         }
 
         let menu = NSMenu()
@@ -64,7 +64,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
 
         let openItem = NSMenuItem(
-            title: "Open AssistAnt…",
+            title: "Open Assist Ant…",
             action: #selector(handleOpen),
             keyEquivalent: ""
         )
@@ -100,7 +100,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "Quit AssistAnt",
+            title: "Quit Assist Ant",
             action: #selector(handleQuit),
             keyEquivalent: "q"
         )
