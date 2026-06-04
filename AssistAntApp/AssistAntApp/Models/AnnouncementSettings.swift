@@ -18,9 +18,9 @@ import Foundation
 /// fails to resolve (voice uninstalled), the synthesizer falls back to
 /// the system default voice for the utterance's locale.
 ///
-/// The weekly `schedule`, the `muteWhileMicInUse` toggle, and the ad-hoc
-/// `muteUntil` snooze all moved up to `AppSettings` — they are shared
-/// with the desk timer (a snooze silences both features), so they sit at
+/// The weekly `schedule`, the `muteWhileMicInUse` toggle, and the manual
+/// `isMuted` flag all moved up to `AppSettings` — they are shared with
+/// the desk timer (a manual mute silences both features), so they sit at
 /// the app level rather than looking announcement-owned.
 struct AnnouncementSettings: Codable, Equatable {
     var enabled: Bool

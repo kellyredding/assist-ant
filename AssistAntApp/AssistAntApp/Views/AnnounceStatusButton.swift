@@ -1,14 +1,11 @@
 import SwiftUI
-import AppKit
 
 /// The speaker icon + click affordance, displayed inline after the
 /// time in `ClockView`. Renders an SF Symbol whose glyph encodes the
 /// announcement system's current state (disabled / scheduled / active
 /// / muted). The clickable states overlay a pointing-hand affordance on
-/// the glyph (`pointerButton` / `pointerMenu`) so a pointer cursor shows
-/// on hover; the dropdowns are native menus, since the cursor overlay
-/// owns the click and a SwiftUI `Menu` can't share it. Click behavior
-/// depends on state:
+/// the glyph (`pointerButton`) so a pointer cursor shows on hover. Click
+/// behavior depends on state:
 ///
 /// - Disabled → opens Settings with the Time tab pre-selected, so
 ///   the user can flip Enable on without rummaging through tabs.
@@ -16,16 +13,17 @@ import AppKit
 ///   are already silent-by-schedule right now, so offering "mute"
 ///   would be pointless; the useful action is jumping to the
 ///   schedule to review/adjust it.
-/// - Active → pops up a menu of mute durations.
-/// - Muted by timer / mic / away → non-interactive (no pointer cursor).
-///   A timed mute is cleared from the "Unmute now" button on the clock's
-///   status row; mic and away clear themselves.
+/// - Active → click mutes (open-ended) until unmuted.
+/// - Muted manually → click unmutes (the "Unmute now" button on the
+///   clock's status row does the same thing).
+/// - Muted by mic / away → non-interactive (no pointer cursor); these
+///   clear themselves when the mic frees or you return to the desk.
 ///
 /// Re-renders on minute boundaries (driven by `ClockService`), on
 /// settings changes (driven by `SettingsManager`), and on mic
 /// engage/free (driven by `MicActivityService`), so state transitions
-/// happen automatically as schedule windows open/close, the timed
-/// mute expires, and calls start/end.
+/// happen automatically as schedule windows open/close, the mute
+/// toggles, and calls start/end.
 struct AnnounceStatusButton: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
@@ -60,7 +58,7 @@ struct AnnounceStatusButton: View {
         switch state {
         case .disabled:                 return .secondary.opacity(0.5)
         case .scheduled, .active:       return .primary
-        case .mutedByTimer, .mutedByMic, .mutedByAway: return .orange
+        case .mutedManually, .mutedByMic, .mutedByAway: return .orange
         }
     }
 
@@ -70,11 +68,13 @@ struct AnnounceStatusButton: View {
             case .disabled, .scheduled:
                 glyph.pointerButton { openSettings() }
             case .active:
-                glyph.pointerMenu { muteDurationsMenu() }
-            case .mutedByTimer, .mutedByMic, .mutedByAway:
-                // Muted: informational, no pointer cursor. A timed mute is
-                // cleared from the "Unmute now" button on the ClockView
-                // status row; mic and away clear themselves.
+                glyph.pointerButton { MuteController.mute() }
+            case .mutedManually:
+                glyph.pointerButton { MuteController.unmute() }
+            case .mutedByMic, .mutedByAway:
+                // Mic-mute clears when the mic frees; away clears when you
+                // return to your desk — nothing to act on here, so the
+                // icon is purely informational (no pointer cursor).
                 glyph
             }
         }
@@ -84,10 +84,10 @@ struct AnnounceStatusButton: View {
 
     /// The sized speaker glyph. `.resizable().scaledToFit()
     /// .frame(height:)` forces a concrete render size. The interactive
-    /// states overlay a click-owning pointer affordance (`pointerButton`
-    /// / `pointerMenu`) on this glyph rather than wrapping it in a SwiftUI
-    /// Button or Menu, so the pointing-hand cursor shows reliably on
-    /// hover. `.foregroundStyle` applies the per-state tint.
+    /// states overlay a click-owning pointer affordance (`pointerButton`)
+    /// on this glyph rather than wrapping it in a SwiftUI Button or Menu,
+    /// so the pointing-hand cursor shows reliably on hover.
+    /// `.foregroundStyle` applies the per-state tint.
     private var glyph: some View {
         Image(systemName: state.sfSymbol)
             .resizable()
@@ -109,39 +109,4 @@ struct AnnounceStatusButton: View {
             PreferencesWindowController.showPreferences(initialTab: .time)
         }
     }
-
-    /// Native pop-up of mute durations, shown from the active state. Built
-    /// as an NSMenu rather than a SwiftUI Menu so the click-owning pointer
-    /// overlay can present it (see `glyph`).
-    private func muteDurationsMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(
-            NSMenuItem.sectionHeader(title: "Mute announcements for")
-        )
-        for duration in MuteDuration.allCases {
-            menu.addItem(ClosureMenuItem(title: duration.displayName) {
-                MuteController.mute(for: duration)
-            })
-        }
-        return menu
-    }
-}
-
-/// An `NSMenuItem` that runs a closure when selected, so the speaker
-/// icon's native pop-up menus can be built inline without a separate
-/// target/selector object.
-private final class ClosureMenuItem: NSMenuItem {
-    private let handler: () -> Void
-
-    init(title: String, handler: @escaping () -> Void) {
-        self.handler = handler
-        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
-        target = self
-    }
-
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func invoke() { handler() }
 }

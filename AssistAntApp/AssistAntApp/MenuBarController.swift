@@ -79,10 +79,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        // Mute item — title, hidden state, and submenu are all set
-        // by menuNeedsUpdate(_:) just before the menu shows. Action
-        // is nil because the item has a submenu (AppKit shows the
-        // submenu on hover; submenu items have their own actions).
+        // Mute item — title, enabled state, and action are all set by
+        // menuNeedsUpdate(_:) just before the menu shows. It toggles the
+        // global mute directly (no submenu): mute when active, unmute
+        // when manually muted, informational while mic/away-muted.
         let muteItem = NSMenuItem(
             title: "Mute announcements",
             action: nil,
@@ -129,37 +129,36 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.isHidden = true
 
         case .scheduled, .active:
+            // Clicking mutes (open-ended) until unmuted.
             item.isHidden = false
             item.isEnabled = true
             item.title = "Mute announcements"
-            item.submenu = buildMuteSubmenu()
+            item.action = #selector(handleMute)
+            item.target = self
 
-        case .mutedByTimer:
+        case .mutedManually:
+            // Clicking unmutes — same as the in-window "Unmute now".
             item.isHidden = false
             item.isEnabled = true
-            let display = MuteController.currentMuteEndDisplay(
-                format: appSettings.timeFormat,
-                now: now
-            )
-            item.title = display.map { "Muted until \($0)" }
-                ?? "Announcements muted"
-            item.submenu = buildUnmuteSubmenu()
+            item.title = "Unmute announcements"
+            item.action = #selector(handleUnmute)
+            item.target = self
 
         case .mutedByMic:
             // Mic-mute clears itself when the mic frees — nothing to
-            // act on, so the item is informational: disabled, no submenu.
+            // act on, so the item is informational: disabled, no action.
             item.isHidden = false
             item.isEnabled = false
             item.title = "Muted while microphone in use"
-            item.submenu = nil
+            item.action = nil
 
         case .mutedByAway:
             // Cleared by returning to the desk (the away banner), not
-            // from this menu — informational: disabled, no submenu.
+            // from this menu — informational: disabled, no action.
             item.isHidden = false
             item.isEnabled = false
             item.title = "Muted while away from desk"
-            item.submenu = nil
+            item.action = nil
         }
 
         updateDeskItem(at: now)
@@ -185,49 +184,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func buildMuteSubmenu() -> NSMenu {
-        let sub = NSMenu()
-        sub.addItem(
-            NSMenuItem.sectionHeader(title: "Mute announcements for")
-        )
-        for duration in MuteDuration.allCases {
-            let item = NSMenuItem(
-                title: duration.displayName,
-                action: #selector(handleMute(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = duration
-            sub.addItem(item)
-        }
-        return sub
-    }
-
-    private func buildUnmuteSubmenu() -> NSMenu {
-        let sub = NSMenu()
-        // No section header here — the parent menu item already reads
-        // "Muted until X", so repeating it as a submenu header is
-        // redundant. The submenu is just the unmute action. (The
-        // in-window AnnounceStatusButton keeps its header because its
-        // parent affordance is an icon with no visible title.)
-        let unmuteItem = NSMenuItem(
-            title: "Unmute now",
-            action: #selector(handleUnmute),
-            keyEquivalent: ""
-        )
-        unmuteItem.target = self
-        sub.addItem(unmuteItem)
-        return sub
-    }
-
     @objc private func handleOpen() { onOpenMainWindow() }
     @objc private func handleSettings() { onOpenSettings() }
     @objc private func handleQuit() { onQuit() }
 
-    @objc private func handleMute(_ sender: NSMenuItem) {
-        guard let duration = sender.representedObject as? MuteDuration
-        else { return }
-        MuteController.mute(for: duration)
+    @objc private func handleMute() {
+        MuteController.mute()
     }
 
     @objc private func handleUnmute() {

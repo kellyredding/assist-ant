@@ -6,12 +6,11 @@ import SwiftUI
 /// when either source changes, so toggling 12-hour / 24-hour in Settings
 /// updates the display in the same frame.
 ///
-/// When announcements are muted, a "Muted until …" row renders below
-/// the timezone in system orange — matching the corner
-/// `AnnounceStatusButton`'s muted-state color so the two surfaces read
-/// as one connected indicator. For a timed mute the row carries an
-/// inline "Unmute now" button (the speaker icon is non-interactive in
-/// that state). The row fades in/out on mute apply, clear, and expiry.
+/// When announcements are muted, a status row renders below the timezone
+/// in system orange — matching the corner `AnnounceStatusButton`'s
+/// muted-state color so the two surfaces read as one connected
+/// indicator. For a manual mute the row carries an inline "Unmute now"
+/// button. The row fades in/out as the mute toggles.
 struct ClockView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
@@ -29,20 +28,15 @@ struct ClockView: View {
     }
 
     /// Status row text under the timezone when muted, or nil when not
-    /// muted. Away and mic mutes name their reason; the timed mute shows
-    /// its end time.
+    /// muted. Each mute names its reason.
     private var mutedStatusText: String? {
         switch iconState {
         case .mutedByAway:
             return "Muted while away from desk"
         case .mutedByMic:
             return "Muted while microphone in use"
-        case .mutedByTimer:
-            let display = MuteController.currentMuteEndDisplay(
-                format: settings.settings.timeFormat,
-                now: clock.currentTime
-            )
-            return display.map { "Muted until \($0)" }
+        case .mutedManually:
+            return "Muted"
         case .disabled, .scheduled, .active:
             return nil
         }
@@ -79,7 +73,7 @@ struct ClockView: View {
             if let mutedStatusText {
                 MutedStatusRow(
                     text: mutedStatusText,
-                    showsUnmute: iconState == .mutedByTimer
+                    showsUnmute: iconState == .mutedManually
                 )
                 .transition(.opacity)
             }
@@ -127,10 +121,10 @@ struct ClockView: View {
 }
 
 /// The muted status row under the clock: why announcements are silenced,
-/// in system orange. For a timed mute it also carries an inline "Unmute
-/// now" button — the speaker icon is non-interactive in that state, so
-/// this is where the mute is cleared. The button matches the desk row's
-/// secondary capsule (brightens on hover, pointing-hand cursor).
+/// in system orange. For a manual mute it also carries an inline "Unmute
+/// now" button (clicking the speaker icon unmutes too — this is a second
+/// way to clear it). The button matches the desk row's secondary capsule
+/// (brightens on hover, pointing-hand cursor).
 private struct MutedStatusRow: View {
     let text: String
     let showsUnmute: Bool

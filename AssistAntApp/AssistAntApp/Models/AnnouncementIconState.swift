@@ -7,11 +7,11 @@ import Foundation
 /// or temporarily muted — and if muted, why.
 ///
 /// Precedence (highest first): `disabled`, then `mutedByAway`, then
-/// `mutedByMic`, then `mutedByTimer`, then the schedule window
-/// (`active` / `scheduled`). Away outranks the call and timed mutes —
+/// `mutedByMic`, then `mutedManually`, then the schedule window
+/// (`active` / `scheduled`). Away outranks the call and the manual mute —
 /// stepping away is the most deliberate silence signal — and mic-mute
-/// outranks the timed mute so a live call shows the mic reason while a
-/// timed mute runs underneath, each reverting as it clears.
+/// outranks the manual mute so a live call shows the mic reason while a
+/// manual mute is also in effect, each reverting as it clears.
 enum AnnouncementIconState: Equatable {
     case disabled       // master enable off
     case scheduled      // on with at least one output, not muted,
@@ -19,7 +19,7 @@ enum AnnouncementIconState: Equatable {
                         // with no output selected (nothing would ever
                         // fire, so it's inert regardless of schedule)
     case active         // on, not muted, currently inside today's window
-    case mutedByTimer   // on, ad-hoc timed mute (muteUntil) in effect
+    case mutedManually  // on, user muted manually (open-ended) until unmute
     case mutedByMic     // on, mic in use and "mute while mic in use" on
     case mutedByAway    // on, stepped away from the desk (away window)
 
@@ -33,7 +33,7 @@ enum AnnouncementIconState: Equatable {
         case .disabled:     return "speaker.slash"
         case .scheduled:    return "speaker.fill"
         case .active:       return "speaker.wave.3.fill"
-        case .mutedByTimer: return "speaker.slash.fill"
+        case .mutedManually: return "speaker.slash.fill"
         case .mutedByMic:   return "speaker.slash.fill"
         case .mutedByAway:  return "speaker.slash.fill"
         }
@@ -43,7 +43,7 @@ enum AnnouncementIconState: Equatable {
     /// orange and show a status row under the clock.
     var isMuted: Bool {
         switch self {
-        case .mutedByTimer, .mutedByMic, .mutedByAway: return true
+        case .mutedManually, .mutedByMic, .mutedByAway: return true
         case .disabled, .scheduled, .active: return false
         }
     }
@@ -59,7 +59,7 @@ extension AppSettings {
     ///
     /// Lives on `AppSettings` (not `AnnouncementSettings`) because it
     /// reads the top-level shared `schedule`, `muteWhileMicInUse`, and
-    /// `muteUntil` alongside both features' sub-fields. "Disabled" spans
+    /// `isMuted` alongside both features' sub-fields. "Disabled" spans
     /// both: it's shown only when neither time announcements nor the desk
     /// timer can emit audio.
     func iconState(
@@ -88,8 +88,8 @@ extension AppSettings {
             return .mutedByMic
         }
 
-        if let until = muteUntil, now < until {
-            return .mutedByTimer
+        if isMuted {
+            return .mutedManually
         }
 
         let components = calendar.dateComponents(

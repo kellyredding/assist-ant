@@ -48,14 +48,14 @@ final class AnnouncementService {
     /// boundary type so the caller knows how many chimes to play.
     /// Side-effect-free.
     ///
-    /// Checks master enable + interval + schedule, then the global ad-hoc
-    /// mute (`muteUntil`, passed in). It does not check `playSound` — that
+    /// Checks master enable + interval + schedule, then the global manual
+    /// mute (`isMuted`, passed in). It does not check `playSound` — that
     /// only decides which outputs the submitted job carries.
     static func shouldFire(
         at now: Date,
         settings: AnnouncementSettings,
         schedule: WeeklySchedule,
-        muteUntil: Date?,
+        isMuted: Bool,
         isAway: Bool,
         calendar: Calendar = .current
     ) -> AnnouncementBoundary? {
@@ -88,9 +88,9 @@ final class AnnouncementService {
             return nil
         }
 
-        // Mute override: the global ad-hoc snooze. Applied last so the
+        // Mute override: the global manual mute. Applied last so the
         // schedule/interval reasoning is independent of mute state.
-        if let muteUntil = muteUntil, now < muteUntil {
+        if isMuted {
             return nil
         }
 
@@ -117,7 +117,7 @@ final class AnnouncementService {
             at: now,
             settings: settings,
             schedule: appSettings.schedule,
-            muteUntil: appSettings.muteUntil,
+            isMuted: appSettings.isMuted,
             isAway: appSettings.desk.isAwayActive
         ) else { return }
 

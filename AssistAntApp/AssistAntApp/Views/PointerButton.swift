@@ -27,36 +27,16 @@ extension View {
             PointerControlOverlay(onHoverChange: onHoverChange, action: action)
         )
     }
-
-    /// Like `pointerButton`, but on click pops up the `NSMenu` returned by
-    /// `makeMenu`, anchored just below the view, instead of running a bare
-    /// action.
-    ///
-    /// A SwiftUI `Menu` can't share the same cursor treatment: the reliable
-    /// cursor hook requires owning the click (see `pointerButton`), which
-    /// would swallow the very click a SwiftUI `Menu` needs to open itself.
-    /// So an affordance that needs a dropdown presents a native menu from
-    /// the click-owning overlay instead.
-    func pointerMenu(
-        onHoverChange: @escaping (Bool) -> Void = { _ in },
-        makeMenu: @escaping () -> NSMenu
-    ) -> some View {
-        overlay(
-            PointerControlOverlay(onHoverChange: onHoverChange, makeMenu: makeMenu)
-        )
-    }
 }
 
 private struct PointerControlOverlay: NSViewRepresentable {
-    var onHoverChange: (Bool) -> Void = { _ in }
-    var action: (() -> Void)?
-    var makeMenu: (() -> NSMenu)?
+    let onHoverChange: (Bool) -> Void
+    let action: () -> Void
 
     func makeNSView(context: Context) -> NSView {
         let view = TrackingView()
         view.onHoverChange = onHoverChange
         view.action = action
-        view.makeMenu = makeMenu
         return view
     }
 
@@ -64,13 +44,11 @@ private struct PointerControlOverlay: NSViewRepresentable {
         guard let view = nsView as? TrackingView else { return }
         view.onHoverChange = onHoverChange
         view.action = action
-        view.makeMenu = makeMenu
     }
 
     final class TrackingView: NSView {
         var onHoverChange: ((Bool) -> Void)?
         var action: (() -> Void)?
-        var makeMenu: (() -> NSMenu)?
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -107,19 +85,7 @@ private struct PointerControlOverlay: NSViewRepresentable {
 
         override func mouseUp(with event: NSEvent) {
             let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point) else { return }
-            // A dropdown affordance pops its native menu anchored to the
-            // view's lower-left so it drops just below the glyph; a plain
-            // button runs its action.
-            if let makeMenu {
-                makeMenu().popUp(
-                    positioning: nil,
-                    at: NSPoint(x: 0, y: 0),
-                    in: self
-                )
-                return
-            }
-            action?()
+            if bounds.contains(point) { action?() }
         }
     }
 }
