@@ -78,7 +78,7 @@ extension AppSettings {
         // Away outranks every other mute reason: stepping away is the
         // most deliberate "silence everything" signal, so it wins the
         // display even over a live call or a running timed mute.
-        if desk.isAway(at: now) {
+        if desk.isAwayActive {
             return .mutedByAway
         }
 

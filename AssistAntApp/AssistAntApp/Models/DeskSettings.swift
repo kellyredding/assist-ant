@@ -10,9 +10,9 @@ enum DeskTimerPhase: Equatable {
     /// The current position's interval has elapsed — switch to the
     /// opposite. `from` is the position you're being asked to leave.
     case nudge(from: DeskPosition)
-    /// User stepped away from the desk; the timer is paused until `until`
-    /// (or until they return). Takes precedence over counting/nudge.
-    case away(until: Date)
+    /// User stepped away from the desk; the timer is paused until they
+    /// return (not time-bound). Takes precedence over counting/nudge.
+    case away
 }
 
 /// Standing-desk timer settings + runtime position state. Persisted in
@@ -25,11 +25,11 @@ enum DeskTimerPhase: Equatable {
 /// (schedule window, snooze, mic) are applied by `DeskService` via
 /// `AppSettings.audioGateOpen` and `AudioAnnouncementCoordinator`.
 ///
-/// `awayUntil` is the one thing that *pauses* the otherwise-never-pausing
-/// timer: while set and in the future, the timer doesn't count or nudge —
-/// posture tracking is meaningless when you're not at the desk. On return
-/// (manual or expiry) `DeskService` clears it and starts a fresh sit
-/// interval.
+/// `isAway` is the one thing that *pauses* the otherwise-never-pausing
+/// timer: while set, the timer doesn't count or nudge — posture tracking
+/// is meaningless when you're not at the desk. It is not time-bound: you
+/// stay away until you return, at which point `DeskService` clears it and
+/// starts a fresh sit interval.
 struct DeskSettings: Codable, Equatable {
     var enabled: Bool
     var sitMinutes: Int
@@ -43,9 +43,9 @@ struct DeskSettings: Codable, Equatable {
     var currentPosition: DeskPosition
     var positionStartedAt: Date?
 
-    /// When non-nil and in the future, the timer is paused ("away from
-    /// desk") until this instant. nil = not away.
-    var awayUntil: Date?
+    /// When true, the user has stepped away and the timer is paused
+    /// ("away from desk") until they return. Not time-bound.
+    var isAway: Bool
 
     // Audio outputs (independent of time announcements).
     var playSound: Bool
@@ -59,7 +59,7 @@ struct DeskSettings: Codable, Equatable {
         standMinutes: 8,
         currentPosition: .sitting,
         positionStartedAt: nil,
-        awayUntil: nil,
+        isAway: false,
         playSound: true,
         sound: .funk,
         speakAlert: true,
@@ -74,14 +74,13 @@ struct DeskSettings: Codable, Equatable {
 
     /// Pure decision: the timer phase at `now`. Side-effect-free.
     ///
-    /// `away` outranks counting/nudge while the away window is in the
-    /// future. Once it elapses this falls through to counting/nudge —
-    /// `DeskService` watches for that and resets to a fresh sit interval,
-    /// so a stale pre-away `positionStartedAt` never surfaces a nudge.
+    /// `away` outranks counting/nudge. On return `DeskService` clears it
+    /// and resets `positionStartedAt`, so a stale pre-away value never
+    /// surfaces a nudge.
     func timerPhase(at now: Date) -> DeskTimerPhase {
         guard enabled else { return .inactive }
-        if let awayUntil, now < awayUntil {
-            return .away(until: awayUntil)
+        if isAway {
+            return .away
         }
         guard let startedAt = positionStartedAt else { return .inactive }
         let elapsed = now.timeIntervalSince(startedAt)
@@ -95,13 +94,12 @@ struct DeskSettings: Codable, Equatable {
         )
     }
 
-    /// True while the away window is active — enabled and not yet
-    /// elapsed. The audio gate and icon state read this so being away
-    /// mutes time announcements and surfaces the away reason, the same
-    /// way mic-in-use does.
-    func isAway(at now: Date) -> Bool {
-        if case .away = timerPhase(at: now) { return true }
-        return false
+    /// True while the away state is in effect (enabled and away). The
+    /// audio gate and icon state read this so being away mutes time
+    /// announcements and surfaces the away reason, the same way
+    /// mic-in-use does.
+    var isAwayActive: Bool {
+        enabled && isAway
     }
 }
 
@@ -110,7 +108,7 @@ struct DeskSettings: Codable, Equatable {
 extension DeskSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, sitMinutes, standMinutes, currentPosition,
-             positionStartedAt, awayUntil, playSound, sound, speakAlert,
+             positionStartedAt, isAway, playSound, sound, speakAlert,
              voiceIdentifier
     }
 
@@ -137,9 +135,9 @@ extension DeskSettings {
         self.positionStartedAt = try c.decodeIfPresent(
             Date.self, forKey: .positionStartedAt
         ) ?? d.positionStartedAt
-        self.awayUntil = try c.decodeIfPresent(
-            Date.self, forKey: .awayUntil
-        ) ?? d.awayUntil
+        self.isAway = try c.decodeIfPresent(
+            Bool.self, forKey: .isAway
+        ) ?? d.isAway
         self.playSound = try c.decodeIfPresent(
             Bool.self, forKey: .playSound
         ) ?? d.playSound

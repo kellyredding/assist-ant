@@ -67,6 +67,9 @@ final class DeskService {
         desk.enabled = enabled
         if enabled {
             desk.positionStartedAt = Date()
+            // Enabling starts a fresh sit interval — never inherit a
+            // stale away flag from before the timer was turned off.
+            desk.isAway = false
         }
         SettingsManager.shared.settings.desk = desk
         evaluateNudge()
@@ -85,24 +88,23 @@ final class DeskService {
         evaluateNudge()
     }
 
-    /// Step away from the desk for `duration`, pausing the timer. While
-    /// away the phase is `.away`, so counting/nudge and all desk audio stop
-    /// until the window elapses or the user returns.
-    func goAway(for duration: AwayDuration) {
+    /// Step away from the desk, pausing the timer. While away the phase is
+    /// `.away`, so counting/nudge and all desk audio stop until the user
+    /// returns. Not time-bound — there is no auto-return.
+    func goAway() {
         var desk = SettingsManager.shared.settings.desk
         guard desk.enabled else { return }
-        desk.awayUntil = duration.until(from: Date())
+        desk.isAway = true
         SettingsManager.shared.settings.desk = desk
         evaluateNudge()
     }
 
-    /// "I'm back at my desk" (or the away window elapsing): clear the away
-    /// state and start a *fresh sit interval* — you just sat back down, so
-    /// no nudge accrued while away.
+    /// "I'm back at my desk": clear the away state and start a *fresh sit
+    /// interval* — you just sat back down, so no nudge accrued while away.
     func returnToDesk() {
         var desk = SettingsManager.shared.settings.desk
         guard desk.enabled else { return }
-        desk.awayUntil = nil
+        desk.isAway = false
         desk.currentPosition = .sitting
         desk.positionStartedAt = Date()
         SettingsManager.shared.settings.desk = desk
@@ -111,17 +113,11 @@ final class DeskService {
 
     /// Start the audible repeat on entering the nudge phase, stop it on
     /// leaving. Idempotent: while already nudging it leaves the running
-    /// timer alone (no restart, no re-raise). Also auto-returns from an
-    /// away window that has elapsed (a fresh sit interval), so the timer
-    /// resumes on its own if the user never taps "I'm back".
+    /// timer alone (no restart, no re-raise). Away has no auto-return —
+    /// the user resumes only by tapping "I'm back at my desk".
     private func evaluateNudge() {
         let desk = SettingsManager.shared.settings.desk
         let now = Date()
-
-        if let awayUntil = desk.awayUntil, now >= awayUntil {
-            returnToDesk()        // re-enters evaluateNudge with away cleared
-            return
-        }
 
         if case .nudge = desk.timerPhase(at: now) {
             if repeatTimer == nil {

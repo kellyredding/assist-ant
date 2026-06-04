@@ -26,8 +26,8 @@ struct DeskStatusView: View {
                 DeskNudgeBanner(target: from.opposite)
                     .transition(.opacity)
 
-            case .away(let until):
-                DeskAwayBanner(until: until)
+            case .away:
+                DeskAwayBanner()
                     .transition(.opacity)
             }
         }
@@ -81,7 +81,7 @@ private struct DeskCountingRow: View {
                     DeskService.shared.acknowledgeSwitch()
                 }
 
-            AwayMenu(onAccent: false)
+            AwayButton(onAccent: false)
         }
         .font(.system(size: 15))
         .foregroundStyle(.secondary)
@@ -131,7 +131,7 @@ private struct DeskNudgeBanner: View {
                     DeskService.shared.acknowledgeSwitch()
                 }
 
-            AwayMenu(onAccent: true)
+            AwayButton(onAccent: true)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
@@ -178,39 +178,26 @@ private struct DeskNudgeBanner: View {
     }
 }
 
-/// The "Away from desk" duration menu — pauses the timer for a chosen
-/// span. Sits beside the primary action in both the counting and nudge
-/// states. `onAccent` switches the capsule tint for the accent nudge pill
-/// (translucent white) vs the plain window row (primary-tinted).
-private struct AwayMenu: View {
+/// The "Away from desk" button — pauses the timer until the user returns
+/// (not time-bound). Sits beside the primary action in both the counting
+/// and nudge states, matching that action's capsule: `onAccent` gives the
+/// translucent-white treatment for the accent nudge pill vs the
+/// primary-tinted one for the plain window row.
+private struct AwayButton: View {
     let onAccent: Bool
     @State private var isHovering = false
 
     var body: some View {
-        Menu {
-            ForEach(AwayDuration.allCases) { duration in
-                Button(duration.displayName) {
-                    DeskService.shared.goAway(for: duration)
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("Away from desk")
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
+        Text("Away from desk")
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(labelStyle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
+            .padding(.horizontal, onAccent ? 12 : 10)
+            .padding(.vertical, onAccent ? 5 : 3)
             .background(fillStyle, in: Capsule())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { isHovering = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .pointerButton(onHoverChange: { isHovering = $0 }) {
+                DeskService.shared.goAway()
+            }
     }
 
     private var labelStyle: AnyShapeStyle {
@@ -225,18 +212,17 @@ private struct AwayMenu: View {
     }
 }
 
-/// The away state: a calm secondary row (not the alert pill) showing the
-/// return time, with an "I'm back at my desk" button that resumes a fresh
-/// sit interval. Styled like the counting row — being away is
-/// informational, not an alert.
+/// The away state: a calm secondary row (not the alert pill) with an
+/// "I'm back at my desk" button that resumes a fresh sit interval. Styled
+/// like the counting row — being away is informational, not an alert. Not
+/// time-bound, so there's no return time to show.
 private struct DeskAwayBanner: View {
-    let until: Date
     @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "figure.walk.departure")
-            Text(awayText)
+            Text("Away from desk")
 
             Text("I'm back at my desk")
                 .font(.system(size: 13, weight: .medium))
@@ -254,13 +240,5 @@ private struct DeskAwayBanner: View {
         }
         .font(.system(size: 15))
         .foregroundStyle(.secondary)
-    }
-
-    /// "Away from desk · until 1:30 PM", using the app's time format.
-    private var awayText: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat =
-            SettingsManager.shared.settings.timeFormat.dateFormat
-        return "Away from desk · until \(formatter.string(from: until))"
     }
 }

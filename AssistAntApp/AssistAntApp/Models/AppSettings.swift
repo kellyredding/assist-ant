@@ -122,7 +122,7 @@ struct AppSettings: Codable, Equatable {
         calendar: Calendar = .current
     ) -> Bool {
         if muteWhileMicInUse, micInUse { return false }
-        if desk.isAway(at: now) { return false }
+        if desk.isAwayActive { return false }
         if let until = muteUntil, now < until { return false }
         let c = calendar.dateComponents([.weekday, .hour, .minute], from: now)
         guard let wi = c.weekday, let weekday = Weekday(rawValue: wi),

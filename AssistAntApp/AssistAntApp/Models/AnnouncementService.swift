@@ -118,7 +118,7 @@ final class AnnouncementService {
             settings: settings,
             schedule: appSettings.schedule,
             muteUntil: appSettings.muteUntil,
-            isAway: appSettings.desk.isAway(at: now)
+            isAway: appSettings.desk.isAwayActive
         ) else { return }
 
         // Early-out if neither output is on. Still mark the minute as
