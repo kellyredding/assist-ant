@@ -57,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the views.
         DeskService.shared.start()
 
+        // Warm + start the embedded agent session. App-level so it survives
+        // the main window closing. Resumes the persisted session id, or
+        // starts fresh (and runs the persona's daily briefing once) when no
+        // id exists on this machine.
+        AgentSessionController.shared.startOnLaunch()
+
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
             self?.handleEvent(envelope)
@@ -95,6 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Terminate the embedded agent's child process tree at a controlled
+        // point so it doesn't outlive the app or leave a lingering process
+        // that blocks a clean relaunch.
+        AgentSessionController.shared.stop()
+
         // Synchronously flush any pending window-state write so a quit
         // mid-drag still records the final frame.
         WindowStatePersistence.shared.flushSync()

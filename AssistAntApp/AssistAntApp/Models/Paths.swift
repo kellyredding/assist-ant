@@ -16,6 +16,15 @@ enum AssistAntPaths {
             ?? root.appendingPathComponent("data", isDirectory: true)
     }
 
+    /// The agent's workspace — the cwd of the embedded Claude session and the
+    /// home of its auto-loaded CLAUDE.md. A Sync-backed symlink set up
+    /// manually as a prerequisite; the app never creates it, which is why it
+    /// is intentionally absent from `ensureDirectories()`.
+    static var workspaceDir: URL {
+        env("ASSIST_ANT_WORKSPACE_DIR")
+            ?? root.appendingPathComponent("workspace", isDirectory: true)
+    }
+
     static var runtimeDir: URL {
         env("ASSIST_ANT_RUNTIME_DIR")
             ?? root.appendingPathComponent("runtime", isDirectory: true)

@@ -13,6 +13,13 @@ module AssistAnt
       Path.new(ENV.fetch("ASSIST_ANT_DATA_DIR", (root / "data").to_s))
     end
 
+    # The agent's workspace — the cwd of the embedded Claude session.
+    # A Sync-backed symlink set up manually as a prerequisite; never
+    # created here (absent from ensure_dirs!).
+    def workspace_dir : Path
+      Path.new(ENV.fetch("ASSIST_ANT_WORKSPACE_DIR", (root / "workspace").to_s))
+    end
+
     def runtime_dir : Path
       Path.new(ENV.fetch("ASSIST_ANT_RUNTIME_DIR", (root / "runtime").to_s))
     end

@@ -49,6 +49,8 @@ struct SettingsView: View {
                     TimeSettingsTab(settingsManager: settingsManager)
                 case .desk:
                     DeskSettingsTab(settingsManager: settingsManager)
+                case .agent:
+                    AgentSettingsTab(settingsManager: settingsManager)
                 }
             }
         }

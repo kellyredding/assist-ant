@@ -5,12 +5,20 @@ options:
     macOS: "14.0"
   xcodeVersion: "16.2"
 
+packages:
+  Galactic:
+    url: https://github.com/kellyredding/Galactic.git
+    exactVersion: 0.1.0
+
 targets:
   AssistAntApp:
     type: application
     platform: macOS
     sources:
       - AssistAntApp
+    dependencies:
+      - package: Galactic
+        product: Galactic
     info:
       path: AssistAntApp/Info.plist
       properties:

@@ -9,6 +9,7 @@ enum SettingsTab: String, CaseIterable {
     case announcements
     case time
     case desk
+    case agent
 
     var title: String {
         switch self {
@@ -16,6 +17,7 @@ enum SettingsTab: String, CaseIterable {
         case .announcements: return "Announcements"
         case .time: return "Time"
         case .desk: return "Desk"
+        case .agent: return "Agent"
         }
     }
 
@@ -25,6 +27,7 @@ enum SettingsTab: String, CaseIterable {
         case .announcements: return "speaker.wave.3.fill"
         case .time: return "clock"
         case .desk: return "chair.fill"
+        case .agent: return "apple.terminal"
         }
     }
 }

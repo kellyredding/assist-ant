@@ -1,4 +1,5 @@
 import Foundation
+import Galactic
 
 /// Codable settings record persisted to disk. Bumps `version` whenever the
 /// schema gains a non-backwards-compatible field; SettingsManager uses the
@@ -25,6 +26,14 @@ struct AppSettings: Codable, Equatable {
     var isMuted: Bool                     // global manual mute (open-ended)
     var desk: DeskSettings                // standing-desk sit/stand timer
 
+    // Embedded agent terminal settings — the three knobs the Agent
+    // settings tab exposes. The terminal color theme is intentionally NOT
+    // stored or user-editable: it is supplied by the GalacticConfiguration
+    // conformance as a hardcoded default.
+    var terminalFontFamily: String        // monospaced family for the agent terminal
+    var defaultTerminalFontSize: CGFloat   // point size for the agent terminal
+    var terminalScrollbackLines: Int       // scrollback buffer depth in lines
+
     static let current = AppSettings(
         version: 1,
         themePreference: .system,
@@ -33,8 +42,25 @@ struct AppSettings: Codable, Equatable {
         schedule: .workdayDefault,
         muteWhileMicInUse: true,
         isMuted: false,
-        desk: .defaults
+        desk: .defaults,
+        terminalFontFamily: "SF Mono",
+        defaultTerminalFontSize: 13.0,
+        terminalScrollbackLines: 10_000
     )
+
+    // Constraints for the Agent settings tab fields (the tab clamps typed
+    // values into these ranges).
+    static let terminalFontSizeRange: ClosedRange<CGFloat> = 10...24
+    static let terminalFontSizeStep: CGFloat = 1
+    static let terminalScrollbackRange: ClosedRange<Int> = 500...100_000
+
+    /// Estimated memory for a given scrollback line count. Assumes a
+    /// 200-column terminal at 16 bytes/cell (3,200 bytes/line), rounded up
+    /// to whole MB.
+    static func estimatedScrollbackMemory(lines: Int) -> String {
+        let megabytes = ceil(Double(lines) * 3_200.0 / 1_000_000.0)
+        return "~\(Int(megabytes)) MB"
+    }
 
     // Custom decoder so prefs.json files saved before a field existed (or
     // written by a future version that drops fields) decode cleanly to
@@ -85,6 +111,16 @@ struct AppSettings: Codable, Equatable {
         self.desk = try container.decodeIfPresent(
             DeskSettings.self, forKey: .desk
         ) ?? AppSettings.current.desk
+
+        self.terminalFontFamily = try container.decodeIfPresent(
+            String.self, forKey: .terminalFontFamily
+        ) ?? AppSettings.current.terminalFontFamily
+        self.defaultTerminalFontSize = try container.decodeIfPresent(
+            CGFloat.self, forKey: .defaultTerminalFontSize
+        ) ?? AppSettings.current.defaultTerminalFontSize
+        self.terminalScrollbackLines = try container.decodeIfPresent(
+            Int.self, forKey: .terminalScrollbackLines
+        ) ?? AppSettings.current.terminalScrollbackLines
     }
 
     init(
@@ -95,7 +131,10 @@ struct AppSettings: Codable, Equatable {
         schedule: WeeklySchedule,
         muteWhileMicInUse: Bool,
         isMuted: Bool,
-        desk: DeskSettings
+        desk: DeskSettings,
+        terminalFontFamily: String,
+        defaultTerminalFontSize: CGFloat,
+        terminalScrollbackLines: Int
     ) {
         self.version = version
         self.themePreference = themePreference
@@ -105,6 +144,9 @@ struct AppSettings: Codable, Equatable {
         self.muteWhileMicInUse = muteWhileMicInUse
         self.isMuted = isMuted
         self.desk = desk
+        self.terminalFontFamily = terminalFontFamily
+        self.defaultTerminalFontSize = defaultTerminalFontSize
+        self.terminalScrollbackLines = terminalScrollbackLines
     }
 
     /// Whether audible announcements (time or desk) may play right now:
@@ -136,6 +178,9 @@ struct AppSettings: Codable, Equatable {
         case muteWhileMicInUse
         case isMuted
         case desk
+        case terminalFontFamily
+        case defaultTerminalFontSize
+        case terminalScrollbackLines
     }
 
     /// Legacy keys for reading schedule + muteWhileMicInUse out of the
@@ -144,4 +189,17 @@ struct AppSettings: Codable, Equatable {
         case schedule
         case muteWhileMicInUse
     }
+}
+
+/// Conformance to Galactic's configuration seam. `terminalFontFamily`,
+/// `defaultTerminalFontSize`, and `terminalScrollbackLines` are stored
+/// properties whose names match the protocol verbatim. The color theme is
+/// not a user setting here — it is pinned to the default theme so the
+/// embedded agent terminal renders identically to a default-theme session.
+extension AppSettings: GalacticConfiguration {
+    /// The default terminal color theme id. Resolved by
+    /// `TerminalColorTheme.theme(named:)` inside Galactic; an unrecognized
+    /// name falls back to the same default, so this is safe even across
+    /// Galactic theme-catalog changes.
+    var terminalColorThemeName: String { "galaxy-default" }
 }
