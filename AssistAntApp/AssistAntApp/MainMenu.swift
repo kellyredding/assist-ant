@@ -30,6 +30,32 @@ final class MainMenu: NSObject {
         mainMenu.addItem(fileMenuItem)
         buildFileMenu(fileMenu)
 
+        // Edit menu — standard text-editing actions. The items target the
+        // first responder (nil target), so AppKit dispatches them down the
+        // responder chain to the focused terminal surface, which implements
+        // the NSText editing selectors. Without this menu ⌘V has no home and
+        // never reaches the terminal, so pasting silently fails. Mirrors
+        // Galaxy's Edit menu.
+        let editMenu = NSMenu(title: "Edit")
+        let editMenuItem = NSMenuItem(
+            title: "Edit", action: nil, keyEquivalent: ""
+        )
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+        buildEditMenu(editMenu)
+
+        // View menu — live, transient terminal font zoom (Terminal.app
+        // style). Items target MenuActions.shared and are enabled/disabled
+        // dynamically by validateMenuItem on the agent terminal holding
+        // first responder. Mirrors Galaxy's View-menu terminal-font block.
+        let viewMenu = NSMenu(title: "View")
+        let viewMenuItem = NSMenuItem(
+            title: "View", action: nil, keyEquivalent: ""
+        )
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+        buildViewMenu(viewMenu)
+
         // Window menu — AppKit auto-populates with Minimize, Zoom, Bring
         // All to Front, and the list of open windows when we set
         // NSApp.windowsMenu.
@@ -107,6 +133,58 @@ final class MainMenu: NSObject {
         )
         menu.addItem(closeItem)
     }
+
+    // MARK: - Edit menu
+
+    private func buildEditMenu(_ menu: NSMenu) {
+        menu.addItem(withTitle: "Undo",
+                     action: Selector(("undo:")), keyEquivalent: "z")
+        menu.addItem(withTitle: "Redo",
+                     action: Selector(("redo:")), keyEquivalent: "Z")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Cut",
+                     action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        menu.addItem(withTitle: "Copy",
+                     action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        menu.addItem(withTitle: "Paste",
+                     action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        menu.addItem(withTitle: "Select All",
+                     action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    }
+
+    // MARK: - View menu
+
+    private func buildViewMenu(_ menu: NSMenu) {
+        // Terminal font size. Enable state is computed dynamically by
+        // MenuActions.validateMenuItem — gated on the agent terminal being
+        // first responder. Static isEnabled would go stale between menu
+        // opens and drop the key equivalents on the floor. No explicit
+        // modifier mask: the items take AppKit's default (.command),
+        // matching Galaxy.
+        let defaultItem = NSMenuItem(
+            title: "Default terminal font size",
+            action: #selector(MenuActions.defaultTerminalFontSize(_:)),
+            keyEquivalent: "0"
+        )
+        defaultItem.target = MenuActions.shared
+        menu.addItem(defaultItem)
+
+        let biggerItem = NSMenuItem(
+            title: "Bigger",
+            action: #selector(MenuActions.biggerTerminalFontSize(_:)),
+            keyEquivalent: "="
+        )
+        biggerItem.target = MenuActions.shared
+        menu.addItem(biggerItem)
+
+        let smallerItem = NSMenuItem(
+            title: "Smaller",
+            action: #selector(MenuActions.smallerTerminalFontSize(_:)),
+            keyEquivalent: "-"
+        )
+        smallerItem.target = MenuActions.shared
+        menu.addItem(smallerItem)
+    }
 }
 
 // MARK: - MenuActions
@@ -123,10 +201,76 @@ final class MenuActions: NSObject {
     @objc func showPreferences(_ sender: Any?) {
         NotificationCenter.default.post(name: .showPreferences, object: nil)
     }
+
+    // MARK: - View menu actions
+
+    /// View ▸ Default / Bigger / Smaller terminal font size. Unlike the
+    /// notification-posting actions above, these call the controller
+    /// directly — mirroring Galaxy, whose font actions call
+    /// `focusedTerminalPane()?.increaseFontSize()` directly. The focus
+    /// guard is belt-and-suspenders; validateMenuItem already gates these.
+    @objc func defaultTerminalFontSize(_ sender: Any?) {
+        guard Self.agentTerminalIsFocused() else { return }
+        AgentSessionController.shared.resetFontSize()
+    }
+
+    @objc func biggerTerminalFontSize(_ sender: Any?) {
+        guard Self.agentTerminalIsFocused() else { return }
+        AgentSessionController.shared.increaseFontSize()
+    }
+
+    @objc func smallerTerminalFontSize(_ sender: Any?) {
+        guard Self.agentTerminalIsFocused() else { return }
+        AgentSessionController.shared.decreaseFontSize()
+    }
+
+    /// Whether the agent terminal currently holds first responder. Collapses
+    /// Galaxy's `focusedTerminalPane()` (which walks the responder chain to a
+    /// TerminalHostView across multiple panes) to a single-pane check: walk
+    /// up from the first responder looking for the one AgentTerminalHostView.
+    /// Returns false when focus is elsewhere (Settings window, no key window)
+    /// so ⌘= / ⌘- / ⌘0 don't zoom the terminal from a text field.
+    static func agentTerminalIsFocused() -> Bool {
+        guard let window = NSApp.keyWindow,
+              let responder = window.firstResponder as? NSView
+        else { return false }
+        var view: NSView? = responder
+        while let v = view {
+            if v is AgentTerminalHostView { return true }
+            view = v.superview
+        }
+        return false
+    }
 }
 
 // MARK: - Notification names
 
 extension Notification.Name {
     static let showPreferences = Notification.Name("showPreferences")
+}
+
+// MARK: - Menu validation
+
+/// Dynamic enable/disable for the View ▸ font-size shortcuts. AppKit calls
+/// validateMenuItem both on visual menu open and on key-equivalent
+/// dispatch, so the keyboard shortcut and the visible menu state stay in
+/// lockstep without a reactive rebuild. Mirrors Galaxy's MainMenu
+/// validateMenuItem (terminal-font cases only). Every other MenuActions
+/// item defers to its build-time isEnabled.
+extension MenuActions: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let controller = AgentSessionController.shared
+        switch menuItem.action {
+        case #selector(defaultTerminalFontSize(_:)):
+            return Self.agentTerminalIsFocused()
+        case #selector(biggerTerminalFontSize(_:)):
+            return Self.agentTerminalIsFocused()
+                && controller.canIncreaseFontSize
+        case #selector(smallerTerminalFontSize(_:)):
+            return Self.agentTerminalIsFocused()
+                && controller.canDecreaseFontSize
+        default:
+            return menuItem.isEnabled
+        }
+    }
 }

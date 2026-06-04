@@ -93,6 +93,16 @@ final class AgentSessionController: ObservableObject {
     /// `backend?.view` when state is `.running`.
     @Published private(set) var backend: TerminalBackend?
 
+    /// Live, transient terminal font size for the embedded session — the
+    /// analog of Galaxy's per-`Session` `terminalFontSize`. Driven by the
+    /// View ▸ Bigger / Smaller / Default keyboard zoom and applied to the
+    /// backend immediately. NOT persisted: `resetFontSize()` snaps it back
+    /// to `AppSettings.defaultTerminalFontSize` and it is re-seeded on each
+    /// spawn. Published so a future scrollback overlay can re-render on a
+    /// font change.
+    @Published private(set) var terminalFontSize: CGFloat =
+        AppSettings.current.defaultTerminalFontSize
+
     /// The current Claude session id (lowercased UUID). Persisted to
     /// AgentStatePersistence so relaunch resumes it.
     private(set) var sessionId: String?
@@ -154,6 +164,62 @@ final class AgentSessionController: ObservableObject {
         state = .stopped
     }
 
+    // MARK: - Terminal font zoom (transient)
+
+    /// Bump the live font one step toward the ceiling and apply it to the
+    /// backend immediately. Mirrors Galaxy
+    /// `Session.increaseTerminalFontSize` (via
+    /// `SessionTerminalPane.increaseFontSize()`).
+    func increaseFontSize() {
+        setFontSize(
+            min(
+                terminalFontSize + AppSettings.terminalFontSizeStep,
+                AppSettings.terminalFontSizeRange.upperBound
+            )
+        )
+    }
+
+    /// Drop the live font one step toward the floor.
+    func decreaseFontSize() {
+        setFontSize(
+            max(
+                terminalFontSize - AppSettings.terminalFontSizeStep,
+                AppSettings.terminalFontSizeRange.lowerBound
+            )
+        )
+    }
+
+    /// Snap the live font back to the persisted default. The reset target
+    /// is the *setting*, not a constant — matches Galaxy
+    /// `Session.resetTerminalFontSize`.
+    func resetFontSize() {
+        setFontSize(SettingsManager.shared.settings.defaultTerminalFontSize)
+    }
+
+    /// True while the live size is below the ceiling. Drives the
+    /// View ▸ Bigger item's enabled state.
+    var canIncreaseFontSize: Bool {
+        terminalFontSize < AppSettings.terminalFontSizeRange.upperBound
+    }
+
+    /// True while the live size is above the floor.
+    var canDecreaseFontSize: Bool {
+        terminalFontSize > AppSettings.terminalFontSizeRange.lowerBound
+    }
+
+    /// Apply a clamped font size to the live backend. No-op when the
+    /// session isn't running or the size is unchanged.
+    private func setFontSize(_ size: CGFloat) {
+        guard let backend, size != terminalFontSize else { return }
+        terminalFontSize = size
+        backend.setFont(
+            resolveTerminalFont(
+                family: SettingsManager.shared.settings.terminalFontFamily,
+                size: size
+            )
+        )
+    }
+
     // MARK: - Spawn / teardown
 
     private func spawn(sessionId: String, resume: Bool) {
@@ -200,6 +266,9 @@ final class AgentSessionController: ObservableObject {
                 size: settings.defaultTerminalFontSize
             )
         )
+        // Seed the transient zoom level from the persisted default so a
+        // session restart returns to it (transient-reset semantics).
+        terminalFontSize = settings.defaultTerminalFontSize
         backend.setCaretHidden(true)  // Claude Code renders its own cursor
 
         // Re-apply settings live when prefs change (font / size /
@@ -217,6 +286,9 @@ final class AgentSessionController: ObservableObject {
                         size: settings.defaultTerminalFontSize
                     )
                 )
+                // A settings-driven font change is the new transient
+                // baseline, so live zoom and the persisted default agree.
+                self?.terminalFontSize = settings.defaultTerminalFontSize
             }
 
         // Transition to stopped when the child exits. No auto-restart: a
