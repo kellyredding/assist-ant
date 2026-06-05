@@ -16,8 +16,11 @@ struct AgentTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: AgentTerminalHostView, context: Context) {
         // The backend's view is stable for the life of a session, so there
         // is nothing to reconcile on re-render. Re-assert focus in case the
-        // view was just (re)mounted after a window reopen.
+        // view was just (re)mounted after a window reopen, and refresh drag
+        // registration so the terminal is a drop target only while running
+        // (mirrors Galaxy calling refreshDragRegistration from updateNSView).
         nsView.requestFocus()
+        nsView.refreshDragRegistration()
     }
 }
 
@@ -62,6 +65,15 @@ final class AgentTerminalHostView: NSView {
             terminalView.frame = paddedBounds()
             terminalView.autoresizingMask = []
             addSubview(terminalView)
+            // Mount the drag-highlight overlay above the terminal surface
+            // (hidden until a file drag enters) and register for file drops
+            // now that we're in a window. Mirrors Galaxy's DragHighlightView
+            // mount + dynamic drag registration.
+            let highlight = DragHighlightView(frame: paddedBounds())
+            highlight.autoresizingMask = []
+            addSubview(highlight, positioned: .above, relativeTo: terminalView)
+            dragHighlightView = highlight
+            refreshDragRegistration()
             didSetUp = true
             // Defer focus a runloop turn so the responder chain has settled
             // after the view is in a window.
@@ -73,7 +85,9 @@ final class AgentTerminalHostView: NSView {
 
     override func layout() {
         super.layout()
-        terminalView.frame = paddedBounds()
+        let inner = paddedBounds()
+        terminalView.frame = inner
+        dragHighlightView?.frame = inner
     }
 
     private func paddedBounds() -> NSRect {
@@ -198,7 +212,13 @@ final class AgentTerminalHostView: NSView {
             scrollbackView: webView
         )
         overlay.autoresizingMask = []
-        addSubview(overlay)
+        // Mount the overlay above the drag-highlight view so, while
+        // scrollback is open, the overlay's ScrollbackDropWebView intercepts
+        // file drags over itself; the terminal host's drag handlers are then
+        // the safety path for drags reaching the live-terminal region.
+        // Mirrors Galaxy's `addSubview(overlay, positioned: .above,
+        // relativeTo: dragHighlightView)`.
+        addSubview(overlay, positioned: .above, relativeTo: dragHighlightView)
         scrollbackOverlay = overlay
         window?.makeFirstResponder(webView.webView)
     }
@@ -298,5 +318,148 @@ final class AgentTerminalHostView: NSView {
                 )
             }
         )
+    }
+
+    // MARK: - File drag-and-drop (bracketed paste)
+
+    /// Drop-zone highlight overlay, drawn above the terminal surface and
+    /// toggled on while a file drag hovers. Mirrors Galaxy's
+    /// `dragHighlightView`.
+    private var dragHighlightView: DragHighlightView?
+
+    /// Whether a file drag is currently hovering the terminal — drives the
+    /// highlight overlay. Mirrors Galaxy's `isReceivingDrag`.
+    private var isReceivingDrag = false {
+        didSet { dragHighlightView?.isHighlighted = isReceivingDrag }
+    }
+
+    /// Drops are accepted only while the single embedded session is running
+    /// — the collapse of Galaxy's `isActive && pane.isAcceptingInput`.
+    private var canAcceptDrop: Bool {
+        AgentSessionController.shared.state == .running
+    }
+
+    /// Register for file drops only while running; unregister otherwise so a
+    /// stopped session is not a drop target. Mirrors Galaxy
+    /// `updateDragRegistration` / `refreshDragRegistration`; called from
+    /// `AgentTerminalView.updateNSView` so it tracks session state.
+    func refreshDragRegistration() {
+        if canAcceptDrop {
+            registerForDraggedTypes([.fileURL])
+        } else {
+            unregisterDraggedTypes()
+        }
+    }
+
+    override func draggingEntered(
+        _ sender: NSDraggingInfo
+    ) -> NSDragOperation {
+        // Refuse drops while any modal is presenting over our window:
+        // app-modal Settings (NSApp.runModal) or window-modal sheets (every
+        // SheetAlert.confirm — discard-notes, etc.). Prevents the
+        // stale-render bug where a drop accepts the paste bytes but the
+        // terminal doesn't repaint until a later event. Don't gate on
+        // isKeyWindow — for Finder drags the source app stays active, so
+        // neither of our windows is key during the drag, which would reject
+        // every legitimate drop.
+        guard !ModalState.isPresenting(over: window) else {
+            NSCursor.operationNotAllowed.set()
+            return []
+        }
+
+        // A file drag dismisses scrollback; if notes are unsaved, confirm
+        // first instead of auto-dismissing.
+        if scrollbackOverlay != nil {
+            if scrollbackOverlay?.scrollbackView.hasNotes == true {
+                showDismissConfirmation()
+                return []
+            }
+            dismissScrollback()
+        }
+
+        guard canAcceptDrop else {
+            // "Not allowed" cursor for a stopped session.
+            NSCursor.operationNotAllowed.set()
+            return []
+        }
+
+        // Accept only file URLs.
+        guard sender.draggingPasteboard.canReadObject(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) else {
+            return []
+        }
+
+        isReceivingDrag = true
+        NSCursor.dragCopy.set()
+        return .copy
+    }
+
+    override func draggingUpdated(
+        _ sender: NSDraggingInfo
+    ) -> NSDragOperation {
+        guard !ModalState.isPresenting(over: window), canAcceptDrop else {
+            NSCursor.operationNotAllowed.set()
+            return []
+        }
+        NSCursor.dragCopy.set()
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isReceivingDrag = false
+        NSCursor.arrow.set()
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        isReceivingDrag = false
+        NSCursor.arrow.set()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isReceivingDrag = false
+        NSCursor.arrow.set()
+
+        // Defense-in-depth: same modal + accept guards as draggingEntered.
+        // AppKit may not route performDragOperation when entered returned []
+        // — but if it does, refuse cleanly.
+        guard !ModalState.isPresenting(over: window), canAcceptDrop else {
+            return false
+        }
+
+        // Bring the app and window forward when a file is dropped.
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !urls.isEmpty else {
+            return false
+        }
+
+        // Deduplicate by standardized path (some drag sources duplicate).
+        var seenPaths = Set<String>()
+        var uniqueURLs: [URL] = []
+        for url in urls {
+            let path = url.standardized.path
+            if !seenPaths.contains(path) {
+                seenPaths.insert(path)
+                uniqueURLs.append(url)
+            }
+        }
+
+        // Raw space-joined paths + trailing space — Galaxy's exact format,
+        // "like Cmd+V so Claude Code shows the gray-box treatment".
+        let pathsText =
+            uniqueURLs.map { $0.path }.joined(separator: " ") + " "
+
+        // Send-to-session seam: bracketed paste, NO submit — the user
+        // reviews the paths and presses Return themselves. Mirrors Galaxy's
+        // performDragOperation (paste, no CR).
+        AgentSessionController.shared.send(text: pathsText, asPaste: true)
+        requestFocus()
+        return true
     }
 }
