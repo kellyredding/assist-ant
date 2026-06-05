@@ -220,6 +220,54 @@ final class AgentSessionController: ObservableObject {
         )
     }
 
+    // MARK: - Send to session (PTY)
+
+    /// Delay between writing command text and sending CR, so the TUI
+    /// registers the text as input before Enter arrives. Mirrors Galaxy
+    /// `Session.commandSubmitDelay` (100ms).
+    private static let commandSubmitDelay: TimeInterval = 0.1
+
+    /// Write text into the running session's PTY. `asPaste` wraps the text
+    /// in bracketed-paste sequences when the terminal has bracketed-paste
+    /// mode on (the backend handles the wrapping). The single seam every
+    /// PTY-write feature rides: the slash commands here, a scrollback
+    /// overlay's "Send to Claude", and a future briefing trigger. Mirrors
+    /// Galaxy `TerminalPane.send(text:asPaste:)`. No-op when not running.
+    func send(text: String, asPaste: Bool) {
+        guard state == .running, let backend else { return }
+        backend.send(text: text, asPaste: asPaste)
+    }
+
+    /// Send a single CR (0x0D) to submit whatever was last written — the
+    /// same byte as a keyboard Return. Mirrors Galaxy's inline
+    /// `backend.send(bytes: [0x0D])` in `Session.sendCommand`.
+    func submit() {
+        guard state == .running, let backend else { return }
+        backend.send(bytes: [0x0D])
+    }
+
+    /// Send a slash command and submit it after `commandSubmitDelay`.
+    /// Mirrors the send-text → delay → CR core of Galaxy
+    /// `Session.sendCommand`, minus Galaxy's socket-driven verify/retry and
+    /// synthetic-turn bookkeeping (which depend on turn-state events the
+    /// embedded session does not observe).
+    func sendCommand(_ command: String) {
+        guard state == .running, let backend else {
+            NSLog(
+                "AgentSessionController: cannot send '%@' — not running",
+                command
+            )
+            return
+        }
+        backend.send(text: command, asPaste: false)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.commandSubmitDelay
+        ) { [weak self] in
+            guard let self, self.state == .running else { return }
+            self.backend?.send(bytes: [0x0D])
+        }
+    }
+
     // MARK: - Spawn / teardown
 
     private func spawn(sessionId: String, resume: Bool) {

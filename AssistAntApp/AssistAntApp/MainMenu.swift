@@ -56,6 +56,17 @@ final class MainMenu: NSObject {
         mainMenu.addItem(viewMenuItem)
         buildViewMenu(viewMenu)
 
+        // Agent menu — session-acting commands sent to the embedded
+        // session's PTY. AssistAnt's analog of Galaxy's Sessions menu;
+        // items are gated by validateMenuItem on the session running.
+        let agentMenu = NSMenu(title: "Agent")
+        let agentMenuItem = NSMenuItem(
+            title: "Agent", action: nil, keyEquivalent: ""
+        )
+        agentMenuItem.submenu = agentMenu
+        mainMenu.addItem(agentMenuItem)
+        buildAgentMenu(agentMenu)
+
         // Window menu — AppKit auto-populates with Minimize, Zoom, Bring
         // All to Front, and the list of open windows when we set
         // NSApp.windowsMenu.
@@ -185,6 +196,34 @@ final class MainMenu: NSObject {
         smallerItem.target = MenuActions.shared
         menu.addItem(smallerItem)
     }
+
+    // MARK: - Agent menu
+
+    private func buildAgentMenu(_ menu: NSMenu) {
+        // Clear / Compact send the slash command to the embedded session.
+        // Bindings copied verbatim from Galaxy: Delete (0x08) with the
+        // command+shift / command+control masks. Enable state is gated
+        // dynamically by validateMenuItem on the session running.
+        let clearItem = NSMenuItem(
+            title: "Clear session",
+            action: #selector(MenuActions.clearSession(_:)),
+            keyEquivalent: ""
+        )
+        clearItem.target = MenuActions.shared
+        clearItem.keyEquivalent = "\u{08}"  // Delete key
+        clearItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(clearItem)
+
+        let compactItem = NSMenuItem(
+            title: "Compact session",
+            action: #selector(MenuActions.compactSession(_:)),
+            keyEquivalent: ""
+        )
+        compactItem.target = MenuActions.shared
+        compactItem.keyEquivalent = "\u{08}"  // Delete key
+        compactItem.keyEquivalentModifierMask = [.command, .control]
+        menu.addItem(compactItem)
+    }
 }
 
 // MARK: - MenuActions
@@ -241,6 +280,20 @@ final class MenuActions: NSObject {
         }
         return false
     }
+
+    // MARK: - Agent menu actions
+
+    /// Agent ▸ Clear / Compact session. Mirrors Galaxy's
+    /// clearSession / compactSession, but sends the slash command straight
+    /// to the single embedded session (no /handoff auto-chain — that is
+    /// Galaxy multi-session machinery).
+    @objc func clearSession(_ sender: Any?) {
+        AgentSessionController.shared.sendCommand("/clear")
+    }
+
+    @objc func compactSession(_ sender: Any?) {
+        AgentSessionController.shared.sendCommand("/compact")
+    }
 }
 
 // MARK: - Notification names
@@ -269,6 +322,9 @@ extension MenuActions: NSMenuItemValidation {
         case #selector(smallerTerminalFontSize(_:)):
             return Self.agentTerminalIsFocused()
                 && controller.canDecreaseFontSize
+        case #selector(clearSession(_:)),
+             #selector(compactSession(_:)):
+            return controller.state == .running
         default:
             return menuItem.isEnabled
         }
