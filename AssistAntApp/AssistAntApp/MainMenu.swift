@@ -186,6 +186,20 @@ final class MainMenu: NSObject {
 
         menu.addItem(.separator())
 
+        // Scrollback (⌘S) opens the read-only scrollback overlay over the
+        // live terminal. No explicit modifier mask: takes AppKit's default
+        // (.command), matching Galaxy. Enable state is gated dynamically by
+        // validateMenuItem on the session running.
+        let scrollbackItem = NSMenuItem(
+            title: "Scrollback",
+            action: #selector(MenuActions.enterScrollback(_:)),
+            keyEquivalent: "s"
+        )
+        scrollbackItem.target = MenuActions.shared
+        menu.addItem(scrollbackItem)
+
+        menu.addItem(.separator())
+
         // Clear / Compact send the slash command to the embedded session.
         // Bindings copied verbatim from Galaxy: Delete (0x08) with the
         // command+shift / command+control masks. Enable state is gated
@@ -269,6 +283,13 @@ final class MenuActions: NSObject {
 
     // MARK: - Agent menu actions
 
+    /// Agent ▸ Scrollback. Posts the notification the agent terminal host
+    /// observes to open the scrollback overlay. Mirrors Galaxy's
+    /// MenuActions.enterScrollback.
+    @objc func enterScrollback(_ sender: Any?) {
+        NotificationCenter.default.post(name: .enterScrollback, object: nil)
+    }
+
     /// Agent ▸ Clear / Compact session. Mirrors Galaxy's
     /// clearSession / compactSession, but sends the slash command straight
     /// to the single embedded session (no /handoff auto-chain — that is
@@ -286,6 +307,7 @@ final class MenuActions: NSObject {
 
 extension Notification.Name {
     static let showPreferences = Notification.Name("showPreferences")
+    static let enterScrollback = Notification.Name("enterScrollback")
 }
 
 // MARK: - Menu validation
@@ -308,6 +330,8 @@ extension MenuActions: NSMenuItemValidation {
         case #selector(smallerTerminalFontSize(_:)):
             return Self.agentTerminalIsFocused()
                 && controller.canDecreaseFontSize
+        case #selector(enterScrollback(_:)):
+            return controller.state == .running
         case #selector(clearSession(_:)),
              #selector(compactSession(_:)):
             return controller.state == .running
