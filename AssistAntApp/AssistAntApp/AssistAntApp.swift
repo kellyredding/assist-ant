@@ -64,6 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the views.
         DeskService.shared.start()
 
+        // Auto-away: flip to "away from desk" (which mutes announcements)
+        // when the screen locks or the machine sleeps. One-way — returning
+        // to the desk is manual.
+        AwayTriggerService.shared.start()
+
         // Warm + start the embedded agent session. App-level so it survives
         // the main window closing. Resumes the persisted session id, or
         // starts fresh (and runs the persona's daily briefing once) when no
