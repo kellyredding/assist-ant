@@ -102,9 +102,14 @@ extension AppSettings {
             let minute = components.minute
         else { return .scheduled }
 
+        // A disabled master switch reads exactly like being outside the
+        // schedule window: nothing will fire, so show the quiet
+        // plain-speaker (`.scheduled`) glyph rather than the active waves —
+        // and `.scheduled` is already clickable (opens Settings), so the
+        // handling matches outside-schedule too.
         let timeOfDay = TimeOfDay(hour: hour, minute: minute)
-        return schedule.isActive(at: timeOfDay, weekday: weekday)
-            ? .active
-            : .scheduled
+        let withinWindow = announcementsEnabled
+            && schedule.isActive(at: timeOfDay, weekday: weekday)
+        return withinWindow ? .active : .scheduled
     }
 }

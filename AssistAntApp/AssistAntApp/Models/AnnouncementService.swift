@@ -101,6 +101,10 @@ final class AnnouncementService {
         let appSettings = SettingsManager.shared.settings
         let settings = appSettings.announcement
 
+        // Master kill switch: announcements globally disabled — no time
+        // announcement fires. The clock display is unaffected.
+        guard appSettings.announcementsEnabled else { return }
+
         // Debounce: ClockService can theoretically publish the same
         // minute twice (sleep/wake realign). Skip if we already fired
         // for this minute.

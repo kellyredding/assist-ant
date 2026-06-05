@@ -14,16 +14,20 @@ import SwiftUI
 /// Adapted from Galaxy's inline SettingsCard
 /// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/Views/SettingsView.swift).
 struct SettingsCard<Content: View>: View {
-    let title: String
+    /// Optional section title above the box. Omit it for a bare card (e.g.
+    /// a single lead toggle that needs no heading).
+    var title: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.leading, 12)
-                .padding(.bottom, 6)
+            if let title, !title.isEmpty {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 12)
+                    .padding(.bottom, 6)
+            }
 
             VStack(alignment: .leading, spacing: 0) {
                 content

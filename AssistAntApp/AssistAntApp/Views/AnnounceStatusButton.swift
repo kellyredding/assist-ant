@@ -69,9 +69,17 @@ struct AnnounceStatusButton: View {
     var body: some View {
         Group {
             switch state {
-            case .disabled, .scheduled:
+            case .disabled:
+                // No output can fire at all — the per-feature enables live
+                // on the Time / Desk tabs.
                 ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
-                               tint: iconTint) { openSettings() }
+                               tint: iconTint) { openSettings(.time) }
+            case .scheduled:
+                // On but silent right now — outside the schedule window, or
+                // announcements disabled. Both are controlled from the
+                // Announcements tab (the schedule and the master Enable).
+                ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
+                               tint: iconTint) { openSettings(.announcements) }
             case .active:
                 ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
                                tint: iconTint) { MuteController.mute() }
@@ -103,17 +111,15 @@ struct AnnounceStatusButton: View {
             .foregroundStyle(iconTint)
     }
 
-    /// Open Settings to the Time tab — the useful action for both the
-    /// disabled and scheduled states (enable announcements, or review the
-    /// schedule). Deferred to the next run-loop tick: showPreferences
-    /// calls NSApp.runModal(for:), which spins up a nested modal event
-    /// loop; invoking it synchronously inside the click handler nests it
-    /// in the still-in-flight mouse event and starves the modal window of
-    /// events (it opens but won't take clicks). The hop matches the clean
-    /// main-loop pass the menu-bar and ⌘, paths already use.
-    private func openSettings() {
+    /// Open Settings to a given tab. Deferred to the next run-loop tick:
+    /// showPreferences calls NSApp.runModal(for:), which spins up a nested
+    /// modal event loop; invoking it synchronously inside the click handler
+    /// nests it in the still-in-flight mouse event and starves the modal
+    /// window of events (it opens but won't take clicks). The hop matches
+    /// the clean main-loop pass the menu-bar and ⌘, paths already use.
+    private func openSettings(_ tab: SettingsTab) {
         DispatchQueue.main.async {
-            PreferencesWindowController.showPreferences(initialTab: .time)
+            PreferencesWindowController.showPreferences(initialTab: tab)
         }
     }
 }

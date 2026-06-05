@@ -8,8 +8,31 @@ import SwiftUI
 struct AnnouncementsSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
 
+    private var enabled: Bool {
+        settingsManager.settings.announcementsEnabled
+    }
+
     var body: some View {
         VStack(spacing: 16) {
+            SettingsCard {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(
+                        "Enable",
+                        isOn: $settingsManager.settings.announcementsEnabled
+                    )
+                    .toggleStyle(.checkbox)
+
+                    Text("Silence all spoken and chimed time and desk "
+                        + "announcements without losing your schedule. The "
+                        + "clock and desk timer keep working.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // The schedule and mic-mute only shape *when* announcements
+            // play, so they are inert (and dimmed) while announcements are
+            // globally off. Their values are preserved.
             SettingsCard(title: "Mute") {
                 Toggle(
                     "Mute while microphone in use",
@@ -17,12 +40,14 @@ struct AnnouncementsSettingsTab: View {
                 )
                 .toggleStyle(.checkbox)
             }
+            .disabled(!enabled)
 
             SettingsCard(title: "Schedule") {
                 ScheduleEditor(
                     schedule: $settingsManager.settings.schedule
                 )
             }
+            .disabled(!enabled)
         }
         .padding(20)
     }

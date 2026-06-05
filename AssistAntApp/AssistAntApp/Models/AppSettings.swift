@@ -24,6 +24,7 @@ struct AppSettings: Codable, Equatable {
     var schedule: WeeklySchedule          // shared by announcements + desk
     var muteWhileMicInUse: Bool           // global: silences all audio
     var isMuted: Bool                     // global manual mute (open-ended)
+    var announcementsEnabled: Bool        // master: silence all audible announcements
     var desk: DeskSettings                // standing-desk sit/stand timer
 
     // Embedded agent terminal settings — the three knobs the Agent
@@ -42,6 +43,7 @@ struct AppSettings: Codable, Equatable {
         schedule: .workdayDefault,
         muteWhileMicInUse: true,
         isMuted: false,
+        announcementsEnabled: true,
         desk: .defaults,
         terminalFontFamily: "SF Mono",
         defaultTerminalFontSize: 13.0,
@@ -108,6 +110,9 @@ struct AppSettings: Codable, Equatable {
         self.isMuted = try container.decodeIfPresent(
             Bool.self, forKey: .isMuted
         ) ?? AppSettings.current.isMuted
+        self.announcementsEnabled = try container.decodeIfPresent(
+            Bool.self, forKey: .announcementsEnabled
+        ) ?? AppSettings.current.announcementsEnabled
         self.desk = try container.decodeIfPresent(
             DeskSettings.self, forKey: .desk
         ) ?? AppSettings.current.desk
@@ -131,6 +136,7 @@ struct AppSettings: Codable, Equatable {
         schedule: WeeklySchedule,
         muteWhileMicInUse: Bool,
         isMuted: Bool,
+        announcementsEnabled: Bool,
         desk: DeskSettings,
         terminalFontFamily: String,
         defaultTerminalFontSize: CGFloat,
@@ -143,6 +149,7 @@ struct AppSettings: Codable, Equatable {
         self.schedule = schedule
         self.muteWhileMicInUse = muteWhileMicInUse
         self.isMuted = isMuted
+        self.announcementsEnabled = announcementsEnabled
         self.desk = desk
         self.terminalFontFamily = terminalFontFamily
         self.defaultTerminalFontSize = defaultTerminalFontSize
@@ -150,14 +157,18 @@ struct AppSettings: Codable, Equatable {
     }
 
     /// Whether audible announcements (time or desk) may play right now:
-    /// inside the schedule window, not snoozed by the mute timer, not away
-    /// from the desk, and not suppressed by the mic. Visual is never
-    /// subject to this — only audio passes through this gate.
+    /// announcements globally enabled, inside the schedule window, not
+    /// snoozed by the mute timer, not away from the desk, and not
+    /// suppressed by the mic. Visual is never subject to this — only audio
+    /// passes through this gate.
     func audioGateOpen(
         at now: Date,
         micInUse: Bool,
         calendar: Calendar = .current
     ) -> Bool {
+        // Master kill switch: announcements globally disabled silences all
+        // audible output (and keeps desk nudges from surfacing the window).
+        if !announcementsEnabled { return false }
         if muteWhileMicInUse, micInUse { return false }
         if desk.isAwayActive { return false }
         if isMuted { return false }
@@ -177,6 +188,7 @@ struct AppSettings: Codable, Equatable {
         case schedule
         case muteWhileMicInUse
         case isMuted
+        case announcementsEnabled
         case desk
         case terminalFontFamily
         case defaultTerminalFontSize
