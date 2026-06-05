@@ -23,6 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Enable click-through: clicking into an inactive AssistAnt window
+        // activates it AND delivers the click to the control in one action,
+        // instead of requiring a second click. SwiftUI's internal NSView
+        // subclasses return false from acceptsFirstMouse(for:) and can't be
+        // subclassed, so swizzle the base NSView method. Mirrors Galaxy.
+        NSView.enableClickThrough()
+
         AssistAntPaths.ensureDirectories()
 
         // Touch SettingsManager.shared so it loads prefs from disk before
@@ -184,4 +191,28 @@ extension Notification.Name {
     /// Posted by `DeskService` when a desk nudge first becomes audible, so
     /// the AppDelegate can bring the main window forward.
     static let raiseMainWindow = Notification.Name("raiseMainWindow")
+}
+
+// MARK: - Click-through swizzle
+
+extension NSView {
+    /// Swizzle `acceptsFirstMouse(for:)` on NSView to return true globally,
+    /// enabling click-through for every view — including SwiftUI's internal
+    /// view classes that can't be subclassed. Called once at app launch.
+    /// Mirrors Galaxy's enableClickThrough.
+    static func enableClickThrough() {
+        let original = class_getInstanceMethod(
+            NSView.self, #selector(acceptsFirstMouse(for:))
+        )!
+        let replacement = class_getInstanceMethod(
+            NSView.self, #selector(assistAnt_acceptsFirstMouse(for:))
+        )!
+        method_exchangeImplementations(original, replacement)
+    }
+
+    @objc private func assistAnt_acceptsFirstMouse(
+        for event: NSEvent?
+    ) -> Bool {
+        return true
+    }
 }
