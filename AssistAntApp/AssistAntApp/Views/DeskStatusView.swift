@@ -1,10 +1,11 @@
 import SwiftUI
 import AppKit
 
-/// In-window standing-desk status, shown below the clock. Derives its
-/// content from `DeskSettings.timerPhase(at:)`, so it tracks the
-/// minute tick and any settings change automatically. Always visible
-/// when the desk timer is enabled — visual is never schedule-gated.
+/// In-window standing-desk + presence status, shown below the clock.
+/// Derives its content from `DeskSettings.timerPhase(at:)`, so it tracks
+/// the minute tick and any settings change automatically. The away
+/// affordance is always available — even with the desk timer off — because
+/// "away" is a global concept that mutes announcements.
 struct DeskStatusView: View {
     /// Scale factor applied to every font, spacing, and padding so the desk
     /// affordances track the adaptively-scaled clock above them. 1 = natural
@@ -22,7 +23,10 @@ struct DeskStatusView: View {
         Group {
             switch phase {
             case .inactive:
-                EmptyView()
+                // Desk timer off (and not away): still offer the global
+                // away affordance so stepping away — and its announcement
+                // mute — works without the timer.
+                DeskPresenceRow(scale: scale)
 
             case .counting(let remaining, let position):
                 DeskCountingRow(
@@ -193,6 +197,27 @@ private struct DeskAwayBanner: View {
 
             CapsuleActionButton(title: "I'm back at my desk", scale: scale) {
                 DeskService.shared.returnToDesk()
+            }
+        }
+        .font(.system(size: 16 * scale))
+        .foregroundStyle(.secondary)
+    }
+}
+
+/// Shown when the desk timer is OFF and you're at your desk: a neutral
+/// presence row with the global "Away from desk" affordance. Stepping away
+/// (and its announcement mute) is a global concept, available even when the
+/// standing-desk timer is disabled.
+private struct DeskPresenceRow: View {
+    let scale: CGFloat
+
+    var body: some View {
+        HStack(spacing: 8 * scale) {
+            Image(systemName: "chair.fill")
+            Text("At your desk")
+
+            CapsuleActionButton(title: "Away from desk", scale: scale) {
+                DeskService.shared.goAway()
             }
         }
         .font(.system(size: 16 * scale))

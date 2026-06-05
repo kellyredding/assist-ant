@@ -67,9 +67,9 @@ final class DeskService {
         desk.enabled = enabled
         if enabled {
             desk.positionStartedAt = Date()
-            // Enabling starts a fresh sit interval — never inherit a
-            // stale away flag from before the timer was turned off.
-            desk.isAway = false
+            // Away is global and outranks the timer, so enabling the timer
+            // does not clear it — if you're away, you stay away until you
+            // tap "I'm back at my desk".
         }
         SettingsManager.shared.settings.desk = desk
         evaluateNudge()
@@ -88,12 +88,12 @@ final class DeskService {
         evaluateNudge()
     }
 
-    /// Step away from the desk, pausing the timer. While away the phase is
-    /// `.away`, so counting/nudge and all desk audio stop until the user
-    /// returns. Not time-bound — there is no auto-return.
+    /// Step away from the desk. Sets the global away flag, which mutes
+    /// announcements (and pauses the timer if it is running) until the user
+    /// returns. Works whether or not the desk timer is enabled — away is a
+    /// global concept. Not time-bound; there is no auto-return.
     func goAway() {
         var desk = SettingsManager.shared.settings.desk
-        guard desk.enabled else { return }
         desk.isAway = true
         SettingsManager.shared.settings.desk = desk
         evaluateNudge()
@@ -103,7 +103,6 @@ final class DeskService {
     /// interval* — you just sat back down, so no nudge accrued while away.
     func returnToDesk() {
         var desk = SettingsManager.shared.settings.desk
-        guard desk.enabled else { return }
         desk.isAway = false
         desk.currentPosition = .sitting
         desk.positionStartedAt = Date()

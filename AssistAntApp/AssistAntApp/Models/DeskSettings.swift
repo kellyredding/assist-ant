@@ -78,10 +78,12 @@ struct DeskSettings: Codable, Equatable {
     /// and resets `positionStartedAt`, so a stale pre-away value never
     /// surfaces a nudge.
     func timerPhase(at now: Date) -> DeskTimerPhase {
-        guard enabled else { return .inactive }
+        // Away is a global concept — it outranks the timer and applies even
+        // when the timer is disabled, so it is checked before `enabled`.
         if isAway {
             return .away
         }
+        guard enabled else { return .inactive }
         guard let startedAt = positionStartedAt else { return .inactive }
         let elapsed = now.timeIntervalSince(startedAt)
         let interval = currentInterval()
@@ -94,12 +96,12 @@ struct DeskSettings: Codable, Equatable {
         )
     }
 
-    /// True while the away state is in effect (enabled and away). The
-    /// audio gate and icon state read this so being away mutes time
-    /// announcements and surfaces the away reason, the same way
-    /// mic-in-use does.
+    /// True while the away state is in effect. Away is global — it applies
+    /// whether or not the desk timer is enabled — so the audio gate and
+    /// icon state read this to mute time announcements and surface the away
+    /// reason, the same way mic-in-use does.
     var isAwayActive: Bool {
-        enabled && isAway
+        isAway
     }
 }
 
