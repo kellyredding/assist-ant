@@ -29,6 +29,9 @@ cli-clean:
 app-build:
 	$(MAKE) -C AssistAntApp build
 
+app-smoke:
+	$(MAKE) -C AssistAntApp smoke
+
 app-release:
 	$(MAKE) -C AssistAntApp release
 

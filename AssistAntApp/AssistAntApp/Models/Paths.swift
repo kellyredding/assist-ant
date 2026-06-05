@@ -43,6 +43,30 @@ enum AssistAntPaths {
         runtimeDir.appendingPathComponent("logs", isDirectory: true)
     }
 
+    /// Machine-local Application Support directory for AssistAnt. NOT the
+    /// Sync-backed data dir — used for per-machine state. Mirrors where
+    /// AgentStatePersistence stores agent-state.json.
+    static var appSupportDir: URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("AssistAnt", isDirectory: true)
+    }
+
+    /// The live items database. Machine-local on purpose: a live SQLite file
+    /// must never sit under file-level sync. The backend (PocketBase) is the
+    /// cross-device sync path; Syncthing only replicates the consistent
+    /// snapshot at `itemsBackupURL`.
+    static var itemsDatabaseURL: URL {
+        appSupportDir.appendingPathComponent("items.db")
+    }
+
+    /// Consistent backup snapshot of the items database, written into the
+    /// Sync-backed data dir for one-way backup / new-hardware migration.
+    /// Produced via VACUUM INTO so it is always transactionally consistent.
+    static var itemsBackupURL: URL {
+        dataDir.appendingPathComponent("items-backup.db")
+    }
+
     /// Create all directories the app expects to exist.
     /// Idempotent. Called once at startup by AppDelegate.
     static func ensureDirectories() {

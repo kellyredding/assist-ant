@@ -32,6 +32,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AssistAntPaths.ensureDirectories()
 
+        // Warm the items database so its migrations run and the file is ready
+        // before any view queries it. Machine-local; the consistent backup
+        // snapshot rides Syncthing via ItemBackupCoordinator (debounced on
+        // change + flushed on quit).
+        _ = ItemsDatabase.shared
+
         // Touch SettingsManager.shared so it loads prefs from disk before
         // any view asks for them. Lazy-init would work too, but warming
         // here keeps first-Settings-open fast.
@@ -121,6 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Synchronously flush any pending window-state write so a quit
         // mid-drag still records the final frame.
         WindowStatePersistence.shared.flushSync()
+
+        // Synchronously snapshot the items database to its Sync-backed backup
+        // so the final state is captured even if the debounce hadn't fired.
+        ItemBackupCoordinator.shared.flushSync()
 
         socket?.stop()
         for observer in notificationObservers {

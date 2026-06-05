@@ -9,6 +9,9 @@ packages:
   Galactic:
     url: https://github.com/kellyredding/Galactic.git
     exactVersion: 0.1.0
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 7.5.0
 
 targets:
   AssistAntApp:
@@ -19,6 +22,8 @@ targets:
     dependencies:
       - package: Galactic
         product: Galactic
+      - package: GRDB
+        product: GRDB
     info:
       path: AssistAntApp/Info.plist
       properties:
@@ -50,3 +55,20 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.10"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # Sandboxed smoke-test runner: a plain command-line tool that compiles the
+  # items model + store (no app, no AppKit, no sockets) and exercises them
+  # against an in-memory database + a temp file. Run via `make smoke`.
+  ItemsSmoke:
+    type: tool
+    platform: macOS
+    sources:
+      - AssistAntApp/Models/Items
+      - AssistAntApp/Models/Paths.swift
+      - ItemsSmoke
+    dependencies:
+      - package: GRDB
+        product: GRDB
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
