@@ -70,8 +70,6 @@ private struct DeskCountingRow: View {
     let position: DeskPosition
     let scale: CGFloat
 
-    @State private var isHovering = false
-
     var body: some View {
         VStack(spacing: 6 * scale) {
             HStack(spacing: 8 * scale) {
@@ -81,21 +79,13 @@ private struct DeskCountingRow: View {
             }
 
             HStack(spacing: 8 * scale) {
-                Text("Switch now")
-                    .font(.system(size: 14 * scale, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 10 * scale)
-                    .padding(.vertical, 3 * scale)
-                    .background(
-                        Color.primary.opacity(isHovering ? 0.16 : 0.08),
-                        in: Capsule()
-                    )
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
-                    .pointerButton(onHoverChange: { isHovering = $0 }) {
-                        DeskService.shared.acknowledgeSwitch()
-                    }
+                CapsuleActionButton(title: "Switch now", scale: scale) {
+                    DeskService.shared.acknowledgeSwitch()
+                }
 
-                AwayButton(onAccent: false, scale: scale)
+                CapsuleActionButton(title: "Away from desk", scale: scale) {
+                    DeskService.shared.goAway()
+                }
             }
         }
         .font(.system(size: 16 * scale))
@@ -122,7 +112,6 @@ private struct DeskNudgeBanner: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
-    @State private var isHovering = false
 
     var body: some View {
         VStack(spacing: 6 * scale) {
@@ -134,21 +123,15 @@ private struct DeskNudgeBanner: View {
             .foregroundStyle(.white)
 
             HStack(spacing: 8 * scale) {
-                Text("I've switched")
-                    .font(.system(size: 14 * scale, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12 * scale)
-                    .padding(.vertical, 5 * scale)
-                    .background(
-                        .white.opacity(isHovering ? 0.38 : 0.22),
-                        in: Capsule()
-                    )
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
-                    .pointerButton(onHoverChange: { isHovering = $0 }) {
-                        DeskService.shared.acknowledgeSwitch()
-                    }
+                CapsuleActionButton(title: "I've switched", onAccent: true,
+                                    scale: scale) {
+                    DeskService.shared.acknowledgeSwitch()
+                }
 
-                AwayButton(onAccent: true, scale: scale)
+                CapsuleActionButton(title: "Away from desk", onAccent: true,
+                                    scale: scale) {
+                    DeskService.shared.goAway()
+                }
             }
         }
         .padding(.horizontal, 18 * scale)
@@ -196,67 +179,21 @@ private struct DeskNudgeBanner: View {
     }
 }
 
-/// The "Away from desk" button — pauses the timer until the user returns
-/// (not time-bound). Sits beside the primary action in both the counting
-/// and nudge states, matching that action's capsule: `onAccent` gives the
-/// translucent-white treatment for the accent nudge pill vs the
-/// primary-tinted one for the plain window row.
-private struct AwayButton: View {
-    let onAccent: Bool
-    let scale: CGFloat
-    @State private var isHovering = false
-
-    var body: some View {
-        Text("Away from desk")
-            .font(.system(size: 14 * scale, weight: .medium))
-            .foregroundStyle(labelStyle)
-            .padding(.horizontal, (onAccent ? 12 : 10) * scale)
-            .padding(.vertical, (onAccent ? 5 : 3) * scale)
-            .background(fillStyle, in: Capsule())
-            .animation(.easeInOut(duration: 0.15), value: isHovering)
-            .pointerButton(onHoverChange: { isHovering = $0 }) {
-                DeskService.shared.goAway()
-            }
-    }
-
-    private var labelStyle: AnyShapeStyle {
-        onAccent ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.primary)
-    }
-
-    private var fillStyle: AnyShapeStyle {
-        if onAccent {
-            return AnyShapeStyle(Color.white.opacity(isHovering ? 0.38 : 0.22))
-        }
-        return AnyShapeStyle(Color.primary.opacity(isHovering ? 0.16 : 0.08))
-    }
-}
-
 /// The away state: a calm secondary row (not the alert pill) with an
 /// "I'm back at my desk" button that resumes a fresh sit interval. Styled
 /// like the counting row — being away is informational, not an alert. Not
 /// time-bound, so there's no return time to show.
 private struct DeskAwayBanner: View {
     let scale: CGFloat
-    @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 8 * scale) {
             Image(systemName: "figure.walk.departure")
             Text("Away from desk")
 
-            Text("I'm back at my desk")
-                .font(.system(size: 14 * scale, weight: .medium))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 10 * scale)
-                .padding(.vertical, 3 * scale)
-                .background(
-                    Color.primary.opacity(isHovering ? 0.16 : 0.08),
-                    in: Capsule()
-                )
-                .animation(.easeInOut(duration: 0.15), value: isHovering)
-                .pointerButton(onHoverChange: { isHovering = $0 }) {
-                    DeskService.shared.returnToDesk()
-                }
+            CapsuleActionButton(title: "I'm back at my desk", scale: scale) {
+                DeskService.shared.returnToDesk()
+            }
         }
         .font(.system(size: 16 * scale))
         .foregroundStyle(.secondary)

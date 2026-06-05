@@ -70,11 +70,14 @@ struct AnnounceStatusButton: View {
         Group {
             switch state {
             case .disabled, .scheduled:
-                glyph.pointerButton { openSettings() }
+                ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
+                               tint: iconTint) { openSettings() }
             case .active:
-                glyph.pointerButton { MuteController.mute() }
+                ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
+                               tint: iconTint) { MuteController.mute() }
             case .mutedManually:
-                glyph.pointerButton { MuteController.unmute() }
+                ClickableGlyph(symbol: state.sfSymbol, height: iconHeight,
+                               tint: iconTint) { MuteController.unmute() }
             case .mutedByMic, .mutedByAway:
                 // Mic-mute clears when the mic frees; away clears when you
                 // return to your desk — nothing to act on here, so the
@@ -112,5 +115,28 @@ struct AnnounceStatusButton: View {
         DispatchQueue.main.async {
             PreferencesWindowController.showPreferences(initialTab: .time)
         }
+    }
+}
+
+/// The speaker glyph as a dedicated clickable affordance. A standalone
+/// `View` (rather than an inline `glyph.pointerButton`) so the
+/// pointerButton overlay keeps a stable identity across
+/// AnnounceStatusButton's frequent re-renders — it re-renders every minute
+/// on the clock tick, and inlining the overlay there left it non-topmost,
+/// so the pointing-hand cursor stopped showing while hover still
+/// registered.
+private struct ClickableGlyph: View {
+    let symbol: String
+    let height: CGFloat
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Image(systemName: symbol)
+            .resizable()
+            .scaledToFit()
+            .frame(height: height)
+            .foregroundStyle(tint)
+            .pointerButton(action: action)
     }
 }

@@ -149,8 +149,6 @@ private struct MutedStatusRow: View {
     let showsUnmute: Bool
     let scale: CGFloat
 
-    @State private var isHovering = false
-
     var body: some View {
         HStack(spacing: 10 * scale) {
             Text(text)
@@ -158,19 +156,9 @@ private struct MutedStatusRow: View {
                 .foregroundStyle(.orange)
 
             if showsUnmute {
-                Text("Unmute now")
-                    .font(.system(size: 14 * scale, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 10 * scale)
-                    .padding(.vertical, 3 * scale)
-                    .background(
-                        Color.primary.opacity(isHovering ? 0.16 : 0.08),
-                        in: Capsule()
-                    )
-                    .animation(.easeInOut(duration: 0.15), value: isHovering)
-                    .pointerButton(onHoverChange: { isHovering = $0 }) {
-                        MuteController.unmute()
-                    }
+                CapsuleActionButton(title: "Unmute now", scale: scale) {
+                    MuteController.unmute()
+                }
             }
         }
     }
