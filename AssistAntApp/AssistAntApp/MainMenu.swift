@@ -44,21 +44,11 @@ final class MainMenu: NSObject {
         mainMenu.addItem(editMenuItem)
         buildEditMenu(editMenu)
 
-        // View menu — live, transient terminal font zoom (Terminal.app
-        // style). Items target MenuActions.shared and are enabled/disabled
-        // dynamically by validateMenuItem on the agent terminal holding
-        // first responder. Mirrors Galaxy's View-menu terminal-font block.
-        let viewMenu = NSMenu(title: "View")
-        let viewMenuItem = NSMenuItem(
-            title: "View", action: nil, keyEquivalent: ""
-        )
-        viewMenuItem.submenu = viewMenu
-        mainMenu.addItem(viewMenuItem)
-        buildViewMenu(viewMenu)
-
-        // Agent menu — session-acting commands sent to the embedded
-        // session's PTY. AssistAnt's analog of Galaxy's Sessions menu;
-        // items are gated by validateMenuItem on the session running.
+        // Agent menu — terminal font zoom plus the session-acting Clear /
+        // Compact commands sent to the embedded session's PTY. AssistAnt's
+        // analog of Galaxy's Sessions menu. Font items gate on the terminal
+        // holding focus; Clear / Compact gate on the session running (both
+        // via validateMenuItem).
         let agentMenu = NSMenu(title: "Agent")
         let agentMenuItem = NSMenuItem(
             title: "Agent", action: nil, keyEquivalent: ""
@@ -163,15 +153,13 @@ final class MainMenu: NSObject {
                      action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
     }
 
-    // MARK: - View menu
+    // MARK: - Agent menu
 
-    private func buildViewMenu(_ menu: NSMenu) {
-        // Terminal font size. Enable state is computed dynamically by
-        // MenuActions.validateMenuItem — gated on the agent terminal being
-        // first responder. Static isEnabled would go stale between menu
-        // opens and drop the key equivalents on the floor. No explicit
-        // modifier mask: the items take AppKit's default (.command),
-        // matching Galaxy.
+    private func buildAgentMenu(_ menu: NSMenu) {
+        // Terminal font size on top. Enable state is computed dynamically
+        // by validateMenuItem — gated on the agent terminal holding first
+        // responder. No explicit modifier mask: the items take AppKit's
+        // default (.command), matching Galaxy.
         let defaultItem = NSMenuItem(
             title: "Default terminal font size",
             action: #selector(MenuActions.defaultTerminalFontSize(_:)),
@@ -195,11 +183,9 @@ final class MainMenu: NSObject {
         )
         smallerItem.target = MenuActions.shared
         menu.addItem(smallerItem)
-    }
 
-    // MARK: - Agent menu
+        menu.addItem(.separator())
 
-    private func buildAgentMenu(_ menu: NSMenu) {
         // Clear / Compact send the slash command to the embedded session.
         // Bindings copied verbatim from Galaxy: Delete (0x08) with the
         // command+shift / command+control masks. Enable state is gated
