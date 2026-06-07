@@ -34,12 +34,14 @@ func newItem(
     typeData: ItemTypeData,
     source: String = "manual",
     externalID: String? = nil,
-    title: String = "t"
+    title: String = "t",
+    scheduledOn: CivilDate? = nil
 ) -> Item {
     Item(
         id: UUIDv7.generate(), tenantID: "local", type: type.rawValue,
         title: title, body: nil, source: source, externalID: externalID,
         typeData: typeData, iceboxedAt: nil, deletedAt: nil,
+        scheduledOn: scheduledOn,
         createdAt: Date(), updatedAt: Date(), serverUpdatedAt: nil, pending: false
     )
 }
@@ -133,6 +135,18 @@ check("VACUUM INTO snapshot is restorable") {
     let count = try restored.read { db in try Item.fetchCount(db) }
     try? FileManager.default.removeItem(at: tmp)
     return count == 5
+}
+
+// 7. The scheduled_on column persists and round-trips.
+check("scheduled_on column round-trips") {
+    let (store, _) = try makeStore()
+    let date = CivilDate(year: 2026, month: 6, day: 6)
+    let item = newItem(
+        type: .calendar, typeData: .calendar(CalendarData(allDay: false)),
+        source: "gcal", externalID: "sched-1", scheduledOn: date)
+    try store.create(item)
+    guard let fetched = try store.fetch(id: item.id) else { return false }
+    return fetched.scheduledOn == date
 }
 
 print(failures == 0

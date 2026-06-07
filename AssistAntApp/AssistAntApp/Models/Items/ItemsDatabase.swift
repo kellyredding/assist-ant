@@ -68,6 +68,19 @@ final class ItemsDatabase {
                 sql: "CREATE INDEX idx_items_updated ON items (updated_at)"
             )
         }
+
+        // Cross-type schedule key: a zoneless local civil date (TEXT
+        // "YYYY-MM-DD"; SQLite has no native date type). Powers the today
+        // sidebar, a future calendar view, and window-scoped calendar prune.
+        migrator.registerMigration("addScheduledOn") { db in
+            try db.alter(table: "items") { t in
+                t.add(column: "scheduled_on", .text)
+            }
+            try db.execute(
+                sql: "CREATE INDEX idx_items_scheduled_on ON items (scheduled_on)"
+            )
+        }
+
         return migrator
     }
 }

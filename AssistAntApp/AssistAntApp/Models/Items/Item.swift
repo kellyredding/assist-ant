@@ -24,6 +24,7 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
     var typeData: ItemTypeData     // stored as JSON in `type_data`
     var iceboxedAt: Date?          // UTC instant
     var deletedAt: Date?           // UTC tombstone
+    var scheduledOn: CivilDate?    // local civil date; cross-type schedule key
     var createdAt: Date            // UTC; locally stamped pre-sync, server post-sync
     var updatedAt: Date            // UTC; the sync-cursor source once syncing
     var serverUpdatedAt: Date?     // server's updated_at for the reconciled version
@@ -42,6 +43,7 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
         case typeData = "type_data"
         case iceboxedAt = "iceboxed_at"
         case deletedAt = "deleted_at"
+        case scheduledOn = "scheduled_on"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case serverUpdatedAt = "server_updated_at"

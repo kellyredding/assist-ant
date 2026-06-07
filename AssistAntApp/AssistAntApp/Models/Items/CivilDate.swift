@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// A timezone-free calendar date (`YYYY-MM-DD`). Use for `*_on` fields whose
 /// meaning is "what day the user meant", independent of any time zone — e.g.
@@ -36,23 +37,40 @@ struct CivilDate: Codable, Equatable, Hashable, Comparable, Sendable {
         (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
     }
 
+    /// Parse "YYYY-MM-DD". Reused by Codable decoding and by the app's
+    /// calendar-item handler.
+    init?(iso: String) {
+        let parts = iso.split(separator: "-")
+        guard parts.count == 3,
+              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2])
+        else { return nil }
+        self.init(year: y, month: m, day: d)
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        let parts = raw.split(separator: "-")
-        guard parts.count == 3,
-              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2])
-        else {
+        guard let parsed = CivilDate(iso: raw) else {
             throw DecodingError.dataCorruptedError(
                 in: container,
                 debugDescription: "Invalid CivilDate '\(raw)' (expected YYYY-MM-DD)"
             )
         }
-        self.init(year: y, month: m, day: d)
+        self = parsed
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(iso)
+    }
+}
+
+/// Persisted as a `TEXT` "YYYY-MM-DD" value — SQLite has no native date type,
+/// matching Galaxy's convention of storing dates/timestamps as TEXT.
+extension CivilDate: DatabaseValueConvertible {
+    var databaseValue: DatabaseValue { iso.databaseValue }
+
+    static func fromDatabaseValue(_ dbValue: DatabaseValue) -> CivilDate? {
+        String.fromDatabaseValue(dbValue).flatMap(CivilDate.init(iso:))
     }
 }
