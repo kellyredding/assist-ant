@@ -55,9 +55,11 @@ enum AssistAntPaths {
     /// The live items database. Machine-local on purpose: a live SQLite file
     /// must never sit under file-level sync. The backend (PocketBase) is the
     /// cross-device sync path; Syncthing only replicates the consistent
-    /// snapshot at `itemsBackupURL`.
+    /// snapshot at `itemsBackupURL`. Overridable via `ASSIST_ANT_ITEMS_DB`
+    /// (e.g. for a sandboxed instance during testing).
     static var itemsDatabaseURL: URL {
-        appSupportDir.appendingPathComponent("items.db")
+        env("ASSIST_ANT_ITEMS_DB")
+            ?? appSupportDir.appendingPathComponent("items.db")
     }
 
     /// Consistent backup snapshot of the items database, written into the

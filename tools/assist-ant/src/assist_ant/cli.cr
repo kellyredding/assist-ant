@@ -6,55 +6,51 @@ module AssistAnt
       new.run(args)
     end
 
+    # Split the command off the front and let each command parse its own flags
+    # (mirrors the Galaxy CLIs). A global option parser would reject a
+    # subcommand's flags like `--external-id` as unknown.
     def run(args : Array(String))
-      show_help = false
-      show_version = false
-
-      parser = OptionParser.new do |p|
-        p.banner = banner
-        p.on("-h", "--help", "Show help") { show_help = true }
-        p.on("-v", "--version", "Show version") { show_version = true }
-        p.invalid_option do |flag|
-          STDERR.puts "Error: unknown flag '#{flag}'"
-          STDERR.puts p
-          exit 1
-        end
-      end
-
-      positional = [] of String
-      parser.unknown_args { |a| positional = a }
-      parser.parse(args)
-
-      if show_version
-        puts "assist-ant #{VERSION}"
+      if args.empty?
+        puts usage
         return
       end
 
-      if show_help || positional.empty?
-        puts parser
-        return
-      end
+      command = args.first
+      rest = args[1..]
 
-      command = positional.shift
       case command
+      when "-h", "--help", "help"
+        puts usage
+      when "-v", "--version"
+        puts "assist-ant #{VERSION}"
       when "ping"
-        Commands::Ping.new.run(positional)
+        Commands::Ping.new.run(rest)
+      when "calendar-item"
+        Commands::CalendarItem.new.run(rest)
       else
-        STDERR.puts "Error: unknown command '#{command}'"
-        STDERR.puts parser
+        if command.starts_with?("-")
+          STDERR.puts "Error: unknown flag '#{command}'"
+        else
+          STDERR.puts "Error: unknown command '#{command}'"
+        end
+        STDERR.puts usage
         exit 1
       end
     end
 
-    private def banner
-      <<-BANNER
+    private def usage : String
+      <<-USAGE
         Usage: assist-ant [options] <command> [args]
 
         Commands:
-          ping [message]      Send a ping envelope to the running app.
+          ping [message]                Send a ping envelope to the running app.
+          calendar-item upsert [flags]  Upsert a calendar item.
+          calendar-item prune [flags]   Reconcile (prune) calendar items in a window.
 
         Options:
-        BANNER
+          -h, --help       Show help
+          -v, --version    Show version
+        USAGE
     end
   end
 end

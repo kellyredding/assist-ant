@@ -6,6 +6,7 @@ require "option_parser"
 require "./assist_ant/paths"
 require "./assist_ant/event_publisher"
 require "./assist_ant/commands/ping"
+require "./assist_ant/commands/calendar_item"
 require "./assist_ant/cli"
 
 # Skip auto-invocation when required from specs.
