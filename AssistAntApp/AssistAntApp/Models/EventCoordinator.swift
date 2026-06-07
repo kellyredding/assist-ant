@@ -8,7 +8,11 @@ final class EventCoordinator {
     /// are silently dropped. Adding a new event = add it here +
     /// extend whatever handler in AppDelegate dispatches on it.
     /// The CLI side does not need to know this set.
-    static let knownEvents: Set<String> = ["ping"]
+    static let knownEvents: Set<String> = [
+        "ping",
+        "calendar_item.upsert",
+        "calendar_item.prune",
+    ]
 
     var onEvent: ((EventEnvelope) -> Void)?
 

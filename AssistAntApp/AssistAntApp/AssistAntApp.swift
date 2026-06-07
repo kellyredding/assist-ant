@@ -195,10 +195,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Event handling
 
-    private func handleEvent(_ envelope: EventEnvelope) {
-        // Skeleton: just log. Future services hook in here.
-        let message = envelope.detailValue("message", as: String.self) ?? "<no message>"
-        NSLog("AssistAnt: received event '\(envelope.event)' message=\(message)")
+    private func handleEvent(_ e: EventEnvelope) {
+        switch e.event {
+        case "calendar_item.upsert": upsertCalendarItem(e)
+        case "calendar_item.prune": pruneCalendarItems(e)
+        case "ping":
+            let message = e.detailValue("message", as: String.self) ?? "<no message>"
+            NSLog("AssistAnt: ping — \(message)")
+        default:
+            NSLog("AssistAnt: unhandled event '\(e.event)'")
+        }
+    }
+
+    /// Upsert a calendar item from a `calendar_item.upsert` envelope. Every
+    /// domain field comes from the CLI; the app supplies only the internal id
+    /// and the sync-managed fields. Identity is `(tenant, source, external_id)`.
+    private func upsertCalendarItem(_ e: EventEnvelope) {
+        let iso = ISO8601DateFormatter()
+        guard let externalID = e.detailValue("external_id", as: String.self),
+              let source = e.detailValue("source", as: String.self),
+              let title = e.detailValue("title", as: String.self),
+              let startStr = e.detailValue("start_at", as: String.self),
+              let startAt = iso.date(from: startStr)
+        else {
+            NSLog("AssistAnt: calendar_item.upsert missing required fields")
+            return
+        }
+        let item = Item(
+            id: UUIDv7.generate(),
+            tenantID: e.detailValue("tenant", as: String.self) ?? "local",
+            type: ItemType.calendar.rawValue,
+            title: title,
+            body: e.detailValue("body", as: String.self),
+            source: source,
+            externalID: externalID,
+            typeData: .calendar(CalendarData(
+                startAt: startAt,
+                endAt: e.detailValue("end_at", as: String.self).flatMap(iso.date(from:)),
+                allDay: false,
+                timeZoneID: e.detailValue("time_zone", as: String.self))),
+            iceboxedAt: nil,
+            deletedAt: nil,
+            scheduledOn: e.detailValue("scheduled_on", as: String.self)
+                .flatMap(CivilDate.init(iso:)),
+            createdAt: Date(),
+            updatedAt: Date(),
+            serverUpdatedAt: nil,
+            pending: true)
+        do { try GRDBItemStore.shared.upsert(item) }
+        catch { NSLog("AssistAnt: calendar_item.upsert failed: \(error)") }
+    }
+
+    /// Window-scoped reconcile from a `calendar_item.prune` envelope: soft-delete
+    /// items in [from, to] for the source that aren't in the keep set.
+    private func pruneCalendarItems(_ e: EventEnvelope) {
+        guard let source = e.detailValue("source", as: String.self),
+              let fromStr = e.detailValue("from", as: String.self),
+              let toStr = e.detailValue("to", as: String.self),
+              let from = CivilDate(iso: fromStr),
+              let to = CivilDate(iso: toStr)
+        else {
+            NSLog("AssistAnt: calendar_item.prune missing source/from/to")
+            return
+        }
+        let tenant = e.detailValue("tenant", as: String.self) ?? "local"
+        let keep = Set(e.detailValue("keep", as: [String].self) ?? [])
+        do {
+            try GRDBItemStore.shared.pruneMissing(
+                tenantID: tenant, source: source, from: from, to: to, keep: keep)
+        } catch {
+            NSLog("AssistAnt: calendar_item.prune failed: \(error)")
+        }
     }
 }
 
