@@ -46,6 +46,33 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    func upsert(_ incoming: Item) throws {
+        guard let ext = incoming.externalID else {
+            throw ItemStoreError.upsertRequiresExternalID
+        }
+        try dbQueue.write { db in
+            let existing = try Item
+                .filter(sql: "tenant_id = ? AND source = ? AND external_id = ?",
+                        arguments: [incoming.tenantID, incoming.source, ext])
+                .fetchOne(db)
+            var row = incoming
+            let now = Date()
+            row.type = row.typeData.kind
+            row.updatedAt = now
+            row.pending = true
+            row.deletedAt = nil          // resurrect on re-accept
+            if let existing {
+                row.id = existing.id
+                row.createdAt = existing.createdAt
+                try row.update(db)
+            } else {
+                row.createdAt = now
+                try row.insert(db)
+            }
+        }
+        backup.itemsDidChange()
+    }
+
     func softDelete(id: String) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
@@ -65,6 +92,35 @@ final class GRDBItemStore: ItemStore {
             item.updatedAt = Date()
             item.pending = true
             try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Reconcile WITHIN the sync window only: soft-delete active items for
+    // `source` whose `scheduled_on` is in [from, to] and whose external_id is
+    // not in `keep`. Items outside the window — past, or beyond the horizon —
+    // are never touched, so history is preserved. `scheduled_on` is TEXT
+    // "YYYY-MM-DD", so the range compare is lexicographic (= chronological).
+    func pruneMissing(
+        tenantID: String, source: String,
+        from: CivilDate, to: CivilDate, keep: Set<String>
+    ) throws {
+        try dbQueue.write { db in
+            let inWindow = try Item
+                .filter(sql: """
+                    tenant_id = ? AND source = ? AND deleted_at IS NULL
+                    AND scheduled_on IS NOT NULL
+                    AND scheduled_on >= ? AND scheduled_on <= ?
+                    """, arguments: [tenantID, source, from.iso, to.iso])
+                .fetchAll(db)
+            let now = Date()
+            for var item in inWindow {
+                guard let ext = item.externalID, !keep.contains(ext) else { continue }
+                item.deletedAt = now
+                item.updatedAt = now
+                item.pending = true
+                try item.update(db)
+            }
         }
         backup.itemsDidChange()
     }

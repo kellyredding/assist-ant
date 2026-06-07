@@ -149,6 +149,67 @@ check("scheduled_on column round-trips") {
     return fetched.scheduledOn == date
 }
 
+// 8. Upsert is idempotent on (tenant, source, external_id): a second upsert
+//    updates in place — one row, new values, stable id + createdAt.
+check("upsert is idempotent") {
+    let (store, _) = try makeStore()
+    let a = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                    source: "gcal", externalID: "e1", title: "v1")
+    try store.upsert(a)
+    guard let after1 = try store.fetchActive(type: .calendar)
+        .first(where: { $0.externalID == "e1" }) else { return false }
+    let b = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                    source: "gcal", externalID: "e1", title: "v2")
+    try store.upsert(b)
+    let rows = try store.fetchActive(type: .calendar).filter { $0.externalID == "e1" }
+    guard rows.count == 1, let after2 = rows.first else { return false }
+    return after2.title == "v2"
+        && after2.id == after1.id
+        && after2.createdAt == after1.createdAt
+}
+
+// 9. Upsert resurrects a soft-deleted row (clears the tombstone) and refreshes
+//    values, preserving id.
+check("upsert resurrects a soft-deleted row") {
+    let (store, _) = try makeStore()
+    let a = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                    source: "gcal", externalID: "r1", title: "v1")
+    try store.upsert(a)
+    try store.softDelete(id: a.id)
+    guard try store.fetch(id: a.id)?.deletedAt != nil else { return false }
+    let b = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                    source: "gcal", externalID: "r1", title: "v2")
+    try store.upsert(b)
+    let rows = try store.fetchActive(type: .calendar).filter { $0.externalID == "r1" }
+    guard rows.count == 1, let row = rows.first else { return false }
+    return row.deletedAt == nil && row.title == "v2" && row.id == a.id
+}
+
+// 10. Prune is window-scoped by scheduled_on: only the in-window, non-kept item
+//     is soft-deleted; items dated before/after the window survive.
+check("prune is window-scoped") {
+    let (store, _) = try makeStore()
+    let before = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                         source: "gcal", externalID: "before",
+                         scheduledOn: CivilDate(year: 2026, month: 6, day: 1))
+    let inside = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                         source: "gcal", externalID: "inside",
+                         scheduledOn: CivilDate(year: 2026, month: 6, day: 12))
+    let after = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                        source: "gcal", externalID: "after",
+                        scheduledOn: CivilDate(year: 2026, month: 6, day: 20))
+    try store.create(before); try store.create(inside); try store.create(after)
+    try store.pruneMissing(
+        tenantID: "local", source: "gcal",
+        from: CivilDate(year: 2026, month: 6, day: 10),
+        to: CivilDate(year: 2026, month: 6, day: 17),
+        keep: [])
+    let beforeOK = try store.fetch(id: before.id)?.deletedAt == nil
+    let insideDeleted = try store.fetch(id: inside.id)?.deletedAt != nil
+    let afterOK = try store.fetch(id: after.id)?.deletedAt == nil
+    return beforeOK && insideDeleted && afterOK
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")
