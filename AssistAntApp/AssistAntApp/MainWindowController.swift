@@ -33,6 +33,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         sidebarToggleVC.view = sidebarToggleHost
         window.addTitlebarAccessoryViewController(sidebarToggleVC)
 
+        // Titlebar pill showing the active workspace, in the leading area over
+        // the sidebar. Clicking it opens the Workspace settings tab; it is also
+        // the reserved spot for future sync status. Sized to its content at
+        // creation — the workspace name resolves synchronously by now, since
+        // the items database is warmed before the window opens.
+        let workspacePillVC = NSTitlebarAccessoryViewController()
+        workspacePillVC.layoutAttribute = .leading
+        let workspacePillHost = NSHostingView(rootView: WorkspacePill())
+        workspacePillHost.frame = NSRect(
+            origin: .zero,
+            size: NSSize(
+                width: max(workspacePillHost.fittingSize.width, 80), height: 22))
+        workspacePillVC.view = workspacePillHost
+        window.addTitlebarAccessoryViewController(workspacePillVC)
+
         super.init(window: window)
         window.delegate = self
 

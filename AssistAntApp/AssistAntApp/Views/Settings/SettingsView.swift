@@ -43,6 +43,8 @@ struct SettingsView: View {
                 switch navigator.selectedTab {
                 case .general:
                     GeneralSettingsTab(settingsManager: settingsManager)
+                case .workspace:
+                    WorkspaceSettingsTab()
                 case .announcements:
                     AnnouncementsSettingsTab(settingsManager: settingsManager)
                 case .time:
@@ -55,8 +57,10 @@ struct SettingsView: View {
             }
         }
         // Width is fixed because picker widths and the tab strip are
-        // designed around 480pt. Height stays unconstrained so the
-        // controller's auto-sizing has room to grow.
-        .frame(width: 480)
+        // designed around 540pt (widened from 480 to give all 6 tabs
+        // enough room so no label — including "Announcements" — wraps).
+        // Height stays unconstrained so the controller's auto-sizing
+        // has room to grow.
+        .frame(width: 540)
     }
 }
