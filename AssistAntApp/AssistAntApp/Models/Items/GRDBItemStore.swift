@@ -52,8 +52,8 @@ final class GRDBItemStore: ItemStore {
         }
         try dbQueue.write { db in
             let existing = try Item
-                .filter(sql: "tenant_id = ? AND source = ? AND external_id = ?",
-                        arguments: [incoming.tenantID, incoming.source, ext])
+                .filter(sql: "workspace_id = ? AND source = ? AND external_id = ?",
+                        arguments: [incoming.workspaceID, incoming.source, ext])
                 .fetchOne(db)
             var row = incoming
             let now = Date()
@@ -102,16 +102,16 @@ final class GRDBItemStore: ItemStore {
     // are never touched, so history is preserved. `scheduled_on` is TEXT
     // "YYYY-MM-DD", so the range compare is lexicographic (= chronological).
     func pruneMissing(
-        tenantID: String, source: String,
+        workspaceID: String, source: String,
         from: CivilDate, to: CivilDate, keep: Set<String>
     ) throws {
         try dbQueue.write { db in
             let inWindow = try Item
                 .filter(sql: """
-                    tenant_id = ? AND source = ? AND deleted_at IS NULL
+                    workspace_id = ? AND source = ? AND deleted_at IS NULL
                     AND scheduled_on IS NOT NULL
                     AND scheduled_on >= ? AND scheduled_on <= ?
-                    """, arguments: [tenantID, source, from.iso, to.iso])
+                    """, arguments: [workspaceID, source, from.iso, to.iso])
                 .fetchAll(db)
             let now = Date()
             for var item in inWindow {

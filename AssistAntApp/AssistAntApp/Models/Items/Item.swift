@@ -12,10 +12,10 @@ import GRDB
 ///
 /// Column names are pinned via explicit snake_case `CodingKeys` (GRDB derives
 /// column names from the coding keys), avoiding any reliance on automatic
-/// camelCase→snake_case conversion for acronym-suffixed names like `tenantID`.
+/// camelCase→snake_case conversion for acronym-suffixed names like `workspaceID`.
 struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
     var id: String                 // UUIDv7, client-minted
-    var tenantID: String
+    var workspaceID: String
     var type: String               // == typeData.kind (denormalized for SQL filters)
     var title: String
     var body: String?              // markdown
@@ -34,7 +34,7 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
 
     enum CodingKeys: String, CodingKey {
         case id
-        case tenantID = "tenant_id"
+        case workspaceID = "workspace_id"
         case type
         case title
         case body

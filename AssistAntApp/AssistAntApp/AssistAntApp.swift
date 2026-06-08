@@ -209,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Upsert a calendar item from a `calendar_item.upsert` envelope. Every
     /// domain field comes from the CLI; the app supplies only the internal id
-    /// and the sync-managed fields. Identity is `(tenant, source, external_id)`.
+    /// and the sync-managed fields. Identity is `(workspace, source, external_id)`.
     private func upsertCalendarItem(_ e: EventEnvelope) {
         let iso = ISO8601DateFormatter()
         guard let externalID = e.detailValue("external_id", as: String.self),
@@ -223,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let item = Item(
             id: UUIDv7.generate(),
-            tenantID: e.detailValue("tenant", as: String.self) ?? "local",
+            workspaceID: e.detailValue("tenant", as: String.self) ?? "local",
             type: ItemType.calendar.rawValue,
             title: title,
             body: e.detailValue("body", as: String.self),
@@ -258,11 +258,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("AssistAnt: calendar_item.prune missing source/from/to")
             return
         }
-        let tenant = e.detailValue("tenant", as: String.self) ?? "local"
+        let workspaceID = e.detailValue("tenant", as: String.self) ?? "local"
         let keep = Set(e.detailValue("keep", as: [String].self) ?? [])
         do {
             try GRDBItemStore.shared.pruneMissing(
-                tenantID: tenant, source: source, from: from, to: to, keep: keep)
+                workspaceID: workspaceID, source: source, from: from, to: to, keep: keep)
         } catch {
             NSLog("AssistAnt: calendar_item.prune failed: \(error)")
         }

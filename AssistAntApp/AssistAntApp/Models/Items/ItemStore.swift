@@ -13,7 +13,7 @@ protocol ItemStore {
     func create(_ item: Item) throws
     func update(_ item: Item) throws
 
-    /// Insert-or-update keyed on `(tenant, source, external_id)`. Resurrects a
+    /// Insert-or-update keyed on `(workspace, source, external_id)`. Resurrects a
     /// soft-deleted row (clears `deletedAt`) and refreshes values; preserves the
     /// existing `id` and `createdAt`. Requires a non-nil `externalID`.
     func upsert(_ item: Item) throws
@@ -25,7 +25,7 @@ protocol ItemStore {
     /// `scheduledOn` is within `[from, to]` and whose `externalID` is not in
     /// `keep`. Items outside the window are untouched.
     func pruneMissing(
-        tenantID: String, source: String,
+        workspaceID: String, source: String,
         from: CivilDate, to: CivilDate, keep: Set<String>
     ) throws
 

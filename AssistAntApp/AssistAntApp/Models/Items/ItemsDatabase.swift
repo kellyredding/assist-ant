@@ -81,6 +81,25 @@ final class ItemsDatabase {
             )
         }
 
+        // Rename the per-row scope column tenant_id -> workspace_id. The concept
+        // is an install identity ("which workspace this is"); "tenant" was
+        // backend jargon that leaked into the column. RENAME COLUMN rewrites the
+        // index column references automatically on modern SQLite, but the index
+        // names still read "tenant", so the tenant-named indexes are recreated
+        // under workspace names.
+        migrator.registerMigration("renameTenantToWorkspace") { db in
+            try db.execute(
+                sql: "ALTER TABLE items RENAME COLUMN tenant_id TO workspace_id")
+            try db.execute(sql: "DROP INDEX IF EXISTS idx_items_identity")
+            try db.execute(sql: "DROP INDEX IF EXISTS idx_items_tenant_type")
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX idx_items_identity
+                ON items (workspace_id, source, external_id)
+                """)
+            try db.execute(
+                sql: "CREATE INDEX idx_items_workspace_type ON items (workspace_id, type)")
+        }
+
         return migrator
     }
 }

@@ -38,7 +38,7 @@ func newItem(
     scheduledOn: CivilDate? = nil
 ) -> Item {
     Item(
-        id: UUIDv7.generate(), tenantID: "local", type: type.rawValue,
+        id: UUIDv7.generate(), workspaceID: "local", type: type.rawValue,
         title: title, body: nil, source: source, externalID: externalID,
         typeData: typeData, iceboxedAt: nil, deletedAt: nil,
         scheduledOn: scheduledOn,
@@ -101,7 +101,7 @@ check("soft-delete + icebox filtered from active") {
     return active.count == 1 && active.first?.id == keep.id
 }
 
-// 5. Unique identity index rejects duplicate (tenant, source, external_id);
+// 5. Unique identity index rejects duplicate (workspace, source, external_id);
 //    manual items (nil external_id) coexist freely.
 check("unique identity index") {
     let (store, _) = try makeStore()
@@ -149,7 +149,7 @@ check("scheduled_on column round-trips") {
     return fetched.scheduledOn == date
 }
 
-// 8. Upsert is idempotent on (tenant, source, external_id): a second upsert
+// 8. Upsert is idempotent on (workspace, source, external_id): a second upsert
 //    updates in place — one row, new values, stable id + createdAt.
 check("upsert is idempotent") {
     let (store, _) = try makeStore()
@@ -200,7 +200,7 @@ check("prune is window-scoped") {
                         scheduledOn: CivilDate(year: 2026, month: 6, day: 20))
     try store.create(before); try store.create(inside); try store.create(after)
     try store.pruneMissing(
-        tenantID: "local", source: "gcal",
+        workspaceID: "local", source: "gcal",
         from: CivilDate(year: 2026, month: 6, day: 10),
         to: CivilDate(year: 2026, month: 6, day: 17),
         keep: [])
