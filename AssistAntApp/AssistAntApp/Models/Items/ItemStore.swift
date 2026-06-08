@@ -4,6 +4,11 @@ import Combine
 enum ItemStoreError: Error {
     /// `upsert` keys on `external_id`; an item without one must use `create`.
     case upsertRequiresExternalID
+    /// A window `pruneMissing` was attempted with an empty keep set and without
+    /// an explicit opt-in. Refused, because an empty keep set retires every
+    /// in-window item — almost always the symptom of a degraded or empty
+    /// upstream fetch, not an intentional "clear the window."
+    case emptyKeepPruneRefused
 }
 
 /// The seam the rest of the app uses to read and mutate items. A GRDB-backed
@@ -23,10 +28,13 @@ protocol ItemStore {
 
     /// Window-scoped reconcile: soft-delete active items for `source` whose
     /// `scheduledOn` is within `[from, to]` and whose `externalID` is not in
-    /// `keep`. Items outside the window are untouched.
+    /// `keep`. Items outside the window are untouched. An empty `keep` would
+    /// retire the whole window, so it is refused with `emptyKeepPruneRefused`
+    /// unless `allowEmptyKeep` is set (the explicit "yes, clear it" opt-in).
     func pruneMissing(
         workspaceID: String, source: String,
-        from: CivilDate, to: CivilDate, keep: Set<String>
+        from: CivilDate, to: CivilDate, keep: Set<String>,
+        allowEmptyKeep: Bool
     ) throws
 
     func fetch(id: String) throws -> Item?

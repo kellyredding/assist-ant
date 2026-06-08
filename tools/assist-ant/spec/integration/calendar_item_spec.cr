@@ -53,6 +53,7 @@ describe "assist-ant calendar-item" do
       detail["from"].should eq "2026-06-06"
       detail["to"].should eq "2026-06-13"
       detail["keep"].as_a.map(&.as_s).should eq ["evt-1", "evt-2"]
+      detail["allow_empty"].should be_false
     end
   end
 
@@ -71,6 +72,33 @@ describe "assist-ant calendar-item" do
       result = run_binary([binary, "calendar-item", "bogus"])
       result[:status].success?.should be_false
       result[:stderr].should contain "unknown calendar-item subcommand"
+    end
+
+    it "prune refuses an empty keep set without --allow-empty" do
+      result = run_binary(
+        [binary, "calendar-item", "prune",
+         "--source", "gcal", "--from", "2026-06-06", "--to", "2026-06-13"],
+      )
+      result[:status].success?.should be_false
+      result[:stderr].should contain "empty --keep"
+    end
+
+    it "prune permits an empty keep set with --allow-empty" do
+      with_socket_server do |sock_path, channel|
+        result = run_binary(
+          [binary, "calendar-item", "prune",
+           "--source", "gcal", "--from", "2026-06-06", "--to", "2026-06-13",
+           "--allow-empty"],
+          env: {"ASSIST_ANT_SOCKET" => sock_path},
+        )
+        result[:status].success?.should be_true
+
+        parsed = JSON.parse(channel.receive)
+        parsed["event"].should eq "calendar_item.prune"
+        detail = parsed["detail_data"]
+        detail["allow_empty"].should be_true
+        detail["keep"].as_a.empty?.should be_true
+      end
     end
   end
 end

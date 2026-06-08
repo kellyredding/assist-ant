@@ -203,7 +203,7 @@ check("prune is window-scoped") {
         workspaceID: "local", source: "gcal",
         from: CivilDate(year: 2026, month: 6, day: 10),
         to: CivilDate(year: 2026, month: 6, day: 17),
-        keep: [])
+        keep: [], allowEmptyKeep: true)
     let beforeOK = try store.fetch(id: before.id)?.deletedAt == nil
     let insideDeleted = try store.fetch(id: inside.id)?.deletedAt != nil
     let afterOK = try store.fetch(id: after.id)?.deletedAt == nil
@@ -259,6 +259,35 @@ check("workspace store renames in place") {
     try store.rename(to: "Renamed")
     let after = try store.current()
     return after.name == "Renamed" && after.id == before.id
+}
+
+// 14. A window prune with an empty keep set is refused by default — the guard
+//     against a degraded/empty upstream fetch wiping the window — and proceeds
+//     only with the explicit opt-in.
+check("empty-keep prune refused unless opted in") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                       source: "gcal", externalID: "ek1",
+                       scheduledOn: CivilDate(year: 2026, month: 6, day: 12))
+    try store.create(item)
+    let from = CivilDate(year: 2026, month: 6, day: 10)
+    let to = CivilDate(year: 2026, month: 6, day: 17)
+    // Default: refused (throws), item survives.
+    var refused = false
+    do {
+        try store.pruneMissing(
+            workspaceID: "local", source: "gcal",
+            from: from, to: to, keep: [], allowEmptyKeep: false)
+    } catch ItemStoreError.emptyKeepPruneRefused {
+        refused = true
+    }
+    let survived = try store.fetch(id: item.id)?.deletedAt == nil
+    // Opt-in: proceeds, item retired.
+    try store.pruneMissing(
+        workspaceID: "local", source: "gcal",
+        from: from, to: to, keep: [], allowEmptyKeep: true)
+    let retired = try store.fetch(id: item.id)?.deletedAt != nil
+    return refused && survived && retired
 }
 
 print(failures == 0

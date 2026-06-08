@@ -75,12 +75,14 @@ module AssistAnt
         from = ""
         to = ""
         keep = [] of String
+        allow_empty = false
 
         OptionParser.parse(args) do |p|
           p.on("--source=SOURCE", "Source id, e.g. gcal (required)") { |v| source = v }
           p.on("--from=YYYY-MM-DD", "Window start date (required)") { |v| from = v }
           p.on("--to=YYYY-MM-DD", "Window end date (required)") { |v| to = v }
           p.on("--keep=ID", "External id to keep (repeatable)") { |v| keep << v }
+          p.on("--allow-empty", "Permit an empty keep set (retires the whole window)") { allow_empty = true }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
         end
 
@@ -88,11 +90,17 @@ module AssistAnt
         require_flag("--from", from)
         require_flag("--to", to)
 
+        if keep.empty? && !allow_empty
+          STDERR.puts "Error: refusing to prune with an empty --keep set (would retire the whole window). Pass --allow-empty to override."
+          exit 1
+        end
+
         detail = {
-          "source" => JSON::Any.new(source),
-          "from"   => JSON::Any.new(from),
-          "to"     => JSON::Any.new(to),
-          "keep"   => JSON::Any.new(keep.map { |k| JSON::Any.new(k) }),
+          "source"      => JSON::Any.new(source),
+          "from"        => JSON::Any.new(from),
+          "to"          => JSON::Any.new(to),
+          "keep"        => JSON::Any.new(keep.map { |k| JSON::Any.new(k) }),
+          "allow_empty" => JSON::Any.new(allow_empty),
         }
 
         AssistAnt::EventPublisher.publish(

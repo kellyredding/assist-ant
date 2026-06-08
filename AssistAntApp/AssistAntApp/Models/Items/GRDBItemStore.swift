@@ -103,8 +103,16 @@ final class GRDBItemStore: ItemStore {
     // "YYYY-MM-DD", so the range compare is lexicographic (= chronological).
     func pruneMissing(
         workspaceID: String, source: String,
-        from: CivilDate, to: CivilDate, keep: Set<String>
+        from: CivilDate, to: CivilDate, keep: Set<String>,
+        allowEmptyKeep: Bool
     ) throws {
+        // An empty keep set retires every in-window item for the source. That is
+        // almost always a degraded or empty upstream fetch (e.g. a transient API
+        // hiccup returning nothing), not a real "the window is empty." Refuse
+        // unless the caller explicitly opted in.
+        if keep.isEmpty && !allowEmptyKeep {
+            throw ItemStoreError.emptyKeepPruneRefused
+        }
         try dbQueue.write { db in
             let inWindow = try Item
                 .filter(sql: """

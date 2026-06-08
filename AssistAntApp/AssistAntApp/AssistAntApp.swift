@@ -272,9 +272,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let keep = Set(e.detailValue("keep", as: [String].self) ?? [])
+        let allowEmptyKeep = e.detailValue("allow_empty", as: Bool.self) ?? false
         do {
             try GRDBItemStore.shared.pruneMissing(
-                workspaceID: workspaceID, source: source, from: from, to: to, keep: keep)
+                workspaceID: workspaceID, source: source, from: from, to: to,
+                keep: keep, allowEmptyKeep: allowEmptyKeep)
+        } catch ItemStoreError.emptyKeepPruneRefused {
+            NSLog("AssistAnt: calendar_item.prune refused — empty keep set without allow_empty; nothing retired")
         } catch {
             NSLog("AssistAnt: calendar_item.prune failed: \(error)")
         }
