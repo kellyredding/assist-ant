@@ -210,6 +210,57 @@ check("prune is window-scoped") {
     return beforeOK && insideDeleted && afterOK
 }
 
+// 11. The workspace migration seats exactly one workspace with a non-empty
+//     name and an opaque, lowercased UUID id.
+check("workspace is seated by migration") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue)
+    let all = try queue.read { db in try Workspace.fetchAll(db) }
+    guard all.count == 1, let ws = all.first else { return false }
+    return !ws.name.isEmpty
+        && ws.id == ws.id.lowercased()
+        && UUID(uuidString: ws.id) != nil
+}
+
+// 12. Rows written under the legacy "local" scope are reassigned onto the
+//     seated workspace; none remain as "local".
+check("legacy 'local' rows backfill onto the workspace") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue, upTo: "renameTenantToWorkspace")
+    try queue.write { db in
+        try db.execute(sql: """
+            INSERT INTO items
+              (id, workspace_id, type, title, source, type_data,
+               created_at, updated_at, pending)
+            VALUES
+              ('legacy-1', 'local', 'todo', 't', 'manual',
+               '{"kind":"todo","data":{}}',
+               '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000', 0)
+            """)
+    }
+    try ItemsDatabase.migrator.migrate(queue)
+    guard let ws = try queue.read({ db in try Workspace.fetchOne(db) }) else {
+        return false
+    }
+    let localCount = try queue.read { db in
+        try Int.fetchOne(
+            db, sql: "SELECT COUNT(*) FROM items WHERE workspace_id = 'local'") ?? -1
+    }
+    let row = try queue.read { db in try Item.fetchOne(db, key: "legacy-1") }
+    return localCount == 0 && row?.workspaceID == ws.id
+}
+
+// 13. WorkspaceStore renames in place: the name changes, the id is stable.
+check("workspace store renames in place") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue)
+    let store = WorkspaceStore(dbQueue: queue)
+    let before = try store.current()
+    try store.rename(to: "Renamed")
+    let after = try store.current()
+    return after.name == "Renamed" && after.id == before.id
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

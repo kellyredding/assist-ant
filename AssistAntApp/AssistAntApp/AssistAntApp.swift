@@ -208,8 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Upsert a calendar item from a `calendar_item.upsert` envelope. Every
-    /// domain field comes from the CLI; the app supplies only the internal id
-    /// and the sync-managed fields. Identity is `(workspace, source, external_id)`.
+    /// domain field comes from the CLI; the app supplies the internal id, the
+    /// workspace scope, and the sync-managed fields. Identity is
+    /// `(workspace, source, external_id)`.
     private func upsertCalendarItem(_ e: EventEnvelope) {
         let iso = ISO8601DateFormatter()
         guard let externalID = e.detailValue("external_id", as: String.self),
@@ -221,9 +222,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("AssistAnt: calendar_item.upsert missing required fields")
             return
         }
+        let workspaceID: String
+        do { workspaceID = try WorkspaceStore.shared.current().id }
+        catch {
+            NSLog("AssistAnt: calendar_item.upsert — cannot resolve workspace: \(error)")
+            return
+        }
         let item = Item(
             id: UUIDv7.generate(),
-            workspaceID: e.detailValue("tenant", as: String.self) ?? "local",
+            workspaceID: workspaceID,
             type: ItemType.calendar.rawValue,
             title: title,
             body: e.detailValue("body", as: String.self),
@@ -258,7 +265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("AssistAnt: calendar_item.prune missing source/from/to")
             return
         }
-        let workspaceID = e.detailValue("tenant", as: String.self) ?? "local"
+        let workspaceID: String
+        do { workspaceID = try WorkspaceStore.shared.current().id }
+        catch {
+            NSLog("AssistAnt: calendar_item.prune — cannot resolve workspace: \(error)")
+            return
+        }
         let keep = Set(e.detailValue("keep", as: [String].self) ?? [])
         do {
             try GRDBItemStore.shared.pruneMissing(

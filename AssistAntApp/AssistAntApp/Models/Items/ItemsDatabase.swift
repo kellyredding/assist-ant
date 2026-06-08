@@ -100,6 +100,32 @@ final class ItemsDatabase {
                 sql: "CREATE INDEX idx_items_workspace_type ON items (workspace_id, type)")
         }
 
+        // Seat the single workspace this install owns. The id lives on every
+        // item row, so the workspace record lives in the same database; minting
+        // it here (once) gives a stable opaque UUID with no runtime
+        // normalization step. Rows written under the CLI's old literal "local"
+        // scope are reassigned onto it — idempotent for a fresh install, where
+        // the UPDATE matches nothing.
+        migrator.registerMigration("seatWorkspace") { db in
+            try db.create(table: "workspace") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+            let now = Date()
+            let id = UUID().uuidString.lowercased()
+            try db.execute(
+                sql: """
+                    INSERT INTO workspace (id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [id, Workspace.defaultName(), now, now])
+            try db.execute(
+                sql: "UPDATE items SET workspace_id = ? WHERE workspace_id = 'local'",
+                arguments: [id])
+        }
+
         return migrator
     }
 }

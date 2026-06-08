@@ -35,7 +35,6 @@ module AssistAnt
         end_at : String? = nil
         time_zone : String? = nil
         body : String? = nil
-        tenant = "local"
 
         OptionParser.parse(args) do |p|
           p.on("--external-id=ID", "Source's stable event id (required)") { |v| external_id = v }
@@ -45,7 +44,6 @@ module AssistAnt
           p.on("--end=ISO8601", "End instant, ISO-8601") { |v| end_at = v }
           p.on("--time-zone=TZ", "IANA time zone id") { |v| time_zone = v }
           p.on("--body=MARKDOWN", "Markdown body") { |v| body = v }
-          p.on("--tenant=TENANT", "Tenant (default: local)") { |v| tenant = v }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
         end
 
@@ -61,7 +59,6 @@ module AssistAnt
         detail["title"] = JSON::Any.new(title)
         detail["start_at"] = JSON::Any.new(start_at)
         detail["source"] = JSON::Any.new(source)
-        detail["tenant"] = JSON::Any.new(tenant)
         detail["scheduled_on"] = JSON::Any.new(scheduled_on)
         detail["end_at"] = JSON::Any.new(end_at.not_nil!) if end_at
         detail["time_zone"] = JSON::Any.new(time_zone.not_nil!) if time_zone
@@ -77,7 +74,6 @@ module AssistAnt
         source = ""
         from = ""
         to = ""
-        tenant = "local"
         keep = [] of String
 
         OptionParser.parse(args) do |p|
@@ -85,7 +81,6 @@ module AssistAnt
           p.on("--from=YYYY-MM-DD", "Window start date (required)") { |v| from = v }
           p.on("--to=YYYY-MM-DD", "Window end date (required)") { |v| to = v }
           p.on("--keep=ID", "External id to keep (repeatable)") { |v| keep << v }
-          p.on("--tenant=TENANT", "Tenant (default: local)") { |v| tenant = v }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
         end
 
@@ -95,7 +90,6 @@ module AssistAnt
 
         detail = {
           "source" => JSON::Any.new(source),
-          "tenant" => JSON::Any.new(tenant),
           "from"   => JSON::Any.new(from),
           "to"     => JSON::Any.new(to),
           "keep"   => JSON::Any.new(keep.map { |k| JSON::Any.new(k) }),

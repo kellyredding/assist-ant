@@ -30,7 +30,6 @@ describe "assist-ant calendar-item" do
       detail["source"].should eq "gcal"
       detail["start_at"].should eq "2026-06-06T18:00:00Z"
       detail["time_zone"].should eq "America/Los_Angeles"
-      detail["tenant"].should eq "local"
       # scheduled_on is derived in local time from the start instant.
       expected = AssistAnt::Commands::CalendarItem.scheduled_on("2026-06-06T18:00:00Z")
       detail["scheduled_on"].should eq expected
