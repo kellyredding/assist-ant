@@ -290,6 +290,32 @@ check("empty-keep prune refused unless opted in") {
     return refused && survived && retired
 }
 
+// 15. Today sidebar derivation: only today's calendar items, sorted by start,
+//     with past events flagged.
+check("today calendar rows: filter, sort, past flag") {
+    var c = DateComponents()
+    c.year = 2026; c.month = 6; c.day = 12; c.hour = 12; c.minute = 0
+    let now = Calendar.current.date(from: c)!
+    func at(_ h: Int) -> Date {
+        Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: now)!
+    }
+    func cal(_ start: Date, _ end: Date) -> ItemTypeData {
+        .calendar(CalendarData(startAt: start, endAt: end))
+    }
+    let today = CivilDate(now)
+    let other = CivilDate(year: 2026, month: 6, day: 13)
+    let past = newItem(type: .calendar, typeData: cal(at(9), at(10)),
+                       source: "gcal", externalID: "p", scheduledOn: today)
+    let soon = newItem(type: .calendar, typeData: cal(at(15), at(16)),
+                       source: "gcal", externalID: "s", scheduledOn: today)
+    let tomorrow = newItem(type: .calendar, typeData: cal(at(11), at(12)),
+                           source: "gcal", externalID: "t", scheduledOn: other)
+    let rows = TodayCalendar.rows(items: [soon, tomorrow, past], now: now)
+    guard rows.count == 2 else { return false }
+    return rows[0].item.id == past.id && rows[0].isPast
+        && rows[1].item.id == soon.id && !rows[1].isPast
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

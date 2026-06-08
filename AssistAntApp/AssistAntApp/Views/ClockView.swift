@@ -31,6 +31,13 @@ struct ClockView: View {
     @ObservedObject private var settings = SettingsManager.shared
     @ObservedObject private var mic = MicActivityService.shared
 
+    /// Sidebar width, measured from the rendered frame (via a background
+    /// reader) so the clock sizes to its content height — letting the divider
+    /// and today's items sit directly beneath it — while its fonts still scale
+    /// to the available width exactly as before. Seeded with a typical sidebar
+    /// width so the first frame isn't mis-scaled before the measurement lands.
+    @State private var measuredWidth: CGFloat = 400
+
     /// Live icon state — drives whether (and how) the muted status row
     /// renders. Reuses the same state machine the inline
     /// `AnnounceStatusButton` consults so the two surfaces always agree
@@ -58,56 +65,66 @@ struct ClockView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let scale = ClockMetrics.scale(forWidth: geo.size.width)
-            VStack(spacing: 12 * scale) {
-                Text(formattedDate)
-                    .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
-                    .foregroundStyle(.secondary)
-                // Time + announcement status icon as a centered unit. The
-                // icon sits inline after the time, sized as a visual peer
-                // to the clock, so the [time + icon] group centers together
-                // rather than the icon floating in a window corner.
-                HStack(spacing: 12 * scale) {
-                    Text(formattedTime)
-                        .font(.system(size: 80 * scale, weight: .light, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
-                    AnnounceStatusButton(scale: scale)
-                }
-                Text(timezoneName)
-                    .font(.system(size: 15 * scale))
-                    .foregroundStyle(.secondary)
-
-                // Standing-desk status (countdown / switch nudge). Renders
-                // nothing when the desk timer is disabled or unstarted, so
-                // it's inert for users who never enable it. Scales with the
-                // clock.
-                DeskStatusView(scale: scale)
-
-                // Muted status row — renders last, for either mute reason,
-                // with text naming the reason. System orange auto-adapts to
-                // light/dark; matches the inline AnnounceStatusButton's
-                // muted icon color so the two read as one connected
-                // indicator. The fade comes from the parent VStack's
-                // `.animation(value: iconState)` paired with this view's
-                // `.transition(.opacity)`.
-                if let mutedStatusText {
-                    MutedStatusRow(
-                        text: mutedStatusText,
-                        showsUnmute: iconState == .mutedManually,
-                        scale: scale
-                    )
-                    .transition(.opacity)
-                }
-
-                Spacer()
+        let scale = ClockMetrics.scale(forWidth: measuredWidth)
+        VStack(spacing: 12 * scale) {
+            Text(formattedDate)
+                .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
+                .foregroundStyle(.secondary)
+            // Time + announcement status icon as a centered unit. The
+            // icon sits inline after the time, sized as a visual peer
+            // to the clock, so the [time + icon] group centers together
+            // rather than the icon floating in a window corner.
+            HStack(spacing: 12 * scale) {
+                Text(formattedTime)
+                    .font(.system(size: 80 * scale, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                AnnounceStatusButton(scale: scale)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(4 * scale)
-            .animation(.easeInOut(duration: 0.25), value: iconState)
+            Text(timezoneName)
+                .font(.system(size: 15 * scale))
+                .foregroundStyle(.secondary)
+
+            // Standing-desk status (countdown / switch nudge). Renders
+            // nothing when the desk timer is disabled or unstarted, so
+            // it's inert for users who never enable it. Scales with the
+            // clock.
+            DeskStatusView(scale: scale)
+
+            // Muted status row — renders last, for either mute reason,
+            // with text naming the reason. System orange auto-adapts to
+            // light/dark; matches the inline AnnounceStatusButton's
+            // muted icon color so the two read as one connected
+            // indicator. The fade comes from the parent VStack's
+            // `.animation(value: iconState)` paired with this view's
+            // `.transition(.opacity)`.
+            if let mutedStatusText {
+                MutedStatusRow(
+                    text: mutedStatusText,
+                    showsUnmute: iconState == .mutedManually,
+                    scale: scale
+                )
+                .transition(.opacity)
+            }
         }
+        // Only the height-fill is removed (no Spacer / maxHeight) so the clock
+        // takes just the room it needs and the today items sit directly below;
+        // it grows downward when the desk / muted rows appear. Width is read
+        // from a background reader so the existing font scaling is unchanged.
+        .padding(4 * scale)
+        // Extra breathing room beneath the clock so the gap down to the divider
+        // visually matches the airier top (the date line's leading). Tunable.
+        .padding(.bottom, 8 * scale)
+        .frame(maxWidth: .infinity)
+        .background(
+            GeometryReader { geo in
+                Color.clear.onChange(of: geo.size.width, initial: true) { _, newWidth in
+                    measuredWidth = newWidth
+                }
+            }
+        )
+        .animation(.easeInOut(duration: 0.25), value: iconState)
     }
 
     /// Full weekday, full month name, day of month, and year. Renders as

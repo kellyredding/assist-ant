@@ -43,20 +43,26 @@ struct ContentView: View {
 
     // MARK: - Sidebar Column
 
-    /// The clock UI, pinned to the current sidebar width. The clock scales its
-    /// fonts to fit this width (see ClockView / ClockMetrics).
+    /// The today sidebar: the clock in a top band (scaling its fonts to the
+    /// sidebar width — see ClockView / ClockMetrics), a divider, then today's
+    /// items filling the rest of the column.
     private func sidebarColumn(width: CGFloat) -> some View {
-        ClockView()
-            .frame(width: width)
-            .frame(maxHeight: .infinity)
-            .clipped()
-            .transaction { t in
-                // Suppress implicit animation during the resize drag so the
-                // column tracks the cursor 1:1 instead of easing behind it.
-                if draggingWidth != nil {
-                    t.animation = nil
-                }
+        VStack(spacing: 0) {
+            ClockView()
+            Divider()
+            TodayItemsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .clipped()
+        .transaction { t in
+            // Suppress implicit animation during the resize drag so the
+            // column tracks the cursor 1:1 instead of easing behind it.
+            if draggingWidth != nil {
+                t.animation = nil
             }
+        }
     }
 
     // MARK: - Agent Pane (placeholder)
