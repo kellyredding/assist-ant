@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The Calendar tab's control bar: Today, week chevrons, the live month/year
+/// The Schedule tab's control bar: Today, week chevrons, the live month/year
 /// label, and a refresh glyph. All actions are routed to the agenda model.
-struct CalendarControlBar: View {
+struct ScheduleControlBar: View {
     let monthYear: String
     let onToday: () -> Void
     let onBack: () -> Void

@@ -6,19 +6,19 @@ import Foundation
 /// the ZStack switch in ContentView.
 enum MainTab: String, CaseIterable {
     case agent
-    case calendar
+    case schedule
 
     var title: String {
         switch self {
         case .agent: return "Agent"
-        case .calendar: return "Calendar"
+        case .schedule: return "Schedule"
         }
     }
 
     var icon: String {
         switch self {
         case .agent: return "apple.terminal"
-        case .calendar: return "calendar"
+        case .schedule: return "calendar"
         }
     }
 }

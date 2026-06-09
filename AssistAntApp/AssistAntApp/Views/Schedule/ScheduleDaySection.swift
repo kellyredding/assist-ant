@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One day in the agenda: a left gutter (day number / weekday / month, today
 /// circled) and the day's events — or a muted "no events" line when empty.
-struct CalendarDaySection: View {
+struct ScheduleDaySection: View {
     let day: AgendaDay
     let now: Date
     /// Invoked when an event row is tapped, to open it in the reader.
@@ -22,7 +22,7 @@ struct CalendarDaySection: View {
                     ForEach(day.items, id: \.id) { item in
                         CalendarEventRow(
                             item: item,
-                            isPast: CalendarAgenda.isPast(item, now: now),
+                            isPast: ScheduleAgenda.isPast(item, now: now),
                             onTap: { onOpen(item) }
                         )
                     }

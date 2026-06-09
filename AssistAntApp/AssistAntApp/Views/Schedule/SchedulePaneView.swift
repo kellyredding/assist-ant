@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// The Calendar tab's content: a control bar over a spinner-gated, vertically
+/// The Schedule tab's content: a control bar over a spinner-gated, vertically
 /// scrolled agenda — or, when an event is open, a full-takeover event reader
 /// in its place. Activates the model on first appear (if the tab is already
-/// selected) and on every switch to `.calendar`. Observes the clock so past-
+/// selected) and on every switch to `.schedule`. Observes the clock so past-
 /// dimming and the today highlight refresh each minute without re-fetching.
-struct CalendarPaneView: View {
-    @ObservedObject private var model = CalendarAgendaModel.shared
+struct SchedulePaneView: View {
+    @ObservedObject private var model = ScheduleAgendaModel.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
@@ -34,11 +34,11 @@ struct CalendarPaneView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
         .onAppear {
-            if navigator.selectedTab == .calendar { model.activate() }
+            if navigator.selectedTab == .schedule { model.activate() }
             consumePendingEventShow()
         }
         .onChange(of: navigator.selectedTab) { _, tab in
-            if tab == .calendar { model.activate() }
+            if tab == .schedule { model.activate() }
         }
         .onChange(of: navigator.pendingEventShow) { _, _ in
             consumePendingEventShow()
@@ -50,7 +50,7 @@ struct CalendarPaneView: View {
 
     private var agendaPane: some View {
         VStack(spacing: 0) {
-            CalendarControlBar(
+            ScheduleControlBar(
                 monthYear: monthYearLabel,
                 onToday: { model.goToToday() },
                 onBack: { model.goBack() },
@@ -76,7 +76,7 @@ struct CalendarPaneView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.days) { day in
-                            CalendarDaySection(
+                            ScheduleDaySection(
                                 day: day,
                                 now: clock.currentTime,
                                 onOpen: { openEvent = $0 }
@@ -147,7 +147,7 @@ struct CalendarPaneView: View {
         guard escapeMonitor == nil else { return }
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard event.keyCode == 53 else { return event }   // 53 = Escape
-            guard navigator.selectedTab == .calendar else { return event }
+            guard navigator.selectedTab == .schedule else { return event }
             DispatchQueue.main.async { openEvent = nil }
             removeEscapeMonitor()
             return nil

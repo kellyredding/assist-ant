@@ -50,10 +50,10 @@ struct TodayItemsView: View {
             VStack(spacing: 10) {
                 ForEach(model.calendarRows) { row in
                     CalendarItemRow(row: row) {
-                        // Cross-tab handoff: switch to Calendar and queue the
-                        // event id; CalendarPaneView opens it from the store.
+                        // Cross-tab handoff: switch to Schedule and queue the
+                        // event id; SchedulePaneView opens it from the store.
                         let navigator = MainTabNavigator.shared
-                        navigator.selectedTab = .calendar
+                        navigator.selectedTab = .schedule
                         navigator.pendingEventShow = row.item.id
                     }
                 }

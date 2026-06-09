@@ -1,14 +1,14 @@
 import Foundation
 import Combine
 
-/// Drives the Calendar tab's agenda. Owns the loaded window and navigation.
+/// Drives the Schedule tab's agenda. Owns the loaded window and navigation.
 /// Forward data is fully loaded ([windowStart → ∞)); the past edge
 /// (`windowStart`) starts at today and extends a Monday-anchored week at a
 /// time via the back chevron. State persists across tab switches (singleton +
 /// the tab view stays mounted); only the first activation jumps to today.
 @MainActor
-final class CalendarAgendaModel: ObservableObject {
-    static let shared = CalendarAgendaModel()
+final class ScheduleAgendaModel: ObservableObject {
+    static let shared = ScheduleAgendaModel()
 
     /// Rendered day sections (windowStart … last forward event day).
     @Published private(set) var days: [AgendaDay] = []
@@ -93,9 +93,9 @@ final class CalendarAgendaModel: ObservableObject {
             let items = try store.fetchActive(
                 type: .calendar, from: windowStart, to: nil
             )
-            days = CalendarAgenda.days(items: items, from: windowStart)
+            days = ScheduleAgenda.days(items: items, from: windowStart)
         } catch {
-            NSLog("CalendarAgendaModel: load failed: \(error)")
+            NSLog("ScheduleAgendaModel: load failed: \(error)")
         }
         isLoading = false
         isWorking = false

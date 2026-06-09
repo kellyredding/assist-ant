@@ -11,7 +11,7 @@ struct AgendaDay: Identifiable, Equatable {
 
 /// Pure derivation of the agenda's day sections. No SwiftUI, no I/O —
 /// mirrors `TodayCalendar`.
-enum CalendarAgenda {
+enum ScheduleAgenda {
     /// Every day from `start` through the last day carrying an event (or
     /// `start` itself if none), inclusive — empty days included — each with
     /// its sorted items. `items` is the already-range-fetched set.

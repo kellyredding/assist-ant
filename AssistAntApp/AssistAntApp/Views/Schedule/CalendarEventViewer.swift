@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Full-takeover reader for a single calendar event, shown inside the Calendar
+/// Full-takeover reader for a single calendar event, shown inside the Schedule
 /// tab in place of the agenda. Three stacked zones: a header (centered title +
 /// close button), a sticky date/time line, then the scrollable event body.
 /// Mirrors the reader pattern used by Galaxy's snapshot viewer; the Escape
-/// monitor and the `openEvent` toggle live in `CalendarPaneView`, which owns
+/// monitor and the `openEvent` toggle live in `SchedulePaneView`, which owns
 /// dismissal — this view just reports a close intent via `onClose`.
 struct CalendarEventViewer: View {
     let event: Item
