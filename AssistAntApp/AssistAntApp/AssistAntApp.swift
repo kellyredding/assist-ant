@@ -64,6 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         _ = AnnouncementService.shared
 
+        // Warm the calendar announcer so it subscribes to the clock and the
+        // active-calendar feed from launch — otherwise a near-term event
+        // could pass its lead time before the service is first touched.
+        _ = CalendarAnnouncementService.shared
+
         // Warm DeskService so its launch fixup runs, its clock/mic
         // observers wire up, and a nudge pending on launch begins its
         // audible repeat. The visible countdown/nudge is derived live by

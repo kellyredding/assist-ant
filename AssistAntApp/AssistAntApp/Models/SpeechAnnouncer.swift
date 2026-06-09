@@ -114,6 +114,19 @@ final class SpeechAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    /// Spoken phrase for an upcoming calendar item. Lead times read
+    /// "{title} in N minutes" (singular "1 minute"); the event-start case
+    /// (minutesBefore <= 0) reads "{title} starting now". The minute count
+    /// is left as digits — AVSpeechSynthesizer reads "15" correctly here,
+    /// unlike the time phrase where leading-zero minutes needed spelling out.
+    static func eventPhrase(title: String, minutesBefore: Int) -> String {
+        if minutesBefore <= 0 {
+            return "\(title) starting now"
+        }
+        let unit = minutesBefore == 1 ? "minute" : "minutes"
+        return "\(title) in \(minutesBefore) \(unit)"
+    }
+
     /// Spoken military-time form for a 24-hour value. The top of the
     /// hour ends in "hundred" ("oh eight hundred", "fifteen hundred");
     /// off the hour reads the minute after the hour ("oh eight thirty",

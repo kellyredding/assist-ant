@@ -26,6 +26,7 @@ struct AppSettings: Codable, Equatable {
     var isMuted: Bool                     // global manual mute (open-ended)
     var announcementsEnabled: Bool        // master: silence all audible announcements
     var desk: DeskSettings                // standing-desk sit/stand timer
+    var calendarAnnouncement: CalendarAnnouncementSettings  // upcoming-event announcements
 
     // Embedded agent terminal settings — the three knobs the Agent
     // settings tab exposes. The terminal color theme is intentionally NOT
@@ -45,6 +46,7 @@ struct AppSettings: Codable, Equatable {
         isMuted: false,
         announcementsEnabled: true,
         desk: .defaults,
+        calendarAnnouncement: .defaults,
         terminalFontFamily: "SF Mono",
         defaultTerminalFontSize: 13.0,
         terminalScrollbackLines: 10_000
@@ -116,6 +118,9 @@ struct AppSettings: Codable, Equatable {
         self.desk = try container.decodeIfPresent(
             DeskSettings.self, forKey: .desk
         ) ?? AppSettings.current.desk
+        self.calendarAnnouncement = try container.decodeIfPresent(
+            CalendarAnnouncementSettings.self, forKey: .calendarAnnouncement
+        ) ?? AppSettings.current.calendarAnnouncement
 
         self.terminalFontFamily = try container.decodeIfPresent(
             String.self, forKey: .terminalFontFamily
@@ -138,6 +143,7 @@ struct AppSettings: Codable, Equatable {
         isMuted: Bool,
         announcementsEnabled: Bool,
         desk: DeskSettings,
+        calendarAnnouncement: CalendarAnnouncementSettings,
         terminalFontFamily: String,
         defaultTerminalFontSize: CGFloat,
         terminalScrollbackLines: Int
@@ -151,6 +157,7 @@ struct AppSettings: Codable, Equatable {
         self.isMuted = isMuted
         self.announcementsEnabled = announcementsEnabled
         self.desk = desk
+        self.calendarAnnouncement = calendarAnnouncement
         self.terminalFontFamily = terminalFontFamily
         self.defaultTerminalFontSize = defaultTerminalFontSize
         self.terminalScrollbackLines = terminalScrollbackLines
@@ -190,6 +197,7 @@ struct AppSettings: Codable, Equatable {
         case isMuted
         case announcementsEnabled
         case desk
+        case calendarAnnouncement
         case terminalFontFamily
         case defaultTerminalFontSize
         case terminalScrollbackLines

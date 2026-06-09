@@ -23,11 +23,12 @@ import Foundation
 final class AudioAnnouncementCoordinator {
     static let shared = AudioAnnouncementCoordinator()
 
-    /// Higher rawValue plays first. Time announcements outrank the desk
-    /// nudge, so on a mic-release flush the time catch-up speaks before
-    /// the desk nudge. A settings preview outranks both — when you tap it
-    /// you want to hear it next, ahead of anything merely queued.
-    enum Priority: Int { case desk = 0, time = 1, preview = 2 }
+    /// Higher rawValue plays first. Desk nudge is lowest; the time chime
+    /// next; an upcoming-event announcement outranks both (specific,
+    /// time-sensitive content shouldn't be starved behind a routine chime);
+    /// a settings preview outranks all — when you tap it you want to hear it
+    /// next, ahead of anything merely queued.
+    enum Priority: Int { case desk = 0, time = 1, calendar = 2, preview = 3 }
 
     struct Job {
         var sound: AnnouncementSound?

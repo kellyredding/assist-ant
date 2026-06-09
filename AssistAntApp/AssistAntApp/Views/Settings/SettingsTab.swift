@@ -9,6 +9,7 @@ enum SettingsTab: String, CaseIterable {
     case workspace
     case announcements
     case time
+    case calendar
     case desk
     case agent
 
@@ -18,6 +19,7 @@ enum SettingsTab: String, CaseIterable {
         case .workspace: return "Workspace"
         case .announcements: return "Announcements"
         case .time: return "Time"
+        case .calendar: return "Calendar"
         case .desk: return "Desk"
         case .agent: return "Agent"
         }
@@ -29,6 +31,7 @@ enum SettingsTab: String, CaseIterable {
         case .workspace: return "macwindow"
         case .announcements: return "speaker.wave.3.fill"
         case .time: return "clock"
+        case .calendar: return "calendar"
         case .desk: return "chair.fill"
         case .agent: return "apple.terminal"
         }
