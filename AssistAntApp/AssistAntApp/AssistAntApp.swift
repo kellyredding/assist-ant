@@ -208,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleEvent(_ e: EventEnvelope) {
         switch e.event {
         case "calendar_item.sync": syncCalendarItems(e)
+        case "actionable_item.sync": syncActionableItems(e)
         case "ping":
             let message = e.detailValue("message", as: String.self) ?? "<no message>"
             NSLog("AssistAnt: ping — \(message)")
@@ -299,6 +300,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 name: .calendarItemsDidChange, object: nil)
         } catch {
             NSLog("AssistAnt: calendar_item.sync failed: \(error)")
+        }
+    }
+
+    /// Apply an `actionable_item.sync` envelope: read the batch the CLI wrote
+    /// (the open + recently-completed Linear issues plus the keep set), apply
+    /// it (create / update / resolve + orphan reconcile) in one transaction,
+    /// then delete the temp file.
+    private func syncActionableItems(_ e: EventEnvelope) {
+        guard let batchPath = e.detailValue("batch_file", as: String.self) else {
+            NSLog("AssistAnt: actionable_item.sync missing batch_file")
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: batchPath) }
+
+        guard let data = FileManager.default.contents(atPath: batchPath) else {
+            NSLog("AssistAnt: actionable_item.sync — batch file unreadable: \(batchPath)")
+            return
+        }
+        let batch: ActionableSyncBatch
+        do {
+            batch = try JSONDecoder().decode(ActionableSyncBatch.self, from: data)
+        } catch {
+            NSLog("AssistAnt: actionable_item.sync — decode failed: \(error)")
+            return
+        }
+
+        let workspaceID: String
+        do { workspaceID = try WorkspaceStore.shared.current().id }
+        catch {
+            NSLog("AssistAnt: actionable_item.sync — cannot resolve workspace: \(error)")
+            return
+        }
+
+        do {
+            try GRDBItemStore.shared.applyActionableSync(
+                rows: batch.items, workspaceID: workspaceID, source: batch.source,
+                keep: Set(batch.keep), reconcile: batch.reconcile,
+                allowEmptyKeep: false)
+            NSLog("AssistAnt: actionable_item.sync — applied \(batch.items.count), "
+                + "reconcile=\(batch.reconcile)")
+        } catch {
+            NSLog("AssistAnt: actionable_item.sync failed: \(error)")
         }
     }
 }

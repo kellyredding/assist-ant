@@ -411,6 +411,139 @@ check("reclassify swaps kind losslessly; rejects calendar") {
     return preserved && rejected
 }
 
+// Helpers for the actionable-sync checks below.
+func lrow(
+    _ ext: String, _ status: String, title: String = "t", body: String = "b",
+    url: String = "https://linear.app/x", completedAt: String? = nil
+) -> ActionableSyncBatch.ItemRow {
+    ActionableSyncBatch.ItemRow(
+        externalID: ext, title: title, body: body, url: url,
+        statusType: status, completedAt: completedAt)
+}
+
+/// Fetch by external_id directly (works for iceboxed/resolved rows, which
+/// fetchActive excludes).
+func fetchByExt(_ queue: DatabaseQueue, _ ext: String) throws -> Item? {
+    try queue.read { db in
+        try Item.filter(sql: "external_id = ?", arguments: [ext]).fetchOne(db)
+    }
+}
+
+// 20. Open issues (started/unstarted) are created as unscheduled todos.
+check("actionable sync: open issues create as unscheduled todos") {
+    let (store, _) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-1", "started", title: "active"),
+               lrow("FLEX-2", "unstarted", title: "todo")],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-1", "FLEX-2"], reconcile: false, allowEmptyKeep: false)
+    let items = try store.fetchActive(type: .todo)
+    guard items.count == 2 else { return false }
+    return items.allSatisfy {
+        $0.type == "todo" && $0.source == "linear"
+            && $0.scheduledOn == nil && $0.iceboxedAt == nil && $0.resolvedAt == nil
+    }
+}
+
+// 21. A new backlog issue is created iceboxed (hidden from the active set).
+check("actionable sync: backlog issue creates iceboxed") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-3", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-3"], reconcile: false, allowEmptyKeep: false)
+    guard let item = try fetchByExt(queue, "FLEX-3") else { return false }
+    let hiddenFromActive = try store.fetchActive(type: .todo).isEmpty
+    return item.iceboxedAt != nil && item.type == "todo"
+        && item.scheduledOn == nil && hiddenFromActive
+}
+
+// 22. Update refreshes title/body/url but preserves type and resolution.
+check("actionable sync: update refreshes content, preserves type + resolution") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-9", "started", title: "v1", body: "b1", url: "https://l/9")],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-9"], reconcile: false, allowEmptyKeep: false)
+    guard let created = try fetchByExt(queue, "FLEX-9") else { return false }
+    try store.reclassify(id: created.id, to: .reminder)   // user adopts it
+    try store.resolve(id: created.id)                     // and resolves it locally
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-9", "started", title: "v2", body: "b2", url: "https://l/9b")],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-9"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try store.fetch(id: created.id) else { return false }
+    guard case .reminder(let d) = after.typeData else { return false }
+    return after.title == "v2" && after.body == "b2"
+        && d.externalURL == "https://l/9b"   // url refreshed
+        && after.type == "reminder"          // type preserved
+        && after.resolvedAt != nil           // never unresolved
+}
+
+// 23. Completed issues resolve on the completion day; a brand-new completed
+//     issue is created already-resolved.
+check("actionable sync: completed issues resolve on the completion day") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-5", "started", title: "open")],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-5"], reconcile: false, allowEmptyKeep: false)
+    let completedAt = "2026-06-08T15:30:00.000Z"
+    let expectedDay = CivilDate(
+        ISO8601DateFormatter().date(from: "2026-06-08T15:30:00Z")!)
+    try store.applyActionableSync(
+        rows: [lrow("FLEX-5", "completed", title: "done", completedAt: completedAt),
+               lrow("FLEX-6", "completed", title: "born done", completedAt: completedAt)],
+        workspaceID: "local", source: "linear",
+        keep: ["FLEX-5", "FLEX-6"], reconcile: false, allowEmptyKeep: false)
+    guard let five = try fetchByExt(queue, "FLEX-5"),
+          let six = try fetchByExt(queue, "FLEX-6") else { return false }
+    return five.resolvedAt != nil && five.scheduledOn == expectedDay && five.title == "done"
+        && six.resolvedAt != nil && six.scheduledOn == expectedDay && six.type == "todo"
+}
+
+// 24. Reconcile soft-deletes orphan todos, sparing resolved + reclassified.
+check("actionable sync: reconcile soft-deletes orphan todos only") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("KEEP-1", "started"), lrow("ORPHAN-1", "started"),
+               lrow("RESOLVED-1", "started"), lrow("ADOPTED-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["KEEP-1", "ORPHAN-1", "RESOLVED-1", "ADOPTED-1"],
+        reconcile: false, allowEmptyKeep: false)
+    guard let resolved = try fetchByExt(queue, "RESOLVED-1"),
+          let adopted = try fetchByExt(queue, "ADOPTED-1") else { return false }
+    try store.resolve(id: resolved.id)                  // resolved → history
+    try store.reclassify(id: adopted.id, to: .explore)  // reclassified → adopted
+    // Re-sync with only KEEP-1 assigned; the rest are orphaned.
+    try store.applyActionableSync(
+        rows: [lrow("KEEP-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["KEEP-1"], reconcile: true, allowEmptyKeep: false)
+    guard let keep = try fetchByExt(queue, "KEEP-1"),
+          let orphan = try fetchByExt(queue, "ORPHAN-1"),
+          let res = try fetchByExt(queue, "RESOLVED-1"),
+          let adp = try fetchByExt(queue, "ADOPTED-1") else { return false }
+    return keep.deletedAt == nil       // in keep → kept
+        && orphan.deletedAt != nil     // orphan todo → soft-deleted
+        && res.deletedAt == nil        // resolved → spared (history)
+        && adp.deletedAt == nil        // reclassified → spared (adopted)
+}
+
+// 25. An empty keep set is treated as degraded and skips reconcile.
+check("actionable sync: empty keep skips reconcile") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("X-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["X-1"], reconcile: false, allowEmptyKeep: false)
+    try store.applyActionableSync(
+        rows: [], workspaceID: "local", source: "linear",
+        keep: [], reconcile: true, allowEmptyKeep: false)
+    guard let x = try fetchByExt(queue, "X-1") else { return false }
+    return x.deletedAt == nil
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

@@ -172,6 +172,131 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    // MARK: - Actionable sync (Linear → todos)
+
+    /// Apply a Linear actionable sync in ONE transaction. Per row: create a new
+    /// `todo` (backlog → iceboxed at creation; completed → resolved on the
+    /// completion day) or update an existing item in place — refreshing only
+    /// title/body/externalURL, preserving type, schedule, icebox, list, and
+    /// position, and resolving it if it just completed but never unresolving.
+    /// Then, when `reconcile` is set, soft-delete orphaned linear todos (active,
+    /// unresolved, still `todo`, external_id not in `keep`), sparing resolved
+    /// history and reclassified items. An empty keep set is treated as a
+    /// degraded fetch and skips reconcile unless `allowEmptyKeep`.
+    func applyActionableSync(
+        rows: [ActionableSyncBatch.ItemRow],
+        workspaceID: String, source: String,
+        keep: Set<String>, reconcile: Bool, allowEmptyKeep: Bool
+    ) throws {
+        let shouldReconcile = reconcile && (!keep.isEmpty || allowEmptyKeep)
+        try dbQueue.write { db in
+            let now = Date()
+            for row in rows {
+                let completedAt = row.completedAt.flatMap(Self.parseISO)
+                let existing = try Item
+                    .filter(sql: "workspace_id = ? AND source = ? AND external_id = ?",
+                            arguments: [workspaceID, source, row.externalID])
+                    .fetchOne(db)
+                if var item = existing {
+                    // Update in place: refresh only the sync-owned fields.
+                    item.title = row.title
+                    item.body = row.body
+                    item.typeData = Self.actionableWithURL(item.typeData, row.url)
+                    // Resolve it if it just completed — but never unresolve.
+                    if let completedAt, item.resolvedAt == nil {
+                        item.resolvedAt = completedAt
+                        item.scheduledOn = CivilDate(completedAt)
+                    }
+                    item.deletedAt = nil   // resurrect if a prior reconcile retired it
+                    item.updatedAt = now
+                    item.pending = true
+                    try item.update(db)
+                } else {
+                    // Create as a todo: unscheduled; backlog → iceboxed now;
+                    // completed → resolved on the completion day.
+                    let item = Item(
+                        id: UUIDv7.generate(),
+                        workspaceID: workspaceID,
+                        type: ItemType.todo.rawValue,
+                        title: row.title,
+                        body: row.body,
+                        source: source,
+                        externalID: row.externalID,
+                        typeData: .todo(ActionableData(listName: nil, externalURL: row.url)),
+                        iceboxedAt: row.statusType == "backlog" ? now : nil,
+                        deletedAt: nil,
+                        scheduledOn: completedAt.map { CivilDate($0) },
+                        resolvedAt: completedAt,
+                        position: nil,
+                        createdAt: now,
+                        updatedAt: now,
+                        serverUpdatedAt: nil,
+                        pending: true)
+                    try item.insert(db)
+                }
+            }
+            if shouldReconcile {
+                try Self.reconcileOrphans(
+                    workspaceID: workspaceID, source: source,
+                    keep: keep, now: now, in: db)
+            }
+        }
+        backup.itemsDidChange()
+    }
+
+    /// Soft-delete linear todos that fell out of the assigned set: active,
+    /// unresolved, still typed `todo`, with an external_id not in `keep`.
+    /// Resolved items (history) and reclassified ones (adopted) are left alone.
+    private static func reconcileOrphans(
+        workspaceID: String, source: String, keep: Set<String>,
+        now: Date, in db: Database
+    ) throws {
+        let candidates = try Item
+            .filter(sql: """
+                workspace_id = ? AND source = ? AND type = ?
+                AND deleted_at IS NULL AND resolved_at IS NULL
+                AND external_id IS NOT NULL
+                """, arguments: [workspaceID, source, ItemType.todo.rawValue])
+            .fetchAll(db)
+        for var item in candidates {
+            guard let ext = item.externalID, !keep.contains(ext) else { continue }
+            item.deletedAt = now
+            item.updatedAt = now
+            item.pending = true
+            try item.update(db)
+        }
+    }
+
+    /// Rewrap an actionable payload with a refreshed externalURL, preserving the
+    /// kind (todo/reminder/explore) and listName. A linear item is always
+    /// actionable; any other payload is returned unchanged.
+    private static func actionableWithURL(
+        _ data: ItemTypeData, _ url: String
+    ) -> ItemTypeData {
+        switch data {
+        case .todo(let d): return .todo(ActionableData(listName: d.listName, externalURL: url))
+        case .reminder(let d): return .reminder(ActionableData(listName: d.listName, externalURL: url))
+        case .explore(let d): return .explore(ActionableData(listName: d.listName, externalURL: url))
+        default: return data
+        }
+    }
+
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+    /// Parse an ISO-8601 instant, tolerating both fractional and whole seconds
+    /// (Linear stamps milliseconds).
+    private static func parseISO(_ s: String) -> Date? {
+        isoFractional.date(from: s) ?? isoPlain.date(from: s)
+    }
+
     func fetch(id: String) throws -> Item? {
         try dbQueue.read { db in try Item.fetchOne(db, key: id) }
     }
