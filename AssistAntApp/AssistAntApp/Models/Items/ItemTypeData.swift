@@ -8,26 +8,17 @@ struct CalendarData: Codable, Equatable, Sendable {
     var timeZoneID: String?   // IANA id (e.g. "America/Los_Angeles") for timed events
 }
 
-/// Type-specific payload for a `todo` item.
-struct TodoData: Codable, Equatable, Sendable {
-    var listName: String?         // optional grouping into a named list
-    var scheduledOn: CivilDate?   // the day this is scheduled for (zoneless)
-    var completedAt: Date?        // UTC instant when completed; nil while open
-}
-
-/// Type-specific payload for a `reminder` item.
-struct ReminderData: Codable, Equatable, Sendable {
+/// Shared payload for the actionable kinds (todo, reminder, explore). They are
+/// one behavior — schedule, accumulate, resolve — distinguished only by their
+/// `type` label (which drives the verb: complete / dismiss / explored). The
+/// scheduled day, the resolution instant, and the manual order live in `Item`
+/// columns (`scheduled_on`, `resolved_at`, `position`), not here, so
+/// reclassifying between the three is a label swap with no payload change.
+/// `externalURL` is available to all (explore is just the kind that usually
+/// carries one).
+struct ActionableData: Codable, Equatable, Sendable {
     var listName: String?
-    var startingOn: CivilDate?    // day to begin surfacing the reminder (zoneless)
-    var dismissedAt: Date?        // UTC instant when dismissed; nil while active
-}
-
-/// Type-specific payload for an `explore` item.
-struct ExploreData: Codable, Equatable, Sendable {
-    var listName: String?
-    var externalURL: String?      // linked article / resource
-    var addedOn: CivilDate?       // day added (zoneless)
-    var completedAt: Date?        // UTC instant when explored/completed
+    var externalURL: String?
 }
 
 /// The polymorphic payload stored in an item's `type_data` JSON column. Each
@@ -40,9 +31,9 @@ struct ExploreData: Codable, Equatable, Sendable {
 /// SQL filtering.
 enum ItemTypeData: Equatable, Sendable {
     case calendar(CalendarData)
-    case todo(TodoData)
-    case reminder(ReminderData)
-    case explore(ExploreData)
+    case todo(ActionableData)
+    case reminder(ActionableData)
+    case explore(ActionableData)
     case unknown(kind: String, payload: JSONValue)
 
     /// The discriminator string for this payload (matches the item's `type`).
@@ -70,11 +61,11 @@ extension ItemTypeData: Codable {
         case .calendar:
             self = .calendar(try container.decode(CalendarData.self, forKey: .data))
         case .todo:
-            self = .todo(try container.decode(TodoData.self, forKey: .data))
+            self = .todo(try container.decode(ActionableData.self, forKey: .data))
         case .reminder:
-            self = .reminder(try container.decode(ReminderData.self, forKey: .data))
+            self = .reminder(try container.decode(ActionableData.self, forKey: .data))
         case .explore:
-            self = .explore(try container.decode(ExploreData.self, forKey: .data))
+            self = .explore(try container.decode(ActionableData.self, forKey: .data))
         case nil:
             self = .unknown(
                 kind: kind,

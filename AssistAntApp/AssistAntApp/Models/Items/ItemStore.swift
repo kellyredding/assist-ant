@@ -9,6 +9,9 @@ enum ItemStoreError: Error {
     /// in-window item — almost always the symptom of a degraded or empty
     /// upstream fetch, not an intentional "clear the window."
     case emptyKeepPruneRefused
+    /// `reclassify` is only valid among the actionable kinds (todo/reminder/
+    /// explore); calendar has an incompatible payload.
+    case reclassifyRequiresActionable
 }
 
 /// The seam the rest of the app uses to read and mutate items. A GRDB-backed
@@ -49,4 +52,27 @@ protocol ItemStore {
 
     /// Reactive stream of active items, re-emitted on every relevant DB change.
     func observeActive(type: ItemType?) -> AnyPublisher<[Item], Error>
+
+    /// Active actionable items (todo/reminder/explore) that surface on `today`:
+    /// not deleted/iceboxed/resolved, and either unscheduled or scheduled
+    /// on/before today (overdue accumulates). Sorted by manual `position`, then
+    /// `scheduled_on`, then `id`; nulls last in each.
+    func fetchActionable(asOf today: CivilDate) throws -> [Item]
+
+    /// Reactive form of `fetchActionable`. `today` is fixed at subscription;
+    /// re-subscribing at the local midnight rollover is the caller's concern.
+    func observeActionable(asOf today: CivilDate) -> AnyPublisher<[Item], Error>
+
+    /// Mark an item resolved (`resolved_at = now`) or active again (clears it).
+    func resolve(id: String) throws
+    func unresolve(id: String) throws
+
+    /// Set or clear the scheduled day. A future day drops it off today; nil
+    /// makes it always-today.
+    func reschedule(id: String, to scheduledOn: CivilDate?) throws
+
+    /// Swap an actionable item's kind, preserving payload/identity/schedule/
+    /// resolution/position. Throws `reclassifyRequiresActionable` if the item
+    /// or the target is not actionable.
+    func reclassify(id: String, to type: ItemType) throws
 }

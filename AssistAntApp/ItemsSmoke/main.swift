@@ -51,14 +51,10 @@ check("round-trip all item types") {
     let (store, _) = try makeStore()
     let items = [
         newItem(type: .calendar, typeData: .calendar(CalendarData(allDay: true))),
-        newItem(type: .todo, typeData: .todo(TodoData(
-            listName: "errands",
-            scheduledOn: CivilDate(year: 2026, month: 6, day: 6)))),
-        newItem(type: .reminder, typeData: .reminder(ReminderData(
-            startingOn: CivilDate(year: 2026, month: 6, day: 7)))),
-        newItem(type: .explore, typeData: .explore(ExploreData(
-            externalURL: "https://example.com",
-            addedOn: CivilDate(year: 2026, month: 6, day: 5)))),
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: "errands"))),
+        newItem(type: .reminder, typeData: .reminder(ActionableData())),
+        newItem(type: .explore, typeData: .explore(ActionableData(
+            externalURL: "https://example.com"))),
     ]
     for item in items { try store.create(item) }
     for item in items {
@@ -89,9 +85,9 @@ check("CivilDate encodes as YYYY-MM-DD") {
 // 4. Soft-deleted and iceboxed items are excluded from the active set.
 check("soft-delete + icebox filtered from active") {
     let (store, _) = try makeStore()
-    let keep = newItem(type: .todo, typeData: .todo(TodoData()), title: "keep")
-    let del = newItem(type: .todo, typeData: .todo(TodoData()), title: "del")
-    let ice = newItem(type: .todo, typeData: .todo(TodoData()), title: "ice")
+    let keep = newItem(type: .todo, typeData: .todo(ActionableData()), title: "keep")
+    let del = newItem(type: .todo, typeData: .todo(ActionableData()), title: "del")
+    let ice = newItem(type: .todo, typeData: .todo(ActionableData()), title: "ice")
     try store.create(keep)
     try store.create(del)
     try store.create(ice)
@@ -113,8 +109,8 @@ check("unique identity index") {
     var rejected = false
     do { try store.create(dup) } catch { rejected = true }
     // Two manual items with nil external_id must coexist.
-    try store.create(newItem(type: .todo, typeData: .todo(TodoData())))
-    try store.create(newItem(type: .todo, typeData: .todo(TodoData())))
+    try store.create(newItem(type: .todo, typeData: .todo(ActionableData())))
+    try store.create(newItem(type: .todo, typeData: .todo(ActionableData())))
     let manualCount = try store.fetchActive(type: .todo).count
     return rejected && manualCount == 2
 }
@@ -123,7 +119,7 @@ check("unique identity index") {
 check("VACUUM INTO snapshot is restorable") {
     let (store, queue) = try makeStore()
     for _ in 0..<5 {
-        try store.create(newItem(type: .todo, typeData: .todo(TodoData())))
+        try store.create(newItem(type: .todo, typeData: .todo(ActionableData())))
     }
     let tmp = FileManager.default.temporaryDirectory
         .appendingPathComponent("items-smoke-\(UUID().uuidString).db")
@@ -314,6 +310,105 @@ check("today calendar rows: filter, sort, past flag") {
     guard rows.count == 2 else { return false }
     return rows[0].item.id == past.id && rows[0].isPast
         && rows[1].item.id == soon.id && !rows[1].isPast
+}
+
+// 16. fetchActionable accumulates overdue + unscheduled items and surfaces
+//     today's; excludes future-scheduled, resolved, and all calendar rows.
+check("fetchActionable: accumulate overdue + unscheduled, exclude future/resolved/calendar") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    func day(_ d: Int) -> CivilDate { CivilDate(year: 2026, month: 6, day: d) }
+
+    let overdue = newItem(type: .todo, typeData: .todo(ActionableData()),
+                          title: "overdue", scheduledOn: day(10))
+    let onToday = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                          title: "today", scheduledOn: today)
+    let unscheduled = newItem(type: .explore, typeData: .explore(ActionableData()),
+                              title: "unscheduled", scheduledOn: nil)
+    let future = newItem(type: .todo, typeData: .todo(ActionableData()),
+                         title: "future", scheduledOn: day(20))
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "c1", title: "cal",
+                      scheduledOn: today)
+    for i in [overdue, onToday, unscheduled, future, cal] { try store.create(i) }
+
+    let active = Set(try store.fetchActionable(asOf: today).map { $0.id })
+    guard active == Set([overdue.id, onToday.id, unscheduled.id]) else { return false }
+
+    try store.resolve(id: overdue.id)
+    let afterResolve = Set(try store.fetchActionable(asOf: today).map { $0.id })
+    return afterResolve == Set([onToday.id, unscheduled.id])
+}
+
+// 17. fetchActionable sort: explicit position first (in order), then the rest
+//     by scheduled_on (nulls last).
+check("fetchActionable sort: position, then scheduled_on (nulls last)") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    func day(_ d: Int) -> CivilDate { CivilDate(year: 2026, month: 6, day: d) }
+
+    var p2 = newItem(type: .todo, typeData: .todo(ActionableData()),
+                     title: "p2", scheduledOn: day(11))
+    p2.position = 2.0
+    var p1 = newItem(type: .todo, typeData: .todo(ActionableData()),
+                     title: "p1", scheduledOn: day(11))
+    p1.position = 1.0
+    let dated = newItem(type: .todo, typeData: .todo(ActionableData()),
+                        title: "dated", scheduledOn: day(10))
+    let undated = newItem(type: .todo, typeData: .todo(ActionableData()),
+                          title: "undated", scheduledOn: nil)
+    for i in [undated, dated, p2, p1] { try store.create(i) }
+
+    let order = try store.fetchActionable(asOf: today).map { $0.title }
+    return order == ["p1", "p2", "dated", "undated"]
+}
+
+// 18. Reschedule into the future drops an item off today; back to the past
+//     returns it.
+check("reschedule moves an item off and back onto today") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       scheduledOn: today)
+    try store.create(item)
+    try store.reschedule(id: item.id, to: CivilDate(year: 2026, month: 6, day: 20))
+    let goneFromToday = try store.fetchActionable(asOf: today).isEmpty
+    try store.reschedule(id: item.id, to: CivilDate(year: 2026, month: 6, day: 1))
+    let backOnToday = try store.fetchActionable(asOf: today).contains { $0.id == item.id }
+    return goneFromToday && backOnToday
+}
+
+// 19. Reclassify swaps the kind losslessly (payload, identity, schedule,
+//     resolution, position all preserved) and rejects a calendar target.
+check("reclassify swaps kind losslessly; rejects calendar") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    let data = ActionableData(listName: "later", externalURL: "https://x.test")
+    var item = newItem(type: .todo, typeData: .todo(data),
+                       source: "linear", externalID: "ISSUE-1",
+                       scheduledOn: today)
+    item.position = 3.0
+    try store.create(item)
+    try store.resolve(id: item.id)   // a resolved item must survive reclassify
+    try store.reclassify(id: item.id, to: .explore)
+
+    guard let after = try store.fetch(id: item.id) else { return false }
+    guard case .explore(let d) = after.typeData else { return false }
+    // Split into sub-expressions: one long `&&` chain over many optionals
+    // overwhelms the Swift type-checker.
+    let payloadOK = (d == data)
+    let identityOK = after.type == "explore"
+        && after.source == "linear"
+        && after.externalID == "ISSUE-1"
+    let stateOK = after.scheduledOn == today
+        && after.position == 3.0
+        && after.resolvedAt != nil
+    let preserved = payloadOK && identityOK && stateOK
+
+    var rejected = false
+    do { try store.reclassify(id: item.id, to: .calendar) }
+    catch ItemStoreError.reclassifyRequiresActionable { rejected = true }
+    return preserved && rejected
 }
 
 print(failures == 0

@@ -126,6 +126,17 @@ final class ItemsDatabase {
                 arguments: [id])
         }
 
+        // Actionable items (todo/reminder/explore) share one resolution instant
+        // and a manual-order key. `resolved_at` is the unified completed/
+        // dismissed time (nil = active); `position` is the user's manual sort
+        // order (nil = unset). Both nullable; unused by calendar rows.
+        migrator.registerMigration("addResolvedAtAndPosition") { db in
+            try db.alter(table: "items") { t in
+                t.add(column: "resolved_at", .datetime)
+                t.add(column: "position", .double)
+            }
+        }
+
         return migrator
     }
 }

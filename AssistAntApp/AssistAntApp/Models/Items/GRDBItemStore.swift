@@ -208,6 +208,88 @@ final class GRDBItemStore: ItemStore {
             .eraseToAnyPublisher()
     }
 
+    // MARK: - Actionable items (todo / reminder / explore)
+
+    func fetchActionable(asOf today: CivilDate) throws -> [Item] {
+        try dbQueue.read { db in try Self.actionableRequest(today).fetchAll(db) }
+    }
+
+    func observeActionable(asOf today: CivilDate) -> AnyPublisher<[Item], Error> {
+        ValueObservation
+            .tracking { db in try Self.actionableRequest(today).fetchAll(db) }
+            .publisher(in: dbQueue)
+            .eraseToAnyPublisher()
+    }
+
+    func resolve(id: String) throws { try stampResolved(id: id, at: Date()) }
+    func unresolve(id: String) throws { try stampResolved(id: id, at: nil) }
+
+    private func stampResolved(id: String, at instant: Date?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.resolvedAt = instant
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    func reschedule(id: String, to scheduledOn: CivilDate?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.scheduledOn = scheduledOn
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Swap an actionable item's kind, preserving its payload (ActionableData is
+    // identical across the three), identity, schedule, resolution, and position.
+    func reclassify(id: String, to type: ItemType) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let data: ActionableData
+            switch item.typeData {
+            case .todo(let d), .reminder(let d), .explore(let d): data = d
+            default: throw ItemStoreError.reclassifyRequiresActionable
+            }
+            switch type {
+            case .todo: item.typeData = .todo(data)
+            case .reminder: item.typeData = .reminder(data)
+            case .explore: item.typeData = .explore(data)
+            case .calendar: throw ItemStoreError.reclassifyRequiresActionable
+            }
+            item.type = item.typeData.kind
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Active actionable items that surface on `today`: not deleted/iceboxed/
+    // resolved, and either unscheduled or scheduled on/before today (overdue
+    // accumulates). `scheduled_on` is TEXT "YYYY-MM-DD" so `<=` is chronological.
+    // Sort: manual position first (nulls last), then scheduled_on (nulls last),
+    // then id.
+    private static func actionableRequest(_ today: CivilDate) -> QueryInterfaceRequest<Item> {
+        Item
+            .filter(sql: """
+                type IN ('todo', 'reminder', 'explore')
+                AND deleted_at IS NULL AND iceboxed_at IS NULL
+                AND resolved_at IS NULL
+                AND (scheduled_on IS NULL OR scheduled_on <= ?)
+                """, arguments: [today.iso])
+            .order(sql: """
+                position IS NULL, position,
+                scheduled_on IS NULL, scheduled_on,
+                id
+                """)
+    }
+
     // Active = not soft-deleted and not iceboxed. Ordered by id, which for
     // UUIDv7 approximates creation order.
     private static func activeRequest(_ type: ItemType?) -> QueryInterfaceRequest<Item> {

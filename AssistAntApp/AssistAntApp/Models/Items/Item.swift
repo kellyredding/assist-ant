@@ -25,6 +25,8 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
     var iceboxedAt: Date?          // UTC instant
     var deletedAt: Date?           // UTC tombstone
     var scheduledOn: CivilDate?    // local civil date; cross-type schedule key
+    var resolvedAt: Date? = nil    // UTC; actionable completed/dismissed, nil = active
+    var position: Double? = nil    // manual sort order; nil = unset
     var createdAt: Date            // UTC; locally stamped pre-sync, server post-sync
     var updatedAt: Date            // UTC; the sync-cursor source once syncing
     var serverUpdatedAt: Date?     // server's updated_at for the reconciled version
@@ -44,6 +46,8 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
         case iceboxedAt = "iceboxed_at"
         case deletedAt = "deleted_at"
         case scheduledOn = "scheduled_on"
+        case resolvedAt = "resolved_at"
+        case position
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case serverUpdatedAt = "server_updated_at"
