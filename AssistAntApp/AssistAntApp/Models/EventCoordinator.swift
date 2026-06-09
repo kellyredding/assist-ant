@@ -11,6 +11,7 @@ final class EventCoordinator {
     static let knownEvents: Set<String> = [
         "ping",
         "calendar_item.sync",
+        "actionable_item.sync",
     ]
 
     var onEvent: ((EventEnvelope) -> Void)?
