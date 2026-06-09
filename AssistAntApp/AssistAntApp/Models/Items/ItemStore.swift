@@ -42,6 +42,11 @@ protocol ItemStore {
     /// Active items: not soft-deleted and not iceboxed. `type == nil` = all types.
     func fetchActive(type: ItemType?) throws -> [Item]
 
+    /// Active items of `type` (nil = all) whose `scheduled_on` falls in
+    /// [from, to]. `to == nil` means unbounded forward. Excludes rows with no
+    /// `scheduled_on`. Ordered by day then id.
+    func fetchActive(type: ItemType?, from: CivilDate, to: CivilDate?) throws -> [Item]
+
     /// Reactive stream of active items, re-emitted on every relevant DB change.
     func observeActive(type: ItemType?) -> AnyPublisher<[Item], Error>
 }

@@ -108,6 +108,11 @@ struct ContentView: View {
                 .opacity(tabs.selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .agent)
                 .zIndex(tabs.selectedTab == .agent ? 1 : 0)
+
+            CalendarPaneView()
+                .opacity(tabs.selectedTab == .calendar ? 1 : 0)
+                .allowsHitTesting(tabs.selectedTab == .calendar)
+                .zIndex(tabs.selectedTab == .calendar ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

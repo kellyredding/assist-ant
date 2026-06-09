@@ -141,6 +141,27 @@ final class GRDBItemStore: ItemStore {
         try dbQueue.read { db in try Self.activeRequest(type).fetchAll(db) }
     }
 
+    func fetchActive(
+        type: ItemType?, from: CivilDate, to: CivilDate?
+    ) throws -> [Item] {
+        try dbQueue.read { db in
+            var sql = """
+                deleted_at IS NULL AND iceboxed_at IS NULL
+                AND scheduled_on IS NOT NULL AND scheduled_on >= ?
+                """
+            var args: [DatabaseValueConvertible] = [from.iso]
+            if let to {
+                sql += " AND scheduled_on <= ?"
+                args.append(to.iso)
+            }
+            var request = Item.filter(sql: sql, arguments: StatementArguments(args))
+            if let type {
+                request = request.filter(sql: "type = ?", arguments: [type.rawValue])
+            }
+            return try request.order(sql: "scheduled_on, id").fetchAll(db)
+        }
+    }
+
     func observeActive(type: ItemType?) -> AnyPublisher<[Item], Error> {
         ValueObservation
             .tracking { db in try Self.activeRequest(type).fetchAll(db) }

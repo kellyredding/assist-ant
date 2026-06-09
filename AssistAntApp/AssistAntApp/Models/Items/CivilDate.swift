@@ -65,6 +65,44 @@ struct CivilDate: Codable, Equatable, Hashable, Comparable, Sendable {
     }
 }
 
+/// Calendar arithmetic for the agenda's week jumps and day iteration. All go
+/// through a gregorian Calendar in the current zone (Monday-first), then back
+/// to a zoneless CivilDate, so week math matches what the user sees locally.
+extension CivilDate {
+    private static var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = .current
+        c.firstWeekday = 2  // Monday, so mondayOfWeek anchors correctly
+        return c
+    }
+
+    /// Noon on this civil date in the current zone — a safe instant for
+    /// arithmetic and for feeding DateFormatter (month/weekday display).
+    var noon: Date {
+        Self.calendar.date(
+            from: DateComponents(year: year, month: month, day: day, hour: 12)
+        ) ?? Date()
+    }
+
+    /// This date shifted by `days` (may be negative).
+    func adding(days: Int) -> CivilDate {
+        let shifted = Self.calendar.date(byAdding: .day, value: days, to: noon)
+            ?? noon
+        return CivilDate(shifted)
+    }
+
+    /// The Monday of the week containing this date.
+    func mondayOfWeek() -> CivilDate {
+        guard let start = Self.calendar
+            .dateInterval(of: .weekOfYear, for: noon)?.start
+        else { return self }
+        return CivilDate(start)  // firstWeekday = 2 ⇒ start is Monday
+    }
+
+    /// Today as a civil date in the current zone.
+    static var today: CivilDate { CivilDate(Date()) }
+}
+
 /// Persisted as a `TEXT` "YYYY-MM-DD" value — SQLite has no native date type,
 /// matching Galaxy's convention of storing dates/timestamps as TEXT.
 extension CivilDate: DatabaseValueConvertible {
