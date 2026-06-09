@@ -44,8 +44,8 @@ module AssistAnt
 
         Commands:
           ping [message]                Send a ping envelope to the running app.
-          calendar-item upsert [flags]  Upsert a calendar item.
-          calendar-item prune [flags]   Reconcile (prune) calendar items in a window.
+          calendar-item sync [flags]    Ingest a provider's calendar response and
+                                        atomically upsert + prune the window.
 
         Options:
           -h, --help       Show help

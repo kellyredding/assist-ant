@@ -47,30 +47,34 @@ final class GRDBItemStore: ItemStore {
     }
 
     func upsert(_ incoming: Item) throws {
+        try dbQueue.write { db in try upsert(incoming, in: db) }
+        backup.itemsDidChange()
+    }
+
+    /// Upsert within an existing transaction (no backup nudge). Shared by the
+    /// public `upsert` and the batched `applyCalendarSync`.
+    private func upsert(_ incoming: Item, in db: Database) throws {
         guard let ext = incoming.externalID else {
             throw ItemStoreError.upsertRequiresExternalID
         }
-        try dbQueue.write { db in
-            let existing = try Item
-                .filter(sql: "workspace_id = ? AND source = ? AND external_id = ?",
-                        arguments: [incoming.workspaceID, incoming.source, ext])
-                .fetchOne(db)
-            var row = incoming
-            let now = Date()
-            row.type = row.typeData.kind
-            row.updatedAt = now
-            row.pending = true
-            row.deletedAt = nil          // resurrect on re-accept
-            if let existing {
-                row.id = existing.id
-                row.createdAt = existing.createdAt
-                try row.update(db)
-            } else {
-                row.createdAt = now
-                try row.insert(db)
-            }
+        let existing = try Item
+            .filter(sql: "workspace_id = ? AND source = ? AND external_id = ?",
+                    arguments: [incoming.workspaceID, incoming.source, ext])
+            .fetchOne(db)
+        var row = incoming
+        let now = Date()
+        row.type = row.typeData.kind
+        row.updatedAt = now
+        row.pending = true
+        row.deletedAt = nil          // resurrect on re-accept
+        if let existing {
+            row.id = existing.id
+            row.createdAt = existing.createdAt
+            try row.update(db)
+        } else {
+            row.createdAt = now
+            try row.insert(db)
         }
-        backup.itemsDidChange()
     }
 
     func softDelete(id: String) throws {
@@ -114,20 +118,55 @@ final class GRDBItemStore: ItemStore {
             throw ItemStoreError.emptyKeepPruneRefused
         }
         try dbQueue.write { db in
-            let inWindow = try Item
-                .filter(sql: """
-                    workspace_id = ? AND source = ? AND deleted_at IS NULL
-                    AND scheduled_on IS NOT NULL
-                    AND scheduled_on >= ? AND scheduled_on <= ?
-                    """, arguments: [workspaceID, source, from.iso, to.iso])
-                .fetchAll(db)
-            let now = Date()
-            for var item in inWindow {
-                guard let ext = item.externalID, !keep.contains(ext) else { continue }
-                item.deletedAt = now
-                item.updatedAt = now
-                item.pending = true
-                try item.update(db)
+            try pruneMissing(
+                workspaceID: workspaceID, source: source,
+                from: from, to: to, keep: keep, in: db)
+        }
+        backup.itemsDidChange()
+    }
+
+    /// Window prune within an existing transaction (no empty-keep guard, no
+    /// backup nudge). Callers decide whether to prune — see `applyCalendarSync`.
+    private func pruneMissing(
+        workspaceID: String, source: String,
+        from: CivilDate, to: CivilDate, keep: Set<String>, in db: Database
+    ) throws {
+        let inWindow = try Item
+            .filter(sql: """
+                workspace_id = ? AND source = ? AND deleted_at IS NULL
+                AND scheduled_on IS NOT NULL
+                AND scheduled_on >= ? AND scheduled_on <= ?
+                """, arguments: [workspaceID, source, from.iso, to.iso])
+            .fetchAll(db)
+        let now = Date()
+        for var item in inWindow {
+            guard let ext = item.externalID, !keep.contains(ext) else { continue }
+            item.deletedAt = now
+            item.updatedAt = now
+            item.pending = true
+            try item.update(db)
+        }
+    }
+
+    /// Apply a full calendar sync in ONE transaction: upsert every item, then
+    /// prune the window. Atomic — the whole sync lands or none of it does.
+    /// `prune` is skipped when the keep set is empty (unless `allowEmptyKeep`),
+    /// so a degraded fetch can't wipe the window even if the flag is mis-set;
+    /// the CLI also gates this upstream.
+    func applyCalendarSync(
+        items: [Item], workspaceID: String, source: String,
+        from: CivilDate, to: CivilDate, keep: Set<String>,
+        allowEmptyKeep: Bool, prune: Bool
+    ) throws {
+        let shouldPrune = prune && (!keep.isEmpty || allowEmptyKeep)
+        try dbQueue.write { db in
+            for item in items {
+                try upsert(item, in: db)
+            }
+            if shouldPrune {
+                try pruneMissing(
+                    workspaceID: workspaceID, source: source,
+                    from: from, to: to, keep: keep, in: db)
             }
         }
         backup.itemsDidChange()

@@ -202,8 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleEvent(_ e: EventEnvelope) {
         switch e.event {
-        case "calendar_item.upsert": upsertCalendarItem(e)
-        case "calendar_item.prune": pruneCalendarItems(e)
+        case "calendar_item.sync": syncCalendarItems(e)
         case "ping":
             let message = e.detailValue("message", as: String.self) ?? "<no message>"
             NSLog("AssistAnt: ping — \(message)")
@@ -212,80 +211,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Upsert a calendar item from a `calendar_item.upsert` envelope. Every
-    /// domain field comes from the CLI; the app supplies the internal id, the
-    /// workspace scope, and the sync-managed fields. Identity is
-    /// `(workspace, source, external_id)`.
-    private func upsertCalendarItem(_ e: EventEnvelope) {
-        let iso = ISO8601DateFormatter()
-        guard let externalID = e.detailValue("external_id", as: String.self),
-              let source = e.detailValue("source", as: String.self),
-              let title = e.detailValue("title", as: String.self),
-              let startStr = e.detailValue("start_at", as: String.self),
-              let startAt = iso.date(from: startStr)
-        else {
-            NSLog("AssistAnt: calendar_item.upsert missing required fields")
+    /// Apply a `calendar_item.sync` envelope: read the batch file the CLI
+    /// wrote (the qualifying items + the prune window + keep set), upsert all
+    /// items and prune the window in one atomic transaction, then delete the
+    /// temp file. The app supplies each item's internal id, workspace scope,
+    /// and sync-managed fields. Identity is `(workspace, source, external_id)`.
+    private func syncCalendarItems(_ e: EventEnvelope) {
+        guard let batchPath = e.detailValue("batch_file", as: String.self) else {
+            NSLog("AssistAnt: calendar_item.sync missing batch_file")
             return
         }
-        let workspaceID: String
-        do { workspaceID = try WorkspaceStore.shared.current().id }
-        catch {
-            NSLog("AssistAnt: calendar_item.upsert — cannot resolve workspace: \(error)")
-            return
-        }
-        let item = Item(
-            id: UUIDv7.generate(),
-            workspaceID: workspaceID,
-            type: ItemType.calendar.rawValue,
-            title: title,
-            body: e.detailValue("body", as: String.self),
-            source: source,
-            externalID: externalID,
-            typeData: .calendar(CalendarData(
-                startAt: startAt,
-                endAt: e.detailValue("end_at", as: String.self).flatMap(iso.date(from:)),
-                allDay: false,
-                timeZoneID: e.detailValue("time_zone", as: String.self))),
-            iceboxedAt: nil,
-            deletedAt: nil,
-            scheduledOn: e.detailValue("scheduled_on", as: String.self)
-                .flatMap(CivilDate.init(iso:)),
-            createdAt: Date(),
-            updatedAt: Date(),
-            serverUpdatedAt: nil,
-            pending: true)
-        do { try GRDBItemStore.shared.upsert(item) }
-        catch { NSLog("AssistAnt: calendar_item.upsert failed: \(error)") }
-    }
+        // Always clean up the temp batch file, whatever happens below.
+        defer { try? FileManager.default.removeItem(atPath: batchPath) }
 
-    /// Window-scoped reconcile from a `calendar_item.prune` envelope: soft-delete
-    /// items in [from, to] for the source that aren't in the keep set.
-    private func pruneCalendarItems(_ e: EventEnvelope) {
-        guard let source = e.detailValue("source", as: String.self),
-              let fromStr = e.detailValue("from", as: String.self),
-              let toStr = e.detailValue("to", as: String.self),
-              let from = CivilDate(iso: fromStr),
-              let to = CivilDate(iso: toStr)
-        else {
-            NSLog("AssistAnt: calendar_item.prune missing source/from/to")
+        guard let data = FileManager.default.contents(atPath: batchPath) else {
+            NSLog("AssistAnt: calendar_item.sync — batch file unreadable: \(batchPath)")
             return
         }
+        let batch: CalendarSyncBatch
+        do {
+            batch = try JSONDecoder().decode(CalendarSyncBatch.self, from: data)
+        } catch {
+            NSLog("AssistAnt: calendar_item.sync — decode failed: \(error)")
+            return
+        }
+
         let workspaceID: String
         do { workspaceID = try WorkspaceStore.shared.current().id }
         catch {
-            NSLog("AssistAnt: calendar_item.prune — cannot resolve workspace: \(error)")
+            NSLog("AssistAnt: calendar_item.sync — cannot resolve workspace: \(error)")
             return
         }
-        let keep = Set(e.detailValue("keep", as: [String].self) ?? [])
-        let allowEmptyKeep = e.detailValue("allow_empty", as: Bool.self) ?? false
+
+        guard let from = CivilDate(iso: batch.from),
+              let to = CivilDate(iso: batch.to)
+        else {
+            NSLog("AssistAnt: calendar_item.sync — bad window \(batch.from)..\(batch.to)")
+            return
+        }
+
+        let iso = ISO8601DateFormatter()
+        let now = Date()
+        let items: [Item] = batch.items.compactMap { row in
+            guard let startAt = iso.date(from: row.startAt) else {
+                NSLog("AssistAnt: calendar_item.sync — skipping '\(row.title)': "
+                    + "bad start_at \(row.startAt)")
+                return nil
+            }
+            return Item(
+                id: UUIDv7.generate(),
+                workspaceID: workspaceID,
+                type: ItemType.calendar.rawValue,
+                title: row.title,
+                body: row.body,
+                source: batch.source,
+                externalID: row.externalID,
+                typeData: .calendar(CalendarData(
+                    startAt: startAt,
+                    endAt: row.endAt.flatMap(iso.date(from:)),
+                    allDay: false,
+                    timeZoneID: row.timeZone)),
+                iceboxedAt: nil,
+                deletedAt: nil,
+                scheduledOn: CivilDate(iso: row.scheduledOn),
+                createdAt: now,
+                updatedAt: now,
+                serverUpdatedAt: nil,
+                pending: true)
+        }
+
         do {
-            try GRDBItemStore.shared.pruneMissing(
-                workspaceID: workspaceID, source: source, from: from, to: to,
-                keep: keep, allowEmptyKeep: allowEmptyKeep)
-        } catch ItemStoreError.emptyKeepPruneRefused {
-            NSLog("AssistAnt: calendar_item.prune refused — empty keep set without allow_empty; nothing retired")
+            try GRDBItemStore.shared.applyCalendarSync(
+                items: items, workspaceID: workspaceID, source: batch.source,
+                from: from, to: to, keep: Set(batch.keep),
+                allowEmptyKeep: false, prune: batch.prune)
+            NSLog("AssistAnt: calendar_item.sync — upserted \(items.count), "
+                + "prune=\(batch.prune)")
         } catch {
-            NSLog("AssistAnt: calendar_item.prune failed: \(error)")
+            NSLog("AssistAnt: calendar_item.sync failed: \(error)")
         }
     }
 }

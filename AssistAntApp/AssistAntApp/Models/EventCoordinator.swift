@@ -10,8 +10,7 @@ final class EventCoordinator {
     /// The CLI side does not need to know this set.
     static let knownEvents: Set<String> = [
         "ping",
-        "calendar_item.upsert",
-        "calendar_item.prune",
+        "calendar_item.sync",
     ]
 
     var onEvent: ((EventEnvelope) -> Void)?
