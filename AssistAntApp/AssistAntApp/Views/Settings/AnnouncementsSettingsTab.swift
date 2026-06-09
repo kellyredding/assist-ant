@@ -3,8 +3,8 @@ import SwiftUI
 /// Settings tab for the shared announcement gating — the controls that
 /// decide WHEN and WHETHER any audible announcement (time today, desk
 /// later) plays. Holds the global "mute while microphone in use" toggle
-/// and the weekly schedule, both read by AnnouncementService now and the
-/// desk timer in a later phase.
+/// and the weekly announcement hours, both read by AnnouncementService now
+/// and the desk timer in a later phase.
 struct AnnouncementsSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
 
@@ -23,16 +23,16 @@ struct AnnouncementsSettingsTab: View {
                     .toggleStyle(.checkbox)
 
                     Text("Silence all spoken and chimed time and desk "
-                        + "announcements without losing your schedule. The "
-                        + "clock and desk timer keep working.")
+                        + "announcements without losing your announcement "
+                        + "hours. The clock and desk timer keep working.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            // The schedule and mic-mute only shape *when* announcements
-            // play, so they are inert (and dimmed) while announcements are
-            // globally off. Their values are preserved.
+            // The announcement hours and mic-mute only shape *when*
+            // announcements play, so they are inert (and dimmed) while
+            // announcements are globally off. Their values are preserved.
             SettingsCard(title: "Mute") {
                 Toggle(
                     "Mute while microphone in use",
@@ -42,9 +42,9 @@ struct AnnouncementsSettingsTab: View {
             }
             .disabled(!enabled)
 
-            SettingsCard(title: "Schedule") {
-                ScheduleEditor(
-                    schedule: $settingsManager.settings.schedule
+            SettingsCard(title: "Announcement Hours") {
+                AnnouncementHoursEditor(
+                    announcementHours: $settingsManager.settings.announcementHours
                 )
             }
             .disabled(!enabled)

@@ -9,19 +9,19 @@ import Galactic
 /// fallback so existing prefs.json files keep working across schema
 /// additions.
 ///
-/// `schedule`, `muteWhileMicInUse`, and `isMuted` are app-level (not
-/// announcement-owned) because they are the shared inputs to the audio
+/// `announcementHours`, `muteWhileMicInUse`, and `isMuted` are app-level
+/// (not announcement-owned) because they are the shared inputs to the audio
 /// gate: the weekly window that says "when I'm working", the global
 /// "don't make noise during calls" toggle, and the open-ended manual
-/// mute. Both time announcements and the desk timer read them. `schedule`
-/// and `muteWhileMicInUse` used to live nested under `announcement` and
-/// are migrated up transparently — see `init(from:)`.
+/// mute. Both time announcements and the desk timer read them.
+/// `announcementHours` and `muteWhileMicInUse` used to live nested under
+/// `announcement` and are migrated up transparently — see `init(from:)`.
 struct AppSettings: Codable, Equatable {
     var version: Int
     var themePreference: ThemePreference
     var timeFormat: TimeFormat
     var announcement: AnnouncementSettings
-    var schedule: WeeklySchedule          // shared by announcements + desk
+    var announcementHours: AnnouncementHours  // shared by announcements + desk
     var muteWhileMicInUse: Bool           // global: silences all audio
     var isMuted: Bool                     // global manual mute (open-ended)
     var announcementsEnabled: Bool        // master: silence all audible announcements
@@ -41,7 +41,7 @@ struct AppSettings: Codable, Equatable {
         themePreference: .system,
         timeFormat: .twelveHour,
         announcement: .defaults,
-        schedule: .workdayDefault,
+        announcementHours: .workdayDefault,
         muteWhileMicInUse: true,
         isMuted: false,
         announcementsEnabled: true,
@@ -84,28 +84,28 @@ struct AppSettings: Codable, Equatable {
             AnnouncementSettings.self, forKey: .announcement
         ) ?? AppSettings.current.announcement
 
-        // One-time migration: `schedule` and `muteWhileMicInUse` used to
-        // live nested under `announcement`. Read them from there as a
+        // One-time migration: `announcementHours` and `muteWhileMicInUse`
+        // used to live nested under `announcement`. Read them from there as a
         // fallback so an existing prefs.json keeps the user's customized
-        // schedule and toggle when they move to the top level. Reading the
+        // hours and toggle when they move to the top level. Reading the
         // `announcement` key a second time as a legacy container is safe
         // with JSONDecoder (keyed containers re-read).
-        var legacySchedule: WeeklySchedule?
+        var legacyAnnouncementHours: AnnouncementHours?
         var legacyMuteMic: Bool?
         if let legacy = try? container.nestedContainer(
             keyedBy: LegacyAnnouncementKeys.self, forKey: .announcement
         ) {
-            legacySchedule = try? legacy.decodeIfPresent(
-                WeeklySchedule.self, forKey: .schedule
+            legacyAnnouncementHours = try? legacy.decodeIfPresent(
+                AnnouncementHours.self, forKey: .schedule
             )
             legacyMuteMic = try? legacy.decodeIfPresent(
                 Bool.self, forKey: .muteWhileMicInUse
             )
         }
 
-        self.schedule = try container.decodeIfPresent(
-            WeeklySchedule.self, forKey: .schedule
-        ) ?? legacySchedule ?? AppSettings.current.schedule
+        self.announcementHours = try container.decodeIfPresent(
+            AnnouncementHours.self, forKey: .announcementHours
+        ) ?? legacyAnnouncementHours ?? AppSettings.current.announcementHours
         self.muteWhileMicInUse = try container.decodeIfPresent(
             Bool.self, forKey: .muteWhileMicInUse
         ) ?? legacyMuteMic ?? AppSettings.current.muteWhileMicInUse
@@ -138,7 +138,7 @@ struct AppSettings: Codable, Equatable {
         themePreference: ThemePreference,
         timeFormat: TimeFormat,
         announcement: AnnouncementSettings,
-        schedule: WeeklySchedule,
+        announcementHours: AnnouncementHours,
         muteWhileMicInUse: Bool,
         isMuted: Bool,
         announcementsEnabled: Bool,
@@ -152,7 +152,7 @@ struct AppSettings: Codable, Equatable {
         self.themePreference = themePreference
         self.timeFormat = timeFormat
         self.announcement = announcement
-        self.schedule = schedule
+        self.announcementHours = announcementHours
         self.muteWhileMicInUse = muteWhileMicInUse
         self.isMuted = isMuted
         self.announcementsEnabled = announcementsEnabled
@@ -164,8 +164,8 @@ struct AppSettings: Codable, Equatable {
     }
 
     /// Whether audible announcements (time or desk) may play right now:
-    /// announcements globally enabled, inside the schedule window, not
-    /// snoozed by the mute timer, not away from the desk, and not
+    /// announcements globally enabled, inside the announcement-hours window,
+    /// not snoozed by the mute timer, not away from the desk, and not
     /// suppressed by the mic. Visual is never subject to this — only audio
     /// passes through this gate.
     func audioGateOpen(
@@ -182,7 +182,7 @@ struct AppSettings: Codable, Equatable {
         let c = calendar.dateComponents([.weekday, .hour, .minute], from: now)
         guard let wi = c.weekday, let weekday = Weekday(rawValue: wi),
               let h = c.hour, let m = c.minute else { return false }
-        return schedule.isActive(
+        return announcementHours.isActive(
             at: TimeOfDay(hour: h, minute: m), weekday: weekday
         )
     }
@@ -192,7 +192,7 @@ struct AppSettings: Codable, Equatable {
         case themePreference
         case timeFormat
         case announcement
-        case schedule
+        case announcementHours = "schedule"
         case muteWhileMicInUse
         case isMuted
         case announcementsEnabled
@@ -203,8 +203,9 @@ struct AppSettings: Codable, Equatable {
         case terminalScrollbackLines
     }
 
-    /// Legacy keys for reading schedule + muteWhileMicInUse out of the
-    /// old nested `announcement` block during one-time migration.
+    /// Legacy keys for reading the announcement hours + muteWhileMicInUse out
+    /// of the old nested `announcement` block during one-time migration. The
+    /// hours persisted under the `schedule` key, so that raw value is pinned.
     private enum LegacyAnnouncementKeys: String, CodingKey {
         case schedule
         case muteWhileMicInUse

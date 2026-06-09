@@ -3,11 +3,11 @@ import Foundation
 /// Visual state of the `AnnounceStatusButton` (and the corresponding
 /// muted status row in `ClockView`). Computed from settings + current
 /// time + live mic state; reflects whether announcements are off, set
-/// up but currently quiet, currently inside an active schedule window,
-/// or temporarily muted — and if muted, why.
+/// up but currently quiet, currently inside an active announcement-hours
+/// window, or temporarily muted — and if muted, why.
 ///
 /// Precedence (highest first): `disabled`, then `mutedByAway`, then
-/// `mutedByMic`, then `mutedManually`, then the schedule window
+/// `mutedByMic`, then `mutedManually`, then the announcement-hours window
 /// (`active` / `scheduled`). Away outranks the call and the manual mute —
 /// stepping away is the most deliberate silence signal — and mic-mute
 /// outranks the manual mute so a live call shows the mic reason while a
@@ -17,7 +17,7 @@ enum AnnouncementIconState: Equatable {
     case scheduled      // on with at least one output, not muted,
                         // currently outside today's window — OR on but
                         // with no output selected (nothing would ever
-                        // fire, so it's inert regardless of schedule)
+                        // fire, so it's inert regardless of announcement hours)
     case active         // on, not muted, currently inside today's window
     case mutedManually  // on, user muted manually (open-ended) until unmute
     case mutedByMic     // on, mic in use and "mute while mic in use" on
@@ -58,8 +58,8 @@ extension AppSettings {
     /// should always yield valid components in practice).
     ///
     /// Lives on `AppSettings` (not `AnnouncementSettings`) because it
-    /// reads the top-level shared `schedule`, `muteWhileMicInUse`, and
-    /// `isMuted` alongside both features' sub-fields. "Disabled" spans
+    /// reads the top-level shared `announcementHours`, `muteWhileMicInUse`,
+    /// and `isMuted` alongside both features' sub-fields. "Disabled" spans
     /// both: it's shown only when neither time announcements nor the desk
     /// timer can emit audio.
     func iconState(
@@ -103,13 +103,13 @@ extension AppSettings {
         else { return .scheduled }
 
         // A disabled master switch reads exactly like being outside the
-        // schedule window: nothing will fire, so show the quiet
+        // announcement-hours window: nothing will fire, so show the quiet
         // plain-speaker (`.scheduled`) glyph rather than the active waves —
         // and `.scheduled` is already clickable (opens Settings), so the
-        // handling matches outside-schedule too.
+        // handling matches outside-hours too.
         let timeOfDay = TimeOfDay(hour: hour, minute: minute)
         let withinWindow = announcementsEnabled
-            && schedule.isActive(at: timeOfDay, weekday: weekday)
+            && announcementHours.isActive(at: timeOfDay, weekday: weekday)
         return withinWindow ? .active : .scheduled
     }
 }

@@ -24,8 +24,8 @@ enum Weekday: Int, Codable, CaseIterable {
         }
     }
 
-    /// Monday-first ordering for the schedule editor UI. `allCases` stays
-    /// in Calendar order (Sunday-first) because the trigger logic looks
+    /// Monday-first ordering for the announcement-hours editor UI. `allCases`
+    /// stays in Calendar order (Sunday-first) because the trigger logic looks
     /// up days by `Calendar.weekday` raw value (1 = Sunday).
     static let displayOrder: [Weekday] = [
         .monday, .tuesday, .wednesday, .thursday, .friday,
@@ -35,8 +35,8 @@ enum Weekday: Int, Codable, CaseIterable {
 
 /// Hour + minute pair, no timezone. Comparable on (hour, minute). The
 /// trigger logic always evaluates these against `Calendar.current` so
-/// schedule values are intentionally local-time wall-clock values — the
-/// 9 AM in a saved entry means 9 AM in whatever timezone the system is
+/// announcement-hours values are intentionally local-time wall-clock values —
+/// the 9 AM in a saved entry means 9 AM in whatever timezone the system is
 /// currently set to.
 struct TimeOfDay: Codable, Equatable, Comparable, Hashable {
     var hour: Int      // 0-23
@@ -76,38 +76,38 @@ struct TimeRange: Codable, Equatable, Identifiable {
     }
 }
 
-/// One day's slice of the schedule.
-struct DaySchedule: Codable, Equatable {
+/// One day's slice of the announcement hours.
+struct DayHours: Codable, Equatable {
     var enabled: Bool
     var ranges: [TimeRange]
 
-    static let empty = DaySchedule(enabled: false, ranges: [])
+    static let empty = DayHours(enabled: false, ranges: [])
 }
 
-/// Full weekly schedule. Keyed by Weekday so the UI can iterate in any
-/// order without a fixed property name per day. The trigger logic looks
-/// up today's day directly: `schedule.days[weekday]`.
-struct WeeklySchedule: Codable, Equatable {
-    var days: [Weekday: DaySchedule]
+/// The full weekly announcement-hours window. Keyed by Weekday so the UI
+/// can iterate in any order without a fixed property name per day. The
+/// trigger logic looks up today's day directly: `announcementHours.days[weekday]`.
+struct AnnouncementHours: Codable, Equatable {
+    var days: [Weekday: DayHours]
 
-    static let empty: WeeklySchedule = {
-        var dict: [Weekday: DaySchedule] = [:]
+    static let empty: AnnouncementHours = {
+        var dict: [Weekday: DayHours] = [:]
         for day in Weekday.allCases {
             dict[day] = .empty
         }
-        return WeeklySchedule(days: dict)
+        return AnnouncementHours(days: dict)
     }()
 
     /// Monday–Friday enabled with a single 9 AM – 5 PM range each;
     /// Saturday and Sunday disabled. The default shipped via
     /// `AnnouncementSettings.defaults` so first-time users see a sensible
     /// workday pattern as soon as they enable announcements.
-    static var workdayDefault: WeeklySchedule {
-        var dict: [Weekday: DaySchedule] = [:]
+    static var workdayDefault: AnnouncementHours {
+        var dict: [Weekday: DayHours] = [:]
         for day in Weekday.allCases {
             switch day {
             case .monday, .tuesday, .wednesday, .thursday, .friday:
-                dict[day] = DaySchedule(
+                dict[day] = DayHours(
                     enabled: true,
                     ranges: [.newWorkdayDefault]
                 )
@@ -115,10 +115,10 @@ struct WeeklySchedule: Codable, Equatable {
                 dict[day] = .empty
             }
         }
-        return WeeklySchedule(days: dict)
+        return AnnouncementHours(days: dict)
     }
 
-    /// True if today's DaySchedule is enabled AND `time` falls within any
+    /// True if today's DayHours is enabled AND `time` falls within any
     /// of its ranges. Empty range list (or disabled day) returns false.
     func isActive(at time: TimeOfDay, weekday: Weekday) -> Bool {
         guard let day = days[weekday], day.enabled else { return false }

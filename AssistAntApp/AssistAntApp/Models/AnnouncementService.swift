@@ -48,13 +48,13 @@ final class AnnouncementService {
     /// boundary type so the caller knows how many chimes to play.
     /// Side-effect-free.
     ///
-    /// Checks master enable + interval + schedule, then the global manual
-    /// mute (`isMuted`, passed in). It does not check `playSound` — that
-    /// only decides which outputs the submitted job carries.
+    /// Checks master enable + interval + announcement hours, then the global
+    /// manual mute (`isMuted`, passed in). It does not check `playSound` —
+    /// that only decides which outputs the submitted job carries.
     static func shouldFire(
         at now: Date,
         settings: AnnouncementSettings,
-        schedule: WeeklySchedule,
+        announcementHours: AnnouncementHours,
         isMuted: Bool,
         isAway: Bool,
         calendar: Calendar = .current
@@ -76,20 +76,20 @@ final class AnnouncementService {
             return nil
         }
 
-        // Schedule gate: is today's slot active right now?
+        // Announcement-hours gate: is today's slot active right now?
         let timeOfDay = TimeOfDay(hour: hour, minute: minute)
-        guard schedule.isActive(at: timeOfDay, weekday: weekday)
+        guard announcementHours.isActive(at: timeOfDay, weekday: weekday)
         else { return nil }
 
         // Away override: stepping away from the desk silences time
         // announcements too, superseding the manual mute and the
-        // schedule — the same way mic-in-use does.
+        // announcement hours — the same way mic-in-use does.
         if isAway {
             return nil
         }
 
         // Mute override: the global manual mute. Applied last so the
-        // schedule/interval reasoning is independent of mute state.
+        // announcement-hours/interval reasoning is independent of mute state.
         if isMuted {
             return nil
         }
@@ -120,7 +120,7 @@ final class AnnouncementService {
         guard let boundary = Self.shouldFire(
             at: now,
             settings: settings,
-            schedule: appSettings.schedule,
+            announcementHours: appSettings.announcementHours,
             isMuted: appSettings.isMuted,
             isAway: appSettings.desk.isAwayActive
         ) else { return }

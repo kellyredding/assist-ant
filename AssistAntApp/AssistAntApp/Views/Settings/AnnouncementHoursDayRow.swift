@@ -1,20 +1,20 @@
 import SwiftUI
 
-/// One day in the schedule editor. Collapsed when disabled (just the
-/// checkbox + day name). Expanded when enabled to show the day's time
+/// One day in the announcement-hours editor. Collapsed when disabled (just
+/// the checkbox + day name). Expanded when enabled to show the day's time
 /// ranges plus an "Add time range" button.
-struct ScheduleDayRow: View {
+struct AnnouncementHoursDayRow: View {
     let day: Weekday
-    @Binding var schedule: DaySchedule
+    @Binding var dayHours: DayHours
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(day.displayName, isOn: enabledBinding)
                 .toggleStyle(.checkbox)
 
-            if schedule.enabled {
+            if dayHours.enabled {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach($schedule.ranges) { $range in
+                    ForEach($dayHours.ranges) { $range in
                         TimeRangeRow(
                             range: $range,
                             onDelete: { removeRange(range.id) }
@@ -22,7 +22,7 @@ struct ScheduleDayRow: View {
                     }
 
                     Button {
-                        schedule.ranges.append(.newWorkdayDefault)
+                        dayHours.ranges.append(.newWorkdayDefault)
                     } label: {
                         Label(
                             "Add time range",
@@ -38,7 +38,7 @@ struct ScheduleDayRow: View {
     }
 
     private func removeRange(_ id: UUID) {
-        schedule.ranges.removeAll { $0.id == id }
+        dayHours.ranges.removeAll { $0.id == id }
     }
 
     /// Custom enabled-binding that auto-adds a default range the first
@@ -47,11 +47,11 @@ struct ScheduleDayRow: View {
     /// just re-enables without adding another range.
     private var enabledBinding: Binding<Bool> {
         Binding(
-            get: { schedule.enabled },
+            get: { dayHours.enabled },
             set: { newValue in
-                schedule.enabled = newValue
-                if newValue && schedule.ranges.isEmpty {
-                    schedule.ranges.append(.newWorkdayDefault)
+                dayHours.enabled = newValue
+                if newValue && dayHours.ranges.isEmpty {
+                    dayHours.ranges.append(.newWorkdayDefault)
                 }
             }
         )

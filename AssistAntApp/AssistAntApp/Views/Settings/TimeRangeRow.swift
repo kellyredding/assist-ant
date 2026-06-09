@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// One time-range row inside a ScheduleDayRow. Start and end pickers
+/// One time-range row inside an AnnouncementHoursDayRow. Start and end pickers
 /// side-by-side with a remove button.
 struct TimeRangeRow: View {
     @Binding var range: TimeRange
     let onDelete: () -> Void
 
     /// True when start <= end. Invalid ranges (start > end) silently
-    /// no-fire in `WeeklySchedule.isActive` because `isWithin` short-
+    /// no-fire in `AnnouncementHours.isActive` because `isWithin` short-
     /// circuits to false; the warning icon below tells the user *why*
     /// chimes aren't playing for this row.
     private var isValid: Bool {
