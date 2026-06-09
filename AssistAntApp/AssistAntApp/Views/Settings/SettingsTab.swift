@@ -17,7 +17,7 @@ enum SettingsTab: String, CaseIterable {
         switch self {
         case .general: return "General"
         case .workspace: return "Workspace"
-        case .announcements: return "Announcements"
+        case .announcements: return "Announce"
         case .time: return "Time"
         case .calendar: return "Calendar"
         case .desk: return "Desk"
