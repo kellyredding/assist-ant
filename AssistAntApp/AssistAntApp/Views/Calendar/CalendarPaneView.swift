@@ -8,6 +8,7 @@ struct CalendarPaneView: View {
     @ObservedObject private var model = CalendarAgendaModel.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
     @ObservedObject private var clock = ClockService.shared
+    @ObservedObject private var sync = CalendarSyncCoordinator.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,8 +17,11 @@ struct CalendarPaneView: View {
                 onToday: { model.goToToday() },
                 onBack: { model.goBack() },
                 onForward: { model.goForward() },
-                onRefresh: { model.refresh() },
-                isWorking: model.isWorking
+                onRefresh: {
+                    CalendarSyncCoordinator.shared.requestSync()
+                    model.refresh()
+                },
+                isWorking: model.isWorking || sync.isSyncing
             )
             Divider()
             agenda

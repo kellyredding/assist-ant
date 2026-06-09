@@ -8,6 +8,7 @@ import SwiftUI
 struct TodayItemsView: View {
     @StateObject private var model = TodayItemsModel()
     @ObservedObject private var layout = SidebarLayoutModel.shared
+    @ObservedObject private var sync = CalendarSyncCoordinator.shared
 
     private var isExpanded: Bool {
         layout.fraction >= SidebarMetrics.toggleThreshold
@@ -43,7 +44,8 @@ struct TodayItemsView: View {
             title: "Calendar / Reminders",
             emoji: "📅",
             isEmpty: model.calendarRows.isEmpty,
-            emptyText: "No events today"
+            emptyText: "No events today",
+            headerAccessory: AnyView(syncButton)
         ) {
             VStack(spacing: 10) {
                 ForEach(model.calendarRows) { CalendarItemRow(row: $0) }
@@ -51,6 +53,22 @@ struct TodayItemsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Re-sync affordance in the Calendar header: asks the agent to run the
+    /// sync skill. A spinner shows while a sync is in flight; the list updates
+    /// itself when the new data lands (TodayItemsModel observes the store).
+    @ViewBuilder private var syncButton: some View {
+        if sync.isSyncing {
+            ProgressView().controlSize(.small)
+        } else {
+            PointerIconButton(
+                systemName: "arrow.clockwise",
+                help: "Re-sync calendar with the agent"
+            ) {
+                CalendarSyncCoordinator.shared.requestSync()
+            }
+        }
     }
 
     /// The to-do column — a pinned header now; the list itself lands with the

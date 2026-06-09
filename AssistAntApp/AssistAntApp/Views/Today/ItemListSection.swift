@@ -10,14 +10,23 @@ struct ItemListSection<Row: View>: View {
     let emoji: String
     let isEmpty: Bool
     let emptyText: String
+    /// Optional control shown at the trailing edge of the header (e.g. a
+    /// re-sync glyph). Omit for a plain heading.
+    var headerAccessory: AnyView? = nil
     @ViewBuilder var rows: () -> Row
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Pinned header — stays put while the rows scroll beneath it.
-            Text("\(emoji)  \(title.uppercased())")
-                .font(.caption).fontWeight(.semibold)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text("\(emoji)  \(title.uppercased())")
+                    .font(.caption).fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                if let headerAccessory {
+                    Spacer(minLength: 8)
+                    headerAccessory
+                }
+            }
 
             if isEmpty {
                 Text(emptyText)

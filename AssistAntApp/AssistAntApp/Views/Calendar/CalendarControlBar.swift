@@ -23,13 +23,16 @@ struct CalendarControlBar: View {
             Text(monthYear)
                 .font(.headline)
             Spacer()
+            // Swap the refresh glyph for a spinner while a sync is in flight,
+            // matching the sidebar affordance.
             if isWorking {
                 ProgressView().controlSize(.small)
+            } else {
+                PointerIconButton(
+                    systemName: "arrow.clockwise", help: "Reload events in view",
+                    action: onRefresh
+                )
             }
-            PointerIconButton(
-                systemName: "arrow.clockwise", help: "Reload events in view",
-                action: onRefresh
-            )
         }
         .padding(.horizontal, 12)
         .frame(height: 38)

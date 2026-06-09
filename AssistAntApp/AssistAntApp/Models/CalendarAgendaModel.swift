@@ -28,6 +28,20 @@ final class CalendarAgendaModel: ObservableObject {
 
     init(store: ItemStore = GRDBItemStore.shared) {
         self.store = store
+        // Re-fetch the current window whenever a sync commits new calendar
+        // data (the app posts this after applying a sync). A windowed view
+        // doesn't observe the store live, so this is how the agenda stays
+        // current without holding everything in memory.
+        NotificationCenter.default.addObserver(
+            forName: .calendarItemsDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handleItemsChanged() }
+        }
+    }
+
+    private func handleItemsChanged() {
+        guard hasActivatedOnce else { return }
+        refresh()
     }
 
     /// Tab became active. First time: load [today → ∞), anchor today at top.

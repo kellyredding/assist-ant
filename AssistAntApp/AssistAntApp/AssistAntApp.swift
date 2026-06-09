@@ -287,6 +287,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 allowEmptyKeep: false, prune: batch.prune)
             NSLog("AssistAnt: calendar_item.sync — upserted \(items.count), "
                 + "prune=\(batch.prune)")
+            // Tell windowed views + the sync indicators that calendar data
+            // changed. The today sidebar already updates via its live store
+            // observation; this covers the windowed Calendar agenda.
+            NotificationCenter.default.post(
+                name: .calendarItemsDidChange, object: nil)
         } catch {
             NSLog("AssistAnt: calendar_item.sync failed: \(error)")
         }
