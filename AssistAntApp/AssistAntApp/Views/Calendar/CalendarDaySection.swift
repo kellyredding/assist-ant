@@ -5,6 +5,8 @@ import SwiftUI
 struct CalendarDaySection: View {
     let day: AgendaDay
     let now: Date
+    /// Invoked when an event row is tapped, to open it in the reader.
+    let onOpen: (Item) -> Void
 
     private var isToday: Bool { day.date == CivilDate(now) }
 
@@ -20,7 +22,8 @@ struct CalendarDaySection: View {
                     ForEach(day.items, id: \.id) { item in
                         CalendarEventRow(
                             item: item,
-                            isPast: CalendarAgenda.isPast(item, now: now)
+                            isPast: CalendarAgenda.isPast(item, now: now),
+                            onTap: { onOpen(item) }
                         )
                     }
                 }

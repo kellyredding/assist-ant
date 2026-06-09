@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 /// The Calendar tab's content: a control bar over a spinner-gated, vertically
-/// scrolled agenda. Activates the model on first appear (if the tab is already
+/// scrolled agenda — or, when an event is open, a full-takeover event reader
+/// in its place. Activates the model on first appear (if the tab is already
 /// selected) and on every switch to `.calendar`. Observes the clock so past-
 /// dimming and the today highlight refresh each minute without re-fetching.
 struct CalendarPaneView: View {
@@ -10,7 +12,43 @@ struct CalendarPaneView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
 
+    /// The event currently shown in the reader; nil shows the agenda.
+    @State private var openEvent: Item?
+    /// Local Escape monitor, installed only while the reader is open.
+    @State private var escapeMonitor: Any?
+
     var body: some View {
+        ZStack {
+            // Stays mounted (just disabled) while the reader is open, so the
+            // agenda keeps its exact scroll position behind it — closing the
+            // reader returns to the same spot. `.disabled` also quiets the
+            // rows' pointer overlays so their tracking areas don't fire the
+            // hand cursor through the reader covering them.
+            agendaPane
+                .disabled(openEvent != nil)
+
+            if let event = openEvent {
+                CalendarEventViewer(event: event, onClose: { openEvent = nil })
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.textBackgroundColor))
+        .onAppear {
+            if navigator.selectedTab == .calendar { model.activate() }
+            consumePendingEventShow()
+        }
+        .onChange(of: navigator.selectedTab) { _, tab in
+            if tab == .calendar { model.activate() }
+        }
+        .onChange(of: navigator.pendingEventShow) { _, _ in
+            consumePendingEventShow()
+        }
+        .onChange(of: openEvent != nil) { _, isOpen in
+            if isOpen { installEscapeMonitor() } else { removeEscapeMonitor() }
+        }
+    }
+
+    private var agendaPane: some View {
         VStack(spacing: 0) {
             CalendarControlBar(
                 monthYear: monthYearLabel,
@@ -26,14 +64,6 @@ struct CalendarPaneView: View {
             Divider()
             agenda
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.textBackgroundColor))
-        .onAppear {
-            if navigator.selectedTab == .calendar { model.activate() }
-        }
-        .onChange(of: navigator.selectedTab) { _, tab in
-            if tab == .calendar { model.activate() }
-        }
     }
 
     @ViewBuilder
@@ -46,9 +76,13 @@ struct CalendarPaneView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.days) { day in
-                            CalendarDaySection(day: day, now: clock.currentTime)
-                                .id(day.date)
-                                .background(dayPositionReader(day.date))
+                            CalendarDaySection(
+                                day: day,
+                                now: clock.currentTime,
+                                onOpen: { openEvent = $0 }
+                            )
+                            .id(day.date)
+                            .background(dayPositionReader(day.date))
                         }
                     }
                 }
@@ -87,5 +121,43 @@ struct CalendarPaneView: View {
         let f = DateFormatter()
         f.dateFormat = "LLLL yyyy"   // e.g. "June 2026"
         return f.string(from: model.topVisibleDay.noon)
+    }
+
+    // MARK: - Opening events
+
+    /// Open the event queued by a Today-sidebar tap. Fetches the item straight
+    /// from the store by id — robust whether or not its day is inside the
+    /// agenda's currently-loaded window — and opens only active calendar items.
+    private func consumePendingEventShow() {
+        guard let id = navigator.pendingEventShow else { return }
+        navigator.pendingEventShow = nil
+        guard let item = try? GRDBItemStore.shared.fetch(id: id),
+              item.deletedAt == nil,
+              case .calendar = item.typeData
+        else { return }
+        openEvent = item
+    }
+
+    // MARK: - Escape monitor
+
+    /// Install a local Escape monitor while the reader is open. The tab guard
+    /// keeps it from swallowing an Escape meant for another tab if the reader
+    /// is left open in the background.
+    private func installEscapeMonitor() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event }   // 53 = Escape
+            guard navigator.selectedTab == .calendar else { return event }
+            DispatchQueue.main.async { openEvent = nil }
+            removeEscapeMonitor()
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
     }
 }

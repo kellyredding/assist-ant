@@ -14,6 +14,13 @@ final class MainTabNavigator: ObservableObject {
         }
     }
 
+    /// A calendar item id the Calendar tab should open in its event reader,
+    /// set by a Today-sidebar tap (alongside flipping `selectedTab` to
+    /// `.calendar`). `CalendarPaneView` consumes it — opens the reader, then
+    /// clears it back to nil. Transient (not persisted). Calendar items only;
+    /// reminders never set this.
+    @Published var pendingEventShow: String?
+
     private init() {
         // Restore the persisted tab; fall back to the first case if absent or
         // unrecognized (e.g. a tab that no longer exists).

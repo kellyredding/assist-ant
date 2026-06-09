@@ -48,7 +48,15 @@ struct TodayItemsView: View {
             headerAccessory: AnyView(syncButton)
         ) {
             VStack(spacing: 10) {
-                ForEach(model.calendarRows) { CalendarItemRow(row: $0) }
+                ForEach(model.calendarRows) { row in
+                    CalendarItemRow(row: row) {
+                        // Cross-tab handoff: switch to Calendar and queue the
+                        // event id; CalendarPaneView opens it from the store.
+                        let navigator = MainTabNavigator.shared
+                        navigator.selectedTab = .calendar
+                        navigator.pendingEventShow = row.item.id
+                    }
+                }
             }
         }
         .padding(16)
