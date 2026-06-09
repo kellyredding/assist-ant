@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AssistAntPaths.ensureDirectories()
 
+        // Install/refresh app-owned agent skills into the workspace before the
+        // session starts, so the sync skill is always present and matches the
+        // shipped version (self-heals a missing or hand-edited copy).
+        WorkspaceSkillInstaller.installIfNeeded()
+
         // Warm the items database so its migrations run and the file is ready
         // before any view queries it. Machine-local; the consistent backup
         // snapshot rides Syncthing via ItemBackupCoordinator (debounced on
