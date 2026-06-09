@@ -11,6 +11,7 @@ enum WorkspaceSkillInstaller {
     /// Bundled resource (name without extension) → workspace skill folder name.
     private static let skills: [(resource: String, name: String)] = [
         ("SyncCalendarSkill", "assist-ant-sync-calendar-items"),
+        ("SyncLinearSkill", "assist-ant-sync-linear-items"),
     ]
 
     static func installIfNeeded() {
