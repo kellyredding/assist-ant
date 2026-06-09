@@ -290,10 +290,15 @@ module AssistAnt
       String.build do |io|
         io << "📅 #{e.calendar_name}  ·  RSVP: #{rsvp_label(e)}"
         if loc = e.location
-          io << "\n📍 #{loc}" unless loc.empty?
+          # Meeting links (Tuple, Zoom, …) commonly arrive as the location, so
+          # linkify it: a URL location becomes tappable, a plain place is left
+          # as text.
+          io << "\n📍 #{escape_and_linkify(loc)}" unless loc.empty?
         end
         if link = e.meet_link
-          io << "\n🔗 #{link}" unless link.empty?
+          # A Markdown link, not a bare URL: the app renders the body through
+          # SwiftUI's Markdown parser, which only makes `[text](url)` tappable.
+          io << "\n🔗 [Join Meeting](#{link})" unless link.empty?
         end
         io << "\n\n👥 #{e.attendees.join(", ")}" unless e.attendees.empty?
         if desc = e.description
@@ -316,11 +321,44 @@ module AssistAnt
     # newlines, remaining tags are stripped, entities decoded, blank runs
     # collapsed. Deterministic — no LLM cleanup pass.
     def self.clean_description(raw : String) : String
+      escape_and_linkify(flatten_html(raw))
+    end
+
+    # Flatten provider HTML to readable plain text: block tags become newlines,
+    # remaining tags are stripped, entities decoded, blank runs collapsed.
+    def self.flatten_html(raw : String) : String
       text = raw
         .gsub(/<br\s*\/?>/i, "\n")
         .gsub(/<\/(p|div|li|tr)>/i, "\n")
         .gsub(/<[^>]+>/, "")
       HTML.unescape(text).gsub(/\n{3,}/, "\n\n").strip
+    end
+
+    URL_RE = /https?:\/\/[^\s\]\)]+/
+
+    # Prepare plain text for the app's Markdown parser: escape inline Markdown
+    # metacharacters (so a stray "*" or "[" renders literally) while turning
+    # bare URLs into tappable autolinks (`[url](url)`) — the parser only links
+    # bracketed URLs, not bare ones. URLs are emitted whole in a single pass so
+    # their own characters (including "_" and "~") are never backslash-escaped.
+    def self.escape_and_linkify(text : String) : String
+      String.build do |io|
+        cursor = 0
+        text.scan(URL_RE) do |m|
+          io << escape_markdown(text[cursor...m.begin(0)])
+          url = m[0]
+          io << "[#{url}](#{url})"
+          cursor = m.end(0)
+        end
+        io << escape_markdown(text[cursor..])
+      end
+    end
+
+    # Backslash-escape the inline Markdown metacharacters so plain text renders
+    # verbatim through the app's Markdown parser instead of being interpreted
+    # (a stray "*" italicizing, "[" opening a link, a "`" starting code).
+    def self.escape_markdown(text : String) : String
+      text.gsub(/[\\`*_~\[\]]/) { |c| "\\#{c}" }
     end
   end
 end

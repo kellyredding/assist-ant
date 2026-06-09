@@ -106,12 +106,40 @@ describe AssistAnt::CalendarSync do
       body.should contain "Hi\nthere"
       body.should_not contain "<p>"
     end
+
+    it "renders the meet link as a tappable markdown link, not a bare URL" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"hangoutLink":"https://meet.google.com/abc-defg-hij","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      body = AssistAnt::CalendarSync.compose_body(google.parse(raw).first)
+      body.should contain "🔗 [Join Meeting](https://meet.google.com/abc-defg-hij)"
+    end
+
+    it "linkifies a URL location (e.g. a Tuple/Zoom link) so it is tappable" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"location":"https://tuple.app/c/evXrbg","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      body = AssistAnt::CalendarSync.compose_body(google.parse(raw).first)
+      body.should contain "📍 [https://tuple.app/c/evXrbg](https://tuple.app/c/evXrbg)"
+    end
   end
 
   describe ".clean_description" do
     it "strips tags, converts breaks, and decodes entities" do
       AssistAnt::CalendarSync
         .clean_description("<p>A &amp; B<br>C</p>").should eq "A & B\nC"
+    end
+
+    it "escapes inline markdown metacharacters in the flattened text" do
+      AssistAnt::CalendarSync
+        .clean_description("Pay *now* for _50%_ [off]")
+        .should eq "Pay \\*now\\* for \\_50%\\_ \\[off\\]"
+    end
+
+    it "turns bare URLs into autolinks without escaping URL characters" do
+      AssistAnt::CalendarSync
+        .clean_description("Join at https://x.com/a_b now")
+        .should eq "Join at [https://x.com/a_b](https://x.com/a_b) now"
     end
   end
 end
