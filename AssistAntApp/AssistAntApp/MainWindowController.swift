@@ -2,6 +2,16 @@ import AppKit
 import SwiftUI
 import Combine
 
+/// Main-window NSWindow subclass. Overrides recalculateKeyViewLoop to a no-op
+/// so AppKit does not traverse the full SwiftUI view tree to rebuild the
+/// key-view loop — the same performance optimization Galaxy uses
+/// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/MainWindowController.swift).
+final class AssistAntWindow: NSWindow {
+    override func recalculateKeyViewLoop() {
+        // No-op: see type doc.
+    }
+}
+
 /// Main AssistAnt window. Hosts ContentView. Restores its frame from
 /// WindowStatePersistence on init and saves on every move/resize. Theme
 /// follows SettingsManager live.
@@ -13,13 +23,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     init() {
         let hosting = NSHostingController(rootView: ContentView())
-        let window = NSWindow(contentViewController: hosting)
+        // Build the NSWindow subclass via the designated initializer (the
+        // convenience NSWindow(contentViewController:) can't produce a
+        // subclass), then attach the hosting controller as content.
+        let window = AssistAntWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1680, height: 840),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
         window.title = "Assist Ant"
         // The app name is redundant now that the titlebar carries the sidebar
         // toggle, so hide the text but keep the title bar chrome.
         window.titleVisibility = .hidden
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 1680, height: 840))
         window.minSize = NSSize(width: 800, height: 500)
         window.center()
         window.isReleasedWhenClosed = false

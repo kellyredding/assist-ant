@@ -44,6 +44,16 @@ final class MainMenu: NSObject {
         mainMenu.addItem(editMenuItem)
         buildEditMenu(editMenu)
 
+        // View menu — switches the main window's right-pane tab. Mirrors
+        // Galaxy's View ▸ Previous/Next view (⌘H/⌘← and ⌘L/⌘→).
+        let viewMenu = NSMenu(title: "View")
+        let viewMenuItem = NSMenuItem(
+            title: "View", action: nil, keyEquivalent: ""
+        )
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
+        buildViewMenu(viewMenu)
+
         // Agent menu — terminal font zoom plus the session-acting Clear /
         // Compact commands sent to the embedded session's PTY. AssistAnt's
         // analog of Galaxy's Sessions menu. Font items gate on the terminal
@@ -97,10 +107,12 @@ final class MainMenu: NSObject {
 
         menu.addItem(.separator())
 
+        // Hide deliberately has no ⌘H: that shortcut is reassigned to View ▸
+        // Previous view (matching Galaxy). Hide stays reachable from the menu.
         let hideItem = NSMenuItem(
             title: "Hide \(appName)",
             action: #selector(NSApplication.hide(_:)),
-            keyEquivalent: "h"
+            keyEquivalent: ""
         )
         menu.addItem(hideItem)
 
@@ -151,6 +163,49 @@ final class MainMenu: NSObject {
                      action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         menu.addItem(withTitle: "Select All",
                      action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    }
+
+    // MARK: - View menu
+
+    /// Previous/Next view switch the main window's right-pane tab. Each has a
+    /// letter binding (⌘H/⌘L) plus a hidden arrow alternate (⌘←/⌘→), matching
+    /// Galaxy. Enable state is gated dynamically by validateMenuItem.
+    private func buildViewMenu(_ menu: NSMenu) {
+        let prev = NSMenuItem(
+            title: "Previous view",
+            action: #selector(MenuActions.previousView(_:)),
+            keyEquivalent: "h"
+        )
+        prev.target = MenuActions.shared
+        menu.addItem(prev)
+
+        let prevArrow = NSMenuItem(
+            title: "Previous view",
+            action: #selector(MenuActions.previousView(_:)),
+            keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        )
+        prevArrow.target = MenuActions.shared
+        prevArrow.keyEquivalentModifierMask = .command
+        prevArrow.isAlternate = true
+        menu.addItem(prevArrow)
+
+        let next = NSMenuItem(
+            title: "Next view",
+            action: #selector(MenuActions.nextView(_:)),
+            keyEquivalent: "l"
+        )
+        next.target = MenuActions.shared
+        menu.addItem(next)
+
+        let nextArrow = NSMenuItem(
+            title: "Next view",
+            action: #selector(MenuActions.nextView(_:)),
+            keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        )
+        nextArrow.target = MenuActions.shared
+        nextArrow.keyEquivalentModifierMask = .command
+        nextArrow.isAlternate = true
+        menu.addItem(nextArrow)
     }
 
     // MARK: - Agent menu
@@ -243,6 +298,17 @@ final class MenuActions: NSObject {
 
     // MARK: - View menu actions
 
+    /// View ▸ Previous / Next view. Switches the main window's right-pane
+    /// tab. Calls the navigator directly (no notification indirection), like
+    /// the font-size actions below.
+    @objc func previousView(_ sender: Any?) {
+        MainTabNavigator.shared.switchToPreviousTab()
+    }
+
+    @objc func nextView(_ sender: Any?) {
+        MainTabNavigator.shared.switchToNextTab()
+    }
+
     /// View ▸ Default / Bigger / Smaller terminal font size. Unlike the
     /// notification-posting actions above, these call the controller
     /// directly — mirroring Galaxy, whose font actions call
@@ -322,6 +388,8 @@ extension MenuActions: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let controller = AgentSessionController.shared
         switch menuItem.action {
+        case #selector(previousView(_:)), #selector(nextView(_:)):
+            return MainTab.allCases.count > 1
         case #selector(defaultTerminalFontSize(_:)):
             return Self.agentTerminalIsFocused()
         case #selector(biggerTerminalFontSize(_:)):

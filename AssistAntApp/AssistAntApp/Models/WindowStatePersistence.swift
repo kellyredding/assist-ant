@@ -32,19 +32,25 @@ struct PersistedWindowState: Codable {
     /// such files decode with the default below so an old file restores
     /// cleanly.
     let sidebarFraction: Double
+    /// Raw value of the last-selected MainTab. Absent from files written
+    /// before tabs shipped; decodes to nil so the navigator falls back to its
+    /// default.
+    let selectedMainTab: String?
 
     init(
         version: Int,
         windowFrame: PersistedWindowFrame,
         screenIdentifier: String,
         screenFrame: PersistedScreenFrame,
-        sidebarFraction: Double
+        sidebarFraction: Double,
+        selectedMainTab: String?
     ) {
         self.version = version
         self.windowFrame = windowFrame
         self.screenIdentifier = screenIdentifier
         self.screenFrame = screenFrame
         self.sidebarFraction = sidebarFraction
+        self.selectedMainTab = selectedMainTab
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +69,9 @@ struct PersistedWindowState: Codable {
         sidebarFraction = try c.decodeIfPresent(
             Double.self, forKey: .sidebarFraction
         ) ?? Double(SidebarMetrics.defaultFraction)
+        selectedMainTab = try c.decodeIfPresent(
+            String.self, forKey: .selectedMainTab
+        )
     }
 }
 
@@ -95,6 +104,10 @@ final class WindowStatePersistence {
     /// Window-state writes include this so a frame change never drops a
     /// freshly-set fraction (and vice versa).
     private var sidebarFraction: Double = Double(SidebarMetrics.defaultFraction)
+
+    /// Latest selected main-tab raw value to persist. Seeded on first read
+    /// via `loadSelectedMainTab()` and updated by `saveSelectedMainTab(_:)`.
+    private var selectedMainTab: String?
 
     private init() {
         let appSupport = FileManager.default.urls(
@@ -137,7 +150,8 @@ final class WindowStatePersistence {
                 width: screen.frame.size.width,
                 height: screen.frame.size.height
             ),
-            sidebarFraction: sidebarFraction
+            sidebarFraction: sidebarFraction,
+            selectedMainTab: selectedMainTab
         )
 
         scheduleDebouncedFlush()
@@ -165,7 +179,8 @@ final class WindowStatePersistence {
                 windowFrame: existing.windowFrame,
                 screenIdentifier: existing.screenIdentifier,
                 screenFrame: existing.screenFrame,
-                sidebarFraction: sidebarFraction
+                sidebarFraction: sidebarFraction,
+                selectedMainTab: selectedMainTab
             )
         }
 
@@ -185,6 +200,32 @@ final class WindowStatePersistence {
         )
         sidebarFraction = Double(clamped)
         return clamped
+    }
+
+    /// Persist the selected main-tab raw value. Coalesces through the same
+    /// debounced write as window-frame and sidebar-fraction changes.
+    func saveSelectedMainTab(_ rawValue: String) {
+        selectedMainTab = rawValue
+        isDirty = true
+        if let existing = currentState {
+            currentState = PersistedWindowState(
+                version: existing.version,
+                windowFrame: existing.windowFrame,
+                screenIdentifier: existing.screenIdentifier,
+                screenFrame: existing.screenFrame,
+                sidebarFraction: existing.sidebarFraction,
+                selectedMainTab: selectedMainTab
+            )
+        }
+        scheduleDebouncedFlush()
+    }
+
+    /// The persisted selected main-tab raw value, or nil if none was saved.
+    /// Also seeds the in-memory copy so a later window-state write carries it.
+    func loadSelectedMainTab() -> String? {
+        let raw = load()?.selectedMainTab
+        selectedMainTab = raw
+        return raw
     }
 
     /// Flush pending state to disk asynchronously.

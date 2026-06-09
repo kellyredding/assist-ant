@@ -14,6 +14,7 @@ import SwiftUI
 /// scales its fonts to fit the resulting width (see ClockView / ClockMetrics).
 struct ContentView: View {
     @ObservedObject private var layout = SidebarLayoutModel.shared
+    @ObservedObject private var tabs = MainTabNavigator.shared
 
     /// Live width (pixels) while a resize drag is in flight; nil otherwise, at
     /// which point the width is derived from the persisted fraction × the
@@ -35,7 +36,7 @@ struct ContentView: View {
                     maxWidth: maxWidth,
                     windowWidth: windowWidth
                 )
-                agentPane
+                rightColumn
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -65,11 +66,50 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Agent Pane (placeholder)
+    // MARK: - Right Column (tab bar + content)
 
-    private var agentPane: some View {
-        AgentPaneView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// The right pane: a thin centered tab bar on top (Galaxy's control-bar
+    /// pattern), then the switched tab content filling the rest.
+    private var rightColumn: some View {
+        VStack(spacing: 0) {
+            tabControlBar
+            tabContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Flat tab strip centered over the right pane, with a hairline bottom
+    /// divider — mirrors Galaxy's viewsControlBar
+    /// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/ContentView.swift).
+    private var tabControlBar: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            MainTabBar()
+            Spacer()
+        }
+        .frame(height: 30)
+        .background(Color(NSColor.windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - Tab Content (right pane)
+
+    /// The right-pane view switcher. Every tab view stays mounted; only
+    /// opacity / hit-testing / z-order change on switch (no rebuild) — the
+    /// performance behavior carried over from Galaxy. With one tab this is a
+    /// ZStack of one; each future case adds one stacked view + its toggles.
+    private var tabContent: some View {
+        ZStack {
+            AgentPaneView()
+                .opacity(tabs.selectedTab == .agent ? 1 : 0)
+                .allowsHitTesting(tabs.selectedTab == .agent)
+                .zIndex(tabs.selectedTab == .agent ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Resize Handle
