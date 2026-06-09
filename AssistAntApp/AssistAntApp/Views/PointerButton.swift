@@ -43,6 +43,7 @@ private struct PointerControlOverlay: NSViewRepresentable {
         let view = TrackingView()
         view.onHoverChange = onHoverChange
         view.action = action
+        view.isActive = context.environment.isEnabled
         return view
     }
 
@@ -50,30 +51,54 @@ private struct PointerControlOverlay: NSViewRepresentable {
         guard let view = nsView as? TrackingView else { return }
         view.onHoverChange = onHoverChange
         view.action = action
+        // Mirror SwiftUI's `.disabled(...)`: an occluded affordance (e.g. a row
+        // behind an open reader) goes inactive so it stops tracking the cursor.
+        view.isActive = context.environment.isEnabled
     }
 
     final class TrackingView: NSView {
         var onHoverChange: ((Bool) -> Void)?
         var action: (() -> Void)?
 
+        /// Mirrors SwiftUI's `isEnabled` environment. When inactive the view
+        /// installs no tracking areas and ignores clicks — so an affordance
+        /// that is occluded by a sibling (a row behind an open reader) does not
+        /// keep firing the hand cursor / hover through its tracking geometry.
+        var isActive: Bool = true {
+            didSet {
+                guard isActive != oldValue else { return }
+                // This is assigned from updateNSView (a SwiftUI update pass),
+                // so defer the tracking rebuild / hover clear off that pass.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.updateTrackingAreas()
+                    if !self.isActive { self.onHoverChange?(false) }
+                }
+            }
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             for area in trackingAreas { removeTrackingArea(area) }
+            guard isActive else { return }
             // Explicit bounds rect rather than `.inVisibleRect`: a
             // SwiftUI-hosted NSView reports an empty visibleRect here, so an
-            // `.inVisibleRect` area would track nothing. `.activeAlways` so
-            // hover + cursor work even while the app is inactive (pairs with
-            // the app's click-through).
+            // `.inVisibleRect` area would track nothing. `.enabledDuringMouseDrag`
+            // keeps enter/exit symmetric during a drag — otherwise dragging
+            // across a list leaves every row it crossed stuck in the hover
+            // state, because exit never fires. `.activeAlways` so hover +
+            // cursor work even while the app is inactive (pairs with the app's
+            // click-through).
             addTrackingArea(NSTrackingArea(
                 rect: bounds,
                 options: [.cursorUpdate, .mouseEnteredAndExited,
-                          .activeAlways],
+                          .enabledDuringMouseDrag, .activeAlways],
                 owner: self
             ))
             // This overlay is frequently torn down and recreated *while the
             // pointer is already inside it* (the clock re-renders its
             // affordances on every tick / state change), and no mouseEntered
-            // fires for the new instance — so re-assert the cursor here.
+            // fires for the new instance — so reconcile the hover state here.
             applyHoverCursorIfInside()
         }
 
@@ -82,26 +107,35 @@ private struct PointerControlOverlay: NSViewRepresentable {
             applyHoverCursorIfInside()
         }
 
-        /// Set the pointing-hand cursor (and hover state) when the pointer is
-        /// currently within this view. Recovers the cursor after a re-create
-        /// that happened under the pointer, where no mouseEntered fires.
+        /// Reconcile hover state to whether the pointer is actually inside.
+        /// Sets the hand cursor + hover when inside; clears hover when not —
+        /// so a re-layout (scroll, list churn, or a drag) can't leave a stale
+        /// highlight on a row the pointer has left. Leaves the cursor alone
+        /// when outside, to avoid stomping a sibling overlay's cursor.
         private func applyHoverCursorIfInside() {
-            guard let window = window else { return }
+            guard isActive, let window = window else {
+                onHoverChange?(false)
+                return
+            }
             let p = convert(window.mouseLocationOutsideOfEventStream,
                             from: nil)
             if bounds.contains(p) {
                 NSCursor.pointingHand.set()
                 onHoverChange?(true)
+            } else {
+                onHoverChange?(false)
             }
         }
 
         // Kept as a bonus: when AppKit does deliver it (this view being the
         // topmost hit view), it re-asserts the hand on every mouse-moved.
         override func cursorUpdate(with event: NSEvent) {
+            guard isActive else { return }
             NSCursor.pointingHand.set()
         }
 
         override func mouseEntered(with event: NSEvent) {
+            guard isActive else { return }
             NSCursor.pointingHand.set()
             onHoverChange?(true)
         }
@@ -116,6 +150,7 @@ private struct PointerControlOverlay: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {}
 
         override func mouseUp(with event: NSEvent) {
+            guard isActive else { return }
             let point = convert(event.locationInWindow, from: nil)
             if bounds.contains(point) { action?() }
         }
