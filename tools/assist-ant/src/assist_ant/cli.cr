@@ -27,6 +27,8 @@ module AssistAnt
         Commands::Ping.new.run(rest)
       when "calendar-item"
         Commands::CalendarItem.new.run(rest)
+      when "actionable-item"
+        Commands::ActionableItem.new.run(rest)
       else
         if command.starts_with?("-")
           STDERR.puts "Error: unknown flag '#{command}'"
@@ -46,6 +48,8 @@ module AssistAnt
           ping [message]                Send a ping envelope to the running app.
           calendar-item sync [flags]    Ingest a provider's calendar response and
                                         atomically upsert + prune the window.
+          actionable-item sync [flags]  Ingest a provider's issue list (Linear),
+                                        upsert as todos + resolve completed.
 
         Options:
           -h, --help       Show help
