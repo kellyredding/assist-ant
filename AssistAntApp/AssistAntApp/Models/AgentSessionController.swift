@@ -317,7 +317,13 @@ final class AgentSessionController: ObservableObject {
         // Seed the transient zoom level from the persisted default so a
         // session restart returns to it (transient-reset semantics).
         terminalFontSize = settings.defaultTerminalFontSize
-        backend.setCaretHidden(true)  // Claude Code renders its own cursor
+        // Show the engine's native caret — it IS Claude's prompt
+        // cursor (Claude does not self-render one, so hiding it left
+        // no visible cursor). No cursor-settings UI here yet, so
+        // default to a steady block (matches Galaxy / Terminal /
+        // Ghostty) rather than the engine's blinking-block default.
+        backend.setCaretHidden(false)
+        backend.applyCursor(style: .block, blink: false)
 
         // Re-apply settings live when prefs change (font / size /
         // scrollback).
