@@ -220,6 +220,26 @@ final class AgentSessionController: ObservableObject {
         )
     }
 
+    // MARK: - Buffer
+
+    /// Agent ▸ Trim Buffer — drop the scrollback history and reflow the
+    /// viewport onto a clean screen. Mirrors Galaxy
+    /// `SessionTerminalPane.trimBuffer()` → `TerminalBackend.trimBuffer()`.
+    /// No-op when the session isn't running.
+    func trimBuffer() {
+        guard state == .running, let backend else { return }
+        backend.trimBuffer()
+    }
+
+    /// Agent ▸ Reflow Buffer — redraw the current screen in place without
+    /// trimming scrollback. Mirrors Galaxy
+    /// `SessionTerminalPane.reflowBuffer()` → `TerminalBackend.reflowBuffer()`.
+    /// No-op when the session isn't running.
+    func reflowBuffer() {
+        guard state == .running, let backend else { return }
+        backend.reflowBuffer()
+    }
+
     // MARK: - Send to session (PTY)
 
     /// Delay between writing command text and sending CR, so the TUI

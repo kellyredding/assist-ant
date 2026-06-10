@@ -253,6 +253,30 @@ final class MainMenu: NSObject {
         scrollbackItem.target = MenuActions.shared
         menu.addItem(scrollbackItem)
 
+        // Trim Buffer (⌃⌘K) drops the scrollback and reflows the viewport;
+        // Reflow Buffer (⌃L) redraws the current screen without trimming.
+        // Both ride the Galactic TerminalBackend buffer extension and gate
+        // on the agent terminal holding focus (validateMenuItem). Titles and
+        // bindings copied from Galaxy's Sessions menu — ⌃L coexists with the
+        // View ▸ Next view ⌘L since the modifiers differ.
+        let trimBufferItem = NSMenuItem(
+            title: "Trim Buffer",
+            action: #selector(MenuActions.trimBuffer(_:)),
+            keyEquivalent: "k"
+        )
+        trimBufferItem.target = MenuActions.shared
+        trimBufferItem.keyEquivalentModifierMask = [.command, .control]
+        menu.addItem(trimBufferItem)
+
+        let reflowBufferItem = NSMenuItem(
+            title: "Reflow Buffer",
+            action: #selector(MenuActions.reflowBuffer(_:)),
+            keyEquivalent: "l"
+        )
+        reflowBufferItem.target = MenuActions.shared
+        reflowBufferItem.keyEquivalentModifierMask = [.control]
+        menu.addItem(reflowBufferItem)
+
         menu.addItem(.separator())
 
         // Clear / Compact send the slash command to the embedded session.
@@ -367,6 +391,19 @@ final class MenuActions: NSObject {
     @objc func compactSession(_ sender: Any?) {
         AgentSessionController.shared.sendCommand("/compact")
     }
+
+    /// Agent ▸ Trim Buffer / Reflow Buffer. Route to the controller like the
+    /// font actions; the focus guard is belt-and-suspenders (validateMenuItem
+    /// already gates these on the agent terminal holding focus).
+    @objc func trimBuffer(_ sender: Any?) {
+        guard Self.agentTerminalIsFocused() else { return }
+        AgentSessionController.shared.trimBuffer()
+    }
+
+    @objc func reflowBuffer(_ sender: Any?) {
+        guard Self.agentTerminalIsFocused() else { return }
+        AgentSessionController.shared.reflowBuffer()
+    }
 }
 
 // MARK: - Notification names
@@ -403,6 +440,9 @@ extension MenuActions: NSMenuItemValidation {
         case #selector(clearSession(_:)),
              #selector(compactSession(_:)):
             return controller.state == .running
+        case #selector(trimBuffer(_:)),
+             #selector(reflowBuffer(_:)):
+            return Self.agentTerminalIsFocused()
         default:
             return menuItem.isEnabled
         }
