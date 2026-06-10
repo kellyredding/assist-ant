@@ -288,6 +288,23 @@ final class AgentSessionController: ObservableObject {
         }
     }
 
+    /// Agent ▸ Clear session — trim the terminal scrollback first so the
+    /// reset session opens on a clean buffer (/clear resets Claude's own
+    /// rendering, not the terminal's scrollback history), then send /clear.
+    /// Mirrors Galaxy `SessionManager.clearAndHandoff`'s trim-then-command
+    /// step (minus Galaxy's multi-session handoff machinery).
+    func clearSession() {
+        trimBuffer()
+        sendCommand("/clear")
+    }
+
+    /// Agent ▸ Compact session — same trim-then-command as `clearSession`.
+    /// Mirrors Galaxy `SessionManager.compactActiveSession`.
+    func compactSession() {
+        trimBuffer()
+        sendCommand("/compact")
+    }
+
     // MARK: - Spawn / teardown
 
     private func spawn(sessionId: String, resume: Bool) {
@@ -401,6 +418,25 @@ final class AgentSessionController: ObservableObject {
         )
 
         state = .running
+
+        // On resume the freshly-built backend can come back showing a
+        // resize artifact until the restored view repaints, and only the
+        // child repainting clears it. There's no deterministic "rendered"
+        // signal here, so mirror Galaxy's post-resume reflow: send a form
+        // feed on a short fixed delay once the resumed TUI is up. A fresh
+        // start needs no reflow — it opens on a clean screen. Starting knob;
+        // raise the delay if the garble sometimes outlives it. (Galaxy uses
+        // 0.25s, but it reflows after sending a resume command to an
+        // already-running session, whereas this fires after a fresh process
+        // launch, which needs longer to bring its TUI up.)
+        if resume {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.75
+            ) { [weak self] in
+                self?.reflowBuffer()
+            }
+        }
+
         NSLog(
             "AgentSessionController: %@ persona '%@' session %@ in %@",
             resume ? "Resuming" : "Starting",

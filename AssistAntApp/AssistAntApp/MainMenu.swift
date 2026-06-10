@@ -380,16 +380,16 @@ final class MenuActions: NSObject {
         NotificationCenter.default.post(name: .enterScrollback, object: nil)
     }
 
-    /// Agent ▸ Clear / Compact session. Mirrors Galaxy's
-    /// clearSession / compactSession, but sends the slash command straight
-    /// to the single embedded session (no /handoff auto-chain — that is
-    /// Galaxy multi-session machinery).
+    /// Agent ▸ Clear / Compact session. Each trims the terminal scrollback
+    /// then sends the slash command to the single embedded session, mirroring
+    /// Galaxy's clear/compact (minus the /handoff auto-chain — that is Galaxy
+    /// multi-session machinery).
     @objc func clearSession(_ sender: Any?) {
-        AgentSessionController.shared.sendCommand("/clear")
+        AgentSessionController.shared.clearSession()
     }
 
     @objc func compactSession(_ sender: Any?) {
-        AgentSessionController.shared.sendCommand("/compact")
+        AgentSessionController.shared.compactSession()
     }
 
     /// Agent ▸ Trim Buffer / Reflow Buffer. Route to the controller like the
