@@ -62,9 +62,10 @@ describe AssistAnt::LinearSync do
       ]})
       body = AssistAnt::LinearSync.compose_body(linear.parse(raw).first)
       body.should contain "[FLEX-7](https://linear.app/kajabi/issue/FLEX-7)" # ticket link, no suffix
-      body.should contain "c3: MCP  ·  Panel  ·  In Progress"                # project · milestone · status
-      body.should contain "[https://repro.test/x](https://repro.test/x)"     # bare → linkified
-      body.should contain "[docs](https://docs.test)"                        # existing link untouched
+      # ticket and metadata are separate blocks (blank line between them)
+      body.should contain ")\n\nc3: MCP  ·  Panel  ·  In Progress"
+      body.should contain "[https://repro.test/x](https://repro.test/x)" # bare → linkified
+      body.should contain "[docs](https://docs.test)"                    # existing link untouched
       # Dropped: team, priority, labels, the "in Linear" suffix, and all emoji.
       body.should_not contain "Flex"
       body.should_not contain "High"

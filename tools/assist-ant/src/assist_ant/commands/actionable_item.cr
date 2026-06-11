@@ -244,7 +244,9 @@ module AssistAnt
           parts << ms unless ms.empty?
         end
         parts << i.status unless i.status.empty?
-        io << "\n#{parts.join("  ·  ")}" unless parts.empty?
+        # Blank line (own block) so the reader's block markdown renderer keeps
+        # the metadata on its own line instead of folding it into the ticket.
+        io << "\n\n#{parts.join("  ·  ")}" unless parts.empty?
 
         # Issue description (markdown; bare URLs linkified).
         if desc = i.description
