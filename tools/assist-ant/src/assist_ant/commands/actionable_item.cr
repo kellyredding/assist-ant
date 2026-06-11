@@ -220,22 +220,33 @@ module AssistAnt
       PARSERS.keys
     end
 
-    # The markdown body: a metadata header plus the issue description. Linear
-    # descriptions are already markdown, so the description is NOT escaped —
-    # only bare URLs are linkified so they render and tap in the viewer.
+    # The markdown body: a two-line header — the ticket reference hyperlinked
+    # to the issue, then `project · milestone · status` (absent parts omitted)
+    # — followed by the issue description. Team, priority, and labels are not
+    # surfaced. Linear descriptions are already markdown, so the description is
+    # NOT escaped — only bare URLs are linkified so they render and tap in the
+    # viewer.
     def self.compose_body(i : NormalizedIssue) : String
       String.build do |io|
-        io << "📐 #{i.team}" unless i.team.empty?
-        io << "  ·  #{i.status}" unless i.status.empty?
-        io << "  ·  #{i.priority_name}" unless i.priority_name.empty?
-        io << "\n🔗 [#{i.external_id} in Linear](#{i.url})" unless i.url.empty?
-        if proj = i.project
-          io << "\n📁 #{proj}"
-          if ms = i.milestone
-            io << " › #{ms}"
-          end
+        # Line 1: the ticket reference, hyperlinked to the issue.
+        if i.url.empty?
+          io << i.external_id
+        else
+          io << "[#{i.external_id}](#{i.url})"
         end
-        io << "\n🏷️ #{i.labels.join(", ")}" unless i.labels.empty?
+
+        # Line 2: project · milestone · status (each only when present).
+        parts = [] of String
+        if proj = i.project
+          parts << proj unless proj.empty?
+        end
+        if ms = i.milestone
+          parts << ms unless ms.empty?
+        end
+        parts << i.status unless i.status.empty?
+        io << "\n#{parts.join("  ·  ")}" unless parts.empty?
+
+        # Issue description (markdown; bare URLs linkified).
         if desc = i.description
           cleaned = linkify_bare_urls(desc.strip)
           io << "\n\n#{cleaned}" unless cleaned.empty?

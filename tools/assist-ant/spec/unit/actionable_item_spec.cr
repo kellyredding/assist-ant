@@ -56,16 +56,21 @@ describe AssistAnt::LinearSync do
   end
 
   describe ".compose_body" do
-    it "builds the header with a Linear link and linkifies the description" do
+    it "leads with the ticket link, then project · milestone · status, then the linkified description" do
       raw = %({"issues":[
-        {"id":"FLEX-7","title":"X","url":"https://linear.app/kajabi/issue/FLEX-7","statusType":"started","status":"In Progress","team":"Flex","priority":{"value":2,"name":"High"},"project":"c3: MCP","projectMilestone":{"name":"Panel"},"description":"Repro at https://repro.test/x and see [docs](https://docs.test)."}
+        {"id":"FLEX-7","title":"X","url":"https://linear.app/kajabi/issue/FLEX-7","statusType":"started","status":"In Progress","team":"Flex","priority":{"value":2,"name":"High"},"project":"c3: MCP","projectMilestone":{"name":"Panel"},"labels":["bug"],"description":"Repro at https://repro.test/x and see [docs](https://docs.test)."}
       ]})
       body = AssistAnt::LinearSync.compose_body(linear.parse(raw).first)
-      body.should contain "📐 Flex  ·  In Progress  ·  High"
-      body.should contain "🔗 [FLEX-7 in Linear](https://linear.app/kajabi/issue/FLEX-7)"
-      body.should contain "📁 c3: MCP › Panel"
-      body.should contain "[https://repro.test/x](https://repro.test/x)" # bare → linkified
-      body.should contain "[docs](https://docs.test)"                    # existing link untouched
+      body.should contain "[FLEX-7](https://linear.app/kajabi/issue/FLEX-7)" # ticket link, no suffix
+      body.should contain "c3: MCP  ·  Panel  ·  In Progress"                # project · milestone · status
+      body.should contain "[https://repro.test/x](https://repro.test/x)"     # bare → linkified
+      body.should contain "[docs](https://docs.test)"                        # existing link untouched
+      # Dropped: team, priority, labels, the "in Linear" suffix, and all emoji.
+      body.should_not contain "Flex"
+      body.should_not contain "High"
+      body.should_not contain "bug"
+      body.should_not contain "in Linear"
+      body.should_not contain "📐"
     end
   end
 end
