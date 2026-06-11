@@ -11,7 +11,6 @@ struct CalendarEventViewer: View {
     let onClose: () -> Void
 
     @ObservedObject private var settings = SettingsManager.shared
-    @State private var isCloseHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,20 +44,14 @@ struct CalendarEventViewer: View {
 
             HStack {
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.callout)
-                        .foregroundStyle(isCloseHovered ? .primary : .secondary)
-                        .padding(4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color.primary.opacity(isCloseHovered ? 0.1 : 0))
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .onHover { isCloseHovered = $0 }
-                .help("Close (Esc)")
+                // Same icon-button component as the control bar's glyphs, so
+                // the close affordance carries the identical hover highlight
+                // and pointing-hand cursor.
+                PointerIconButton(
+                    systemName: "xmark",
+                    help: "Close (Esc)",
+                    action: onClose
+                )
             }
         }
         .padding(.horizontal, 16)
