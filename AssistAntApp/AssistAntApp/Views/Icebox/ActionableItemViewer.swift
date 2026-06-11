@@ -43,14 +43,10 @@ struct ActionableItemViewer: View {
 
     private var metaBar: some View {
         HStack(spacing: 8) {
-            if let badge = ActionableKindLabel.badge(for: item) {
-                Text(badge)
-            }
-            if let list = item.actionableListName {
-                Text("· \(list)")
-            }
-            if let at = item.iceboxedAt {
-                Text("· Iceboxed \(Self.dateFormatter.string(from: at))")
+            KindBadge(item: item)
+            if !metaText.isEmpty {
+                Text(metaText)
+                    .font(.callout).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             if let url = item.actionableExternalURL, let u = URL(string: url) {
@@ -61,13 +57,22 @@ struct ActionableItemViewer: View {
                 )
             }
         }
-        .font(.callout).foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Color(.textBackgroundColor))
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
         }
+    }
+
+    /// List name and iceboxed date, joined with a middot — the non-badge meta.
+    private var metaText: String {
+        var parts: [String] = []
+        if let list = item.actionableListName { parts.append(list) }
+        if let at = item.iceboxedAt {
+            parts.append("Iceboxed \(Self.dateFormatter.string(from: at))")
+        }
+        return parts.joined(separator: "  ·  ")
     }
 
     private static let dateFormatter: DateFormatter = {

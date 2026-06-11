@@ -39,12 +39,10 @@ struct IceboxRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 8) {
-            if let badge = ActionableKindLabel.badge(for: item) {
-                Text(badge)
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.08)))
-            }
+            // Fixed-width leading column so the kind pills share a column and
+            // every title starts at the same x, lining up vertically.
+            KindBadge(item: item)
+                .frame(width: 76, alignment: .leading)
             Text(item.title)
                 .font(.callout).lineLimit(1)
                 .strikethrough(isResolved)
