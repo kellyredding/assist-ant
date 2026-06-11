@@ -26,7 +26,7 @@ struct AgentPaneView: View {
                 stoppedView
             case .failed(let reason):
                 AgentFailureView(reason: reason) {
-                    controller.restart()
+                    controller.startFresh()
                 }
             }
         }
@@ -35,10 +35,10 @@ struct AgentPaneView: View {
 
     // MARK: - Stopped
 
-    /// Stopped state: the calm placeholder plus a primary-colored
-    /// Start/Restart button. The label is "Restart" once a session id has
-    /// ever been created (the common case), "Start" only before the first
-    /// session exists.
+    /// Stopped state: the calm placeholder plus a primary-colored Start
+    /// button. Start always begins a fresh session — a new id rather than a
+    /// resume of the stored one — so persona and CLAUDE.md edits are picked
+    /// up on the next run.
     private var stoppedView: some View {
         VStack(spacing: 16) {
             placeholderGlyph
@@ -47,8 +47,8 @@ struct AgentPaneView: View {
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            Button(controller.sessionId == nil ? "Start" : "Restart") {
-                controller.restart()
+            Button("Start") {
+                controller.startFresh()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)

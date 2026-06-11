@@ -135,21 +135,18 @@ final class AgentSessionController: ObservableObject {
         }
     }
 
-    /// Re-start the (stopped or failed) session, resuming the stored id.
-    /// The stored id is preserved on a normal stop, so restart continues
-    /// the same conversation.
-    func restart() {
+    /// Start a brand-new session, discarding any stored id. Wired to the
+    /// Start button shown after the agent stops or fails. The fresh id is
+    /// deliberate: resuming carries the original persona prompt and
+    /// CLAUDE.md forward in the session's context, so edits to either are
+    /// only picked up by a session that starts clean. The new id is
+    /// persisted, so the next launch resumes this conversation.
+    func startFresh() {
         guard backend == nil else { return }
-        if let existing = sessionId {
-            spawn(sessionId: existing, resume: true)
-        } else {
-            // No id ever created (e.g. a failure before first spawn
-            // persisted one) — start fresh.
-            let newId = UUID().uuidString.lowercased()
-            sessionId = newId
-            AgentStatePersistence.shared.saveSessionId(newId)
-            spawn(sessionId: newId, resume: false)
-        }
+        let newId = UUID().uuidString.lowercased()
+        sessionId = newId
+        AgentStatePersistence.shared.saveSessionId(newId)
+        spawn(sessionId: newId, resume: false)
     }
 
     /// Terminate the running session — called on app quit so the child
