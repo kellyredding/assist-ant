@@ -55,6 +55,7 @@ struct SchedulePaneView: View {
                 onToday: { model.goToToday() },
                 onBack: { model.goBack() },
                 onForward: { model.goForward() },
+                onOpenGoogleCalendar: { Self.openGoogleCalendar() },
                 onRefresh: {
                     CalendarSyncCoordinator.shared.requestSync()
                     model.refresh()
@@ -121,6 +122,20 @@ struct SchedulePaneView: View {
         let f = DateFormatter()
         f.dateFormat = "LLLL yyyy"   // e.g. "June 2026"
         return f.string(from: model.topVisibleDay.noon)
+    }
+
+    // MARK: - Google Calendar
+
+    /// Google Calendar's web home. Opening the bare URL lands on whatever
+    /// calendar and view the user last had in the browser, which is the
+    /// least-surprising target for a "jump to the real calendar" affordance.
+    private static let googleCalendarURL =
+        URL(string: "https://calendar.google.com/")!
+
+    /// Hand the URL to the system default browser. The control bar's glyph
+    /// routes here, mirroring how its navigation actions route to the model.
+    private static func openGoogleCalendar() {
+        NSWorkspace.shared.open(googleCalendarURL)
     }
 
     // MARK: - Opening events
