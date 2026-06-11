@@ -427,6 +427,48 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    // Rewrite the actionable payload with a new list name, preserving the kind
+    // and external URL. A blank/whitespace name clears the list. Non-actionable
+    // items have no list and are left untouched.
+    func setListName(id: String, to listName: String?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let trimmed = listName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = (trimmed?.isEmpty == false) ? trimmed : nil
+            switch item.typeData {
+            case .todo(let d):
+                item.typeData = .todo(ActionableData(listName: value, externalURL: d.externalURL))
+            case .reminder(let d):
+                item.typeData = .reminder(ActionableData(listName: value, externalURL: d.externalURL))
+            case .explore(let d):
+                item.typeData = .explore(ActionableData(listName: value, externalURL: d.externalURL))
+            default:
+                return   // calendar / unknown have no list name
+            }
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    func knownListNames() throws -> [String] {
+        try dbQueue.read { db in
+            // listName lives inside the type_data JSON, so pull it with
+            // json_extract; DISTINCT + the NULL/blank filter keep the list to
+            // names actually in use. NOCASE only orders — exact-case variants
+            // remain distinct values, which is correct (they are stored that way).
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT json_extract(type_data, '$.data.listName') AS list
+                FROM items
+                WHERE type IN ('todo', 'reminder', 'explore')
+                  AND deleted_at IS NULL
+                  AND list IS NOT NULL AND TRIM(list) <> ''
+                ORDER BY list COLLATE NOCASE
+                """)
+        }
+    }
+
     // Swap an actionable item's kind, preserving its payload (ActionableData is
     // identical across the three), identity, schedule, resolution, and position.
     func reclassify(id: String, to type: ItemType) throws {

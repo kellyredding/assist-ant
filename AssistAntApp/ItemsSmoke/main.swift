@@ -637,6 +637,41 @@ check("IceboxGrouping: no-list first, named A→Z, newest within") {
         && zeta == ["z-new", "z-old"]
 }
 
+// 31. knownListNames: distinct, non-empty list names from non-deleted
+//     actionables, case-insensitively sorted; blanks/nil/deleted excluded.
+check("knownListNames: distinct, non-empty, excludes deleted") {
+    let (store, _) = try makeStore()
+    func mk(_ list: String?) -> Item {
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: list)))
+    }
+    let a = mk("Ideas"); let b = mk("Ideas"); let c = mk("Backlog")
+    let blank = mk("   "); let none = mk(nil); let gone = mk("Archive")
+    for i in [a, b, c, blank, none, gone] { try store.create(i) }
+    try store.softDelete(id: gone.id)
+    return try store.knownListNames() == ["Backlog", "Ideas"]
+}
+
+// 32. setListName sets a name (preserving the external URL), surfaces it in
+//     knownListNames, and a blank value clears it.
+check("setListName: sets, preserves URL, surfaces in known, blank clears") {
+    let (store, _) = try makeStore()
+    let item = newItem(
+        type: .reminder,
+        typeData: .reminder(ActionableData(externalURL: "https://x.test")))
+    try store.create(item)
+    try store.setListName(id: item.id, to: "Follow-ups")
+    guard let set = try store.fetch(id: item.id),
+          case .reminder(let d) = set.typeData else { return false }
+    let known = try store.knownListNames()
+    try store.setListName(id: item.id, to: "   ")   // blank → cleared
+    guard let cleared = try store.fetch(id: item.id),
+          case .reminder(let d2) = cleared.typeData else { return false }
+    return d.listName == "Follow-ups"
+        && d.externalURL == "https://x.test"
+        && known.contains("Follow-ups")
+        && d2.listName == nil
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

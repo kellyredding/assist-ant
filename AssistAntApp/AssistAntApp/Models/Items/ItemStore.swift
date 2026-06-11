@@ -95,4 +95,14 @@ protocol ItemStore {
     /// Move an iceboxed item onto Today: clear iceboxed_at and scheduled_on so
     /// it accumulates as an unscheduled actionable. One atomic write.
     func moveToToday(id: String) throws
+
+    /// Set or clear an actionable item's list name (nil or blank clears it),
+    /// preserving the kind and the external URL. No-op for a non-actionable
+    /// item.
+    func setListName(id: String, to listName: String?) throws
+
+    /// Distinct, non-empty list names currently in use by non-deleted
+    /// actionable items, sorted case-insensitively. Derived live (no stored
+    /// table) so a name with no remaining items drops off on its own.
+    func knownListNames() throws -> [String]
 }

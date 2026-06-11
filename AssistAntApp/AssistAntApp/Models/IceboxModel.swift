@@ -76,6 +76,28 @@ final class IceboxModel: ObservableObject {
         mutate(item) { try store.reclassify(id: $0, to: type) }
     }
 
+    /// Distinct list names in use, for the list-editor combobox suggestions.
+    func knownListNames() -> [String] {
+        (try? store.knownListNames()) ?? []
+    }
+
+    /// Set or clear an item's list name, then regroup. A list change is
+    /// structural — the item moves to a different group — so unlike resolve /
+    /// move this re-reads the snapshot rather than swapping the row in place.
+    /// Returns the updated item so the reader can refresh from it.
+    @discardableResult
+    func setListName(_ item: Item, to listName: String?) -> Item? {
+        do {
+            try store.setListName(id: item.id, to: listName)
+            let updated = try store.fetch(id: item.id)
+            load(spinner: false)
+            return updated
+        } catch {
+            NSLog("IceboxModel: setListName failed: \(error)")
+            return nil
+        }
+    }
+
     /// Run a store mutation, then re-read the single row and swap it into
     /// `groups` in place (same position) so the row updates without the list
     /// jumping or dropping it. Returns the updated row so a caller holding its

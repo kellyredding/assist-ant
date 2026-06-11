@@ -1,16 +1,17 @@
 import SwiftUI
 
 /// The shared Icebox item actions — Done/Dismiss, Move to Today, and the
-/// vertical-ellipsis kind menu — used both as the hover overlay on a list row
-/// and in the actionable reader's control bar. The clicked button becomes
-/// Undo in place and siblings that no longer apply are disabled, all read
-/// from `item`:
+/// vertical-ellipsis menu (change kind + add/change list) — used both as the
+/// hover overlay on a list row and in the actionable reader's control bar. The
+/// clicked button becomes Undo in place and siblings that no longer apply are
+/// disabled, all read from `item`:
 ///  - active:   [Done|Dismiss]   [Move to Today]    [⋮]
 ///  - resolved: [Undo]           [Move to Today ✗]  [⋮ ✗]
 ///  - moved:    [Done|Dismiss]   [Undo]             [⋮]
 /// `onChange` reports the post-action item so a caller holding its own copy
-/// (the reader) can refresh; a list row needs no callback — it re-renders
-/// from the model's regrouped snapshot.
+/// (the reader) can refresh; a list row needs no callback — it re-renders from
+/// the model's regrouped snapshot. The list editor opens as a small modal
+/// window (ListEditorWindowController) centered over the main window.
 struct IceboxItemActions: View {
     let item: Item
     var onChange: (Item) -> Void = { _ in }
@@ -60,18 +61,30 @@ struct IceboxItemActions: View {
         }
     }
 
-    /// The vertical triple-dot menu to change kind.
+    /// The vertical triple-dot menu: change kind, and add/change the list
+    /// (which opens the pane's in-window list-editor overlay).
     private var kindMenu: some View {
         Menu {
-            ForEach([ItemType.todo, .reminder, .explore], id: \.self) { kind in
-                Button {
-                    report(model.reclassify(item, to: kind))
-                } label: {
-                    if item.typeData.kind == kind.rawValue {
-                        Label(ActionableKindLabel.menuTitle(kind), systemImage: "checkmark")
-                    } else {
-                        Text(ActionableKindLabel.menuTitle(kind))
+            Section("Change kind") {
+                ForEach([ItemType.todo, .reminder, .explore], id: \.self) { kind in
+                    Button {
+                        report(model.reclassify(item, to: kind))
+                    } label: {
+                        if item.typeData.kind == kind.rawValue {
+                            Label(ActionableKindLabel.menuTitle(kind), systemImage: "checkmark")
+                        } else {
+                            Text(ActionableKindLabel.menuTitle(kind))
+                        }
                     }
+                }
+            }
+            Button(listMenuTitle) {
+                // Menu actions fire after the menu's tracking loop ends, so it
+                // is safe to spin the modal window's nested run loop here.
+                switch ListEditorWindowController.present(for: item) {
+                case .cancel: break
+                case .save(let name): report(model.setListName(item, to: name))
+                case .remove: report(model.setListName(item, to: nil))
                 }
             }
         } label: {
@@ -85,6 +98,11 @@ struct IceboxItemActions: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 22)
+    }
+
+    /// "Add to list" when the item has no list, "Change list" when it does.
+    private var listMenuTitle: String {
+        item.actionableListName == nil ? "Add to list" : "Change list"
     }
 
     private func report(_ updated: Item?) {

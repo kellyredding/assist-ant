@@ -9,13 +9,20 @@ struct IceboxGroupSection: View {
     let onToggle: (String) -> Void
     let onOpen: (Item) -> Void
 
+    /// Indent for items under a named list, so a row's content lines up with
+    /// the list-name text in the header (past the disclosure caret) and reads
+    /// as a sub-list. ≈ caret frame width (14) + its trailing spacing.
+    private static let nestedIndent: CGFloat = 18
+
     var body: some View {
         VStack(spacing: 0) {
             if let name = group.listName {
                 header(name)
-                if !isCollapsed { rows }
+                if !isCollapsed {
+                    rows.padding(.leading, Self.nestedIndent)
+                }
             } else {
-                rows   // no-list: flat, no header, always shown
+                rows   // no-list: flat, no header, top-level
             }
         }
     }
@@ -39,8 +46,10 @@ struct IceboxGroupSection: View {
     }
 
     private var rows: some View {
-        ForEach(group.items, id: \.id) { item in
-            IceboxRow(item: item, onOpen: { onOpen(item) })
+        VStack(spacing: 0) {
+            ForEach(group.items, id: \.id) { item in
+                IceboxRow(item: item, onOpen: { onOpen(item) })
+            }
         }
     }
 }
