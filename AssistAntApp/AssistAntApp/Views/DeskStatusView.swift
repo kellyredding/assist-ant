@@ -64,10 +64,14 @@ private func deskCountingText(
         + "\(position.opposite.displayName.lowercased()) in \(mins) min"
 }
 
-/// The counting (not-yet-due) state: a posture glyph + countdown, with a
-/// secondary "Switch now" button for an early manual switch. The button
-/// mirrors the nudge's acknowledge control — a capsule that brightens on
-/// hover and shows the pointing-hand cursor — but tuned for this muted
+/// The counting (not-yet-due) state: a posture glyph + countdown, with
+/// secondary actions to switch early, step away, or turn the timer off.
+/// "Disable timer" is distinct from "Away from desk": away mutes every
+/// announcement until you return, whereas disabling stops only the desk
+/// timer and leaves clock and calendar announcements running — for when
+/// you've left the standing desk but are still working elsewhere. The
+/// buttons mirror the nudge's acknowledge control — capsules that brighten
+/// on hover and show the pointing-hand cursor — but tuned for this muted
 /// row: a faint `primary`-tinted fill that adapts to light and dark.
 private struct DeskCountingRow: View {
     let remaining: TimeInterval
@@ -89,6 +93,10 @@ private struct DeskCountingRow: View {
 
                 CapsuleActionButton(title: "Away from desk", scale: scale) {
                     DeskService.shared.goAway()
+                }
+
+                CapsuleActionButton(title: "Disable timer", scale: scale) {
+                    DeskService.shared.setEnabled(false)
                 }
             }
         }
@@ -135,6 +143,11 @@ private struct DeskNudgeBanner: View {
                 CapsuleActionButton(title: "Away from desk", onAccent: true,
                                     scale: scale) {
                     DeskService.shared.goAway()
+                }
+
+                CapsuleActionButton(title: "Disable timer", onAccent: true,
+                                    scale: scale) {
+                    DeskService.shared.setEnabled(false)
                 }
             }
         }
@@ -205,9 +218,10 @@ private struct DeskAwayBanner: View {
 }
 
 /// Shown when the desk timer is OFF and you're at your desk: a neutral
-/// presence row with the global "Away from desk" affordance. Stepping away
-/// (and its announcement mute) is a global concept, available even when the
-/// standing-desk timer is disabled.
+/// presence row with an "Enable timer" affordance to switch the sit/stand
+/// timer back on (starting a fresh interval) plus the global "Away from
+/// desk" affordance. Stepping away (and its announcement mute) is a global
+/// concept, available even when the standing-desk timer is disabled.
 private struct DeskPresenceRow: View {
     let scale: CGFloat
 
@@ -218,6 +232,10 @@ private struct DeskPresenceRow: View {
 
             CapsuleActionButton(title: "Away from desk", scale: scale) {
                 DeskService.shared.goAway()
+            }
+
+            CapsuleActionButton(title: "Enable timer", scale: scale) {
+                DeskService.shared.setEnabled(true)
             }
         }
         .font(.system(size: 16 * scale))
