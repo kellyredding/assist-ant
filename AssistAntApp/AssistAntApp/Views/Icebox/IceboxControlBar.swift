@@ -8,7 +8,7 @@ struct IceboxControlBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("Icebox").font(.headline)
+            Text("Items").font(.headline)
             Spacer()
             if isWorking {
                 ProgressView().controlSize(.small)

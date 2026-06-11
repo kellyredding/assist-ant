@@ -25,6 +25,9 @@ struct IceboxGroupSection: View {
                 rows   // no-list: flat, no header, top-level
             }
         }
+        // Breathing room beneath each group so the no-list items and every
+        // named sub-list read as separated blocks.
+        .padding(.bottom, 14)
     }
 
     private func header(_ name: String) -> some View {

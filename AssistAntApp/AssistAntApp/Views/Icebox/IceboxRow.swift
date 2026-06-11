@@ -29,7 +29,7 @@ struct IceboxRow: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.primary.opacity(isHovering ? 0.06 : 0))
+                    .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
             )
             .padding(.horizontal, 8)
             .animation(.easeInOut(duration: 0.12), value: isHovering)
@@ -42,9 +42,10 @@ struct IceboxRow: View {
             // every title starts at the same x, lining up vertically.
             KindBadge(item: item)
                 .frame(width: 76, alignment: .leading)
-            Text(item.title)
-                .font(.callout).lineLimit(1)
-                .strikethrough(isResolved)
+            titleLine
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 12)
             Text(statusText)
                 .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
@@ -54,6 +55,17 @@ struct IceboxRow: View {
         .contentShape(Rectangle())
         // Row body opens the reader; the action overlay sits above it.
         .pointerButton(onHoverChange: { _ in }, action: onOpen)
+    }
+
+    /// Gmail-style one-line content: the title, then a muted plain-text body
+    /// preview, all truncated to the single title column.
+    private var titleLine: Text {
+        let title = Text(item.title).strikethrough(isResolved)
+            .fontWeight(.semibold).foregroundStyle(.primary)
+        if let preview = item.bodyPlainPreview {
+            return title + Text("  \(preview)").foregroundStyle(.secondary)
+        }
+        return title
     }
 
     /// Right column under the title: the friendly iceboxed date, or the
