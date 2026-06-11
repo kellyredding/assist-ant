@@ -15,16 +15,20 @@ struct CapsuleActionButton: View {
     let title: String
     var onAccent: Bool = false
     var scale: CGFloat = 1
+    /// Compact sizing for inline-in-row use: the label matches a `.callout`
+    /// body row (size + weight) and the capsule is shorter, so a hovered row
+    /// doesn't grow vertically. Default keeps the original 14pt-medium pill.
+    var compact: Bool = false
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Text(title)
-            .font(.system(size: 14 * scale, weight: .medium))
+            .font(compact ? .callout : .system(size: 14 * scale, weight: .medium))
             .foregroundStyle(labelStyle)
             .padding(.horizontal, (onAccent ? 12 : 10) * scale)
-            .padding(.vertical, (onAccent ? 5 : 3) * scale)
+            .padding(.vertical, (compact ? 2 : (onAccent ? 5 : 3)) * scale)
             .background(fillStyle, in: Capsule())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
             .pointerButton(onHoverChange: { isHovering = $0 }, action: action)

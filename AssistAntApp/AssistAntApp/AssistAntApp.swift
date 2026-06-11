@@ -340,6 +340,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 allowEmptyKeep: false)
             NSLog("AssistAnt: actionable_item.sync — applied \(batch.items.count), "
                 + "reconcile=\(batch.reconcile)")
+            // Snapshot views (the Icebox) don't observe the store live; nudge
+            // them to re-fetch now that actionable rows changed.
+            NotificationCenter.default.post(
+                name: .actionableItemsDidChange, object: nil)
         } catch {
             NSLog("AssistAnt: actionable_item.sync failed: \(error)")
         }
@@ -350,6 +354,12 @@ extension Notification.Name {
     /// Posted by `DeskService` when a desk nudge first becomes audible, so
     /// the AppDelegate can bring the main window forward.
     static let raiseMainWindow = Notification.Name("raiseMainWindow")
+
+    /// Posted by the actionable-sync handler right after it applies a Linear
+    /// sync to the item store. Snapshot views that don't observe the store
+    /// live (the Icebox) re-fetch on it.
+    static let actionableItemsDidChange =
+        Notification.Name("actionableItemsDidChange")
 }
 
 // MARK: - Click-through swizzle

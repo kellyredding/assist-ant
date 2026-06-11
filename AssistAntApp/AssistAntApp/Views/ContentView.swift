@@ -113,6 +113,11 @@ struct ContentView: View {
                 .opacity(tabs.selectedTab == .schedule ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .schedule)
                 .zIndex(tabs.selectedTab == .schedule ? 1 : 0)
+
+            IceboxPaneView()
+                .opacity(tabs.selectedTab == .icebox ? 1 : 0)
+                .allowsHitTesting(tabs.selectedTab == .icebox)
+                .zIndex(tabs.selectedTab == .icebox ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -346,6 +346,22 @@ final class GRDBItemStore: ItemStore {
             .eraseToAnyPublisher()
     }
 
+    func fetchIceboxed() throws -> [Item] {
+        try dbQueue.read { db in
+            try Item
+                .filter(sql: """
+                    type IN ('todo', 'reminder', 'explore')
+                    AND deleted_at IS NULL
+                    AND iceboxed_at IS NOT NULL
+                    AND resolved_at IS NULL
+                    """)
+                // iceboxed_at is a GRDB Date → TEXT "YYYY-MM-DD HH:MM:SS.SSS",
+                // so DESC sorts newest-first chronologically.
+                .order(sql: "iceboxed_at DESC, id")
+                .fetchAll(db)
+        }
+    }
+
     func resolve(id: String) throws { try stampResolved(id: id, at: Date()) }
     func unresolve(id: String) throws { try stampResolved(id: id, at: nil) }
 
@@ -364,6 +380,46 @@ final class GRDBItemStore: ItemStore {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
             item.scheduledOn = scheduledOn
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    func completeActionable(id: String) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let now = Date()
+            item.resolvedAt = now
+            item.scheduledOn = CivilDate(now)   // stamp the completion day
+            item.updatedAt = now
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    func reopenActionable(id: String) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.resolvedAt = nil
+            // An active iceboxed item carries no schedule; drop the completion
+            // day stamped by completeActionable. A non-iceboxed item keeps its
+            // schedule (this undo path is icebox-scoped in the UI anyway).
+            if item.iceboxedAt != nil { item.scheduledOn = nil }
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    func moveToToday(id: String) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.iceboxedAt = nil
+            item.scheduledOn = nil   // unscheduled → accumulates on Today
             item.updatedAt = Date()
             item.pending = true
             try item.update(db)

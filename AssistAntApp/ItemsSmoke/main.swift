@@ -35,12 +35,13 @@ func newItem(
     source: String = "manual",
     externalID: String? = nil,
     title: String = "t",
-    scheduledOn: CivilDate? = nil
+    scheduledOn: CivilDate? = nil,
+    iceboxedAt: Date? = nil
 ) -> Item {
     Item(
         id: UUIDv7.generate(), workspaceID: "local", type: type.rawValue,
         title: title, body: nil, source: source, externalID: externalID,
-        typeData: typeData, iceboxedAt: nil, deletedAt: nil,
+        typeData: typeData, iceboxedAt: iceboxedAt, deletedAt: nil,
         scheduledOn: scheduledOn,
         createdAt: Date(), updatedAt: Date(), serverUpdatedAt: nil, pending: false
     )
@@ -542,6 +543,98 @@ check("actionable sync: empty keep skips reconcile") {
         keep: [], reconcile: true, allowEmptyKeep: false)
     guard let x = try fetchByExt(queue, "X-1") else { return false }
     return x.deletedAt == nil
+}
+
+// 26. fetchIceboxed returns active, unresolved, iceboxed actionables newest
+//     first; excludes resolved, deleted, non-iceboxed, and calendar rows.
+check("fetchIceboxed: iceboxed actionables only, newest first") {
+    let (store, _) = try makeStore()
+    func t(_ d: Int) -> Date { Date(timeIntervalSince1970: TimeInterval(d)) }
+    let old = newItem(type: .todo, typeData: .todo(ActionableData()),
+                      title: "old", iceboxedAt: t(100))
+    let new = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                      title: "new", iceboxedAt: t(200))
+    let active = newItem(type: .todo, typeData: .todo(ActionableData()),
+                         title: "active")                       // not iceboxed
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "c", iceboxedAt: t(300))
+    for i in [old, new, active, cal] { try store.create(i) }
+    let resolved = newItem(type: .todo, typeData: .todo(ActionableData()),
+                           title: "resolved", iceboxedAt: t(400))
+    try store.create(resolved)
+    try store.completeActionable(id: resolved.id)               // resolved → excluded
+
+    let ids = try store.fetchIceboxed().map { $0.id }
+    return ids == [new.id, old.id]                              // newest first
+}
+
+// 27. completeActionable stamps resolved_at + scheduled_on=today, keeps
+//     iceboxed_at, and drops the row from fetchIceboxed.
+check("completeActionable: resolves + stamps today, keeps iceboxed") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       iceboxedAt: Date())
+    try store.create(item)
+    try store.completeActionable(id: item.id)
+    guard let after = try store.fetch(id: item.id) else { return false }
+    let gone = try store.fetchIceboxed().isEmpty
+    return after.resolvedAt != nil
+        && after.scheduledOn == CivilDate(Date())
+        && after.iceboxedAt != nil
+        && gone
+}
+
+// 28. reopenActionable clears resolved_at and (when iceboxed) scheduled_on,
+//     returning the row to fetchIceboxed.
+check("reopenActionable: clears resolution + schedule when iceboxed") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       iceboxedAt: Date())
+    try store.create(item)
+    try store.completeActionable(id: item.id)
+    try store.reopenActionable(id: item.id)
+    guard let after = try store.fetch(id: item.id) else { return false }
+    let back = try store.fetchIceboxed().contains { $0.id == item.id }
+    return after.resolvedAt == nil && after.scheduledOn == nil && back
+}
+
+// 29. moveToToday clears iceboxed_at + scheduled_on: leaves the icebox and
+//     surfaces on today's actionables.
+check("moveToToday: leaves icebox, accumulates on today") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       scheduledOn: CivilDate(year: 2026, month: 6, day: 1),
+                       iceboxedAt: Date())
+    try store.create(item)
+    try store.moveToToday(id: item.id)
+    guard let after = try store.fetch(id: item.id) else { return false }
+    let goneFromIcebox = try store.fetchIceboxed().isEmpty
+    let onToday = try store.fetchActionable(asOf: today).contains { $0.id == item.id }
+    return after.iceboxedAt == nil && after.scheduledOn == nil
+        && goneFromIcebox && onToday
+}
+
+// 30. IceboxGrouping: no-list group first, named lists A→Z, newest-first
+//     within each.
+check("IceboxGrouping: no-list first, named A→Z, newest within") {
+    func t(_ d: Int) -> Date { Date(timeIntervalSince1970: TimeInterval(d)) }
+    func ice(_ list: String?, _ title: String, _ at: Int) -> Item {
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: list)),
+                title: title, iceboxedAt: t(at))
+    }
+    let items = [
+        ice("Zeta", "z-old", 10), ice("Zeta", "z-new", 20),
+        ice("alpha", "a1", 50),
+        ice(nil, "free-old", 1), ice(nil, "free-new", 2),
+    ]
+    let groups = IceboxGrouping.groups(items: items)
+    let names = groups.map { $0.listName }
+    let firstTitles = groups[0].items.map { $0.title }
+    let zeta = groups.first { $0.listName == "Zeta" }!.items.map { $0.title }
+    return names == [nil, "alpha", "Zeta"]                 // no-list, then A→Z (ci)
+        && firstTitles == ["free-new", "free-old"]         // newest first
+        && zeta == ["z-new", "z-old"]
 }
 
 print(failures == 0

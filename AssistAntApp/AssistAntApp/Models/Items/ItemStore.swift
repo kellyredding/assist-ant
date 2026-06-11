@@ -75,4 +75,24 @@ protocol ItemStore {
     /// resolution/position. Throws `reclassifyRequiresActionable` if the item
     /// or the target is not actionable.
     func reclassify(id: String, to type: ItemType) throws
+
+    /// Iceboxed actionable items (todo/reminder/explore) that are active and
+    /// unresolved: deleted_at IS NULL, iceboxed_at IS NOT NULL, resolved_at IS
+    /// NULL. Ordered newest-iceboxed first, then id. The Icebox view groups
+    /// these by list name.
+    func fetchIceboxed() throws -> [Item]
+
+    /// Complete an actionable: stamp resolved_at = now and scheduled_on = the
+    /// completion day, leaving iceboxed_at untouched so the completion stays
+    /// reversible from the icebox. The general mark-done / mark-dismissed path.
+    func completeActionable(id: String) throws
+
+    /// Reverse a completion: clear resolved_at, and clear scheduled_on when the
+    /// item is iceboxed (an active iceboxed item carries no schedule). The undo
+    /// for an accidental complete.
+    func reopenActionable(id: String) throws
+
+    /// Move an iceboxed item onto Today: clear iceboxed_at and scheduled_on so
+    /// it accumulates as an unscheduled actionable. One atomic write.
+    func moveToToday(id: String) throws
 }
