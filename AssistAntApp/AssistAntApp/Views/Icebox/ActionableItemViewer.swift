@@ -2,13 +2,16 @@ import AppKit
 import SwiftUI
 
 /// Full-takeover reader for a single actionable item, shown inside the
-/// Icebox tab in place of the list. Header (centered title + close), a
-/// metadata line (kind · list · iceboxed date · link), then the scrollable
-/// markdown body. Mirrors CalendarEventViewer; dismissal lives in
-/// IceboxPaneView, which reports close via `onClose`.
+/// Icebox tab in place of the list. A control-bar header (title + the same
+/// item actions a list row exposes + close), a metadata line (kind · list ·
+/// iceboxed date · link), then the scrollable markdown body. Mirrors
+/// CalendarEventViewer; dismissal lives in IceboxPaneView, which reports
+/// close via `onClose`. `onItemChange` carries the post-action item back so
+/// the reader reflects a Done / Move / reclassify (and its undo) in place.
 struct ActionableItemViewer: View {
     let item: Item
     let onClose: () -> Void
+    var onItemChange: (Item) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,18 +24,19 @@ struct ActionableItemViewer: View {
         .background(Color(.textBackgroundColor))
     }
 
+    // A control bar: the title on the left, then the same actions a list row
+    // exposes on hover, then the close button. The title left-aligns (rather
+    // than centering) to make room for the action cluster — this is a working
+    // toolbar, not just a label. Dismissed by ✕ or Escape.
     private var header: some View {
-        ZStack {
+        HStack(spacing: 10) {
             Text(item.title)
                 .font(.headline).lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 36)
-            HStack {
-                Spacer()
-                PointerIconButton(
-                    systemName: "xmark", help: "Close (Esc)", action: onClose
-                )
-            }
+            Spacer(minLength: 12)
+            IceboxItemActions(item: item, onChange: onItemChange)
+            PointerIconButton(
+                systemName: "xmark", help: "Close (Esc)", action: onClose
+            )
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Color(.windowBackgroundColor))

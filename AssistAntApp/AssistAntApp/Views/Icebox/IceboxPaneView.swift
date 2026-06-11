@@ -15,7 +15,11 @@ struct IceboxPaneView: View {
         ZStack {
             listPane.disabled(openItem != nil)
             if let item = openItem {
-                ActionableItemViewer(item: item, onClose: { openItem = nil })
+                ActionableItemViewer(
+                    item: item,
+                    onClose: { openItem = nil },
+                    onItemChange: { openItem = $0 }
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

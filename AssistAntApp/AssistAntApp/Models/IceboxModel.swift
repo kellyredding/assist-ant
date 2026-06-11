@@ -63,26 +63,35 @@ final class IceboxModel: ObservableObject {
 
     // MARK: - Row actions (mutate store + snapshot, no re-fetch)
 
-    func complete(_ item: Item) { mutate(item) { try store.completeActionable(id: $0) } }
-    func reopen(_ item: Item) { mutate(item) { try store.reopenActionable(id: $0) } }
-    func moveToToday(_ item: Item) { mutate(item) { try store.moveToToday(id: $0) } }
-    func reIcebox(_ item: Item) { mutate(item) { try store.setIceboxed(id: $0, true) } }
-    func reclassify(_ item: Item, to type: ItemType) {
+    @discardableResult
+    func complete(_ item: Item) -> Item? { mutate(item) { try store.completeActionable(id: $0) } }
+    @discardableResult
+    func reopen(_ item: Item) -> Item? { mutate(item) { try store.reopenActionable(id: $0) } }
+    @discardableResult
+    func moveToToday(_ item: Item) -> Item? { mutate(item) { try store.moveToToday(id: $0) } }
+    @discardableResult
+    func reIcebox(_ item: Item) -> Item? { mutate(item) { try store.setIceboxed(id: $0, true) } }
+    @discardableResult
+    func reclassify(_ item: Item, to type: ItemType) -> Item? {
         mutate(item) { try store.reclassify(id: $0, to: type) }
     }
 
     /// Run a store mutation, then re-read the single row and swap it into
     /// `groups` in place (same position) so the row updates without the list
-    /// jumping or dropping it.
-    private func mutate(_ item: Item, _ op: (String) throws -> Void) {
+    /// jumping or dropping it. Returns the updated row so a caller holding its
+    /// own copy (the reader) can refresh from it.
+    @discardableResult
+    private func mutate(_ item: Item, _ op: (String) throws -> Void) -> Item? {
         do {
             try op(item.id)
             if let updated = try store.fetch(id: item.id) {
                 replaceInPlace(updated)
+                return updated
             }
         } catch {
             NSLog("IceboxModel: action failed: \(error)")
         }
+        return nil
     }
 
     private func replaceInPlace(_ updated: Item) {
