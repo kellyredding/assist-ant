@@ -1,16 +1,12 @@
 import SwiftUI
 
-/// One icebox item. Tapping the row body opens the reader. On hover, three
-/// action buttons float right-aligned over a scrim; the slots stay fixed so
-/// the layout doesn't shift, and the clicked button becomes Undo in place
-/// while siblings that no longer apply are disabled (not removed):
-///  - active:   [Done|Dismiss]   [Move to Today]    [⋮]
-///  - resolved: [Undo]           [Move to Today ✗]  [⋮ ✗]   (struck/dimmed)
-///  - moved:    [Done|Dismiss]   [Undo]             [⋮]     ("Moved to Today")
-/// Done implicitly schedules today, so it disables Move + the kind menu;
-/// a moved item can still be completed or reclassified. State is read from
-/// the (locally-mutated) snapshot item, so an action's effect shows
-/// immediately while the list keeps the row until refresh.
+/// One actionable item row. Tapping the body opens the reader; a leading gutter
+/// (keyboard-focus bar + selection checkbox) sits to its left and the shared
+/// `ItemActions` cluster (Resolve + Icebox slots) floats in on hover, so the
+/// row holds no action logic of its own. State is read from the locally-mutated
+/// snapshot item, so an action's effect shows immediately while the list keeps
+/// the row until the next refresh: a resolved row is struck + dimmed, and a row
+/// that has just left the icebox dims in place until it drops on refresh.
 struct IceboxRow: View {
     let item: Item
     let onOpen: () -> Void

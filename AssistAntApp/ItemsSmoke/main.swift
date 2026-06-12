@@ -568,51 +568,60 @@ check("fetchIceboxed: iceboxed actionables only, newest first") {
     return ids == [new.id, old.id]                              // newest first
 }
 
-// 27. completeActionable stamps resolved_at + scheduled_on=today, keeps
-//     iceboxed_at, and drops the row from fetchIceboxed.
-check("completeActionable: resolves + stamps today, keeps iceboxed") {
+// 27. completeActionable stamps resolved_at; it stamps today only when the item
+//     is unscheduled, never overriding an existing day. Keeps iceboxed_at and
+//     drops resolved rows from fetchIceboxed.
+check("completeActionable: preserves a set day, stamps today when unscheduled") {
     let (store, _) = try makeStore()
-    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
-                       iceboxedAt: Date())
-    try store.create(item)
-    try store.completeActionable(id: item.id)
-    guard let after = try store.fetch(id: item.id) else { return false }
-    let gone = try store.fetchIceboxed().isEmpty
-    return after.resolvedAt != nil
-        && after.scheduledOn == CivilDate(Date())
-        && after.iceboxedAt != nil
+    let day = CivilDate(year: 2026, month: 6, day: 20)
+    let dated = newItem(type: .todo, typeData: .todo(ActionableData()),
+                        scheduledOn: day, iceboxedAt: Date())
+    let bare = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: Date())
+    try store.create(dated); try store.create(bare)
+    try store.completeActionable(id: dated.id)
+    try store.completeActionable(id: bare.id)
+    guard let d = try store.fetch(id: dated.id),
+          let b = try store.fetch(id: bare.id) else { return false }
+    let gone = try store.fetchIceboxed().isEmpty            // both resolved → excluded
+    return d.resolvedAt != nil && d.scheduledOn == day && d.iceboxedAt != nil
+        && b.resolvedAt != nil && b.scheduledOn == CivilDate(Date())
         && gone
 }
 
-// 28. reopenActionable clears resolved_at and (when iceboxed) scheduled_on,
-//     returning the row to fetchIceboxed.
-check("reopenActionable: clears resolution + schedule when iceboxed") {
+// 28. reopenActionable clears resolved_at only; scheduled_on is durable, so a
+//     row returns to whatever day it carried and back into fetchIceboxed.
+check("reopenActionable: clears resolution, preserves schedule") {
     let (store, _) = try makeStore()
+    let day = CivilDate(year: 2026, month: 6, day: 20)
     let item = newItem(type: .todo, typeData: .todo(ActionableData()),
-                       iceboxedAt: Date())
+                       scheduledOn: day, iceboxedAt: Date())
     try store.create(item)
-    try store.completeActionable(id: item.id)
+    try store.completeActionable(id: item.id)   // resolved; day preserved (20th)
     try store.reopenActionable(id: item.id)
     guard let after = try store.fetch(id: item.id) else { return false }
     let back = try store.fetchIceboxed().contains { $0.id == item.id }
-    return after.resolvedAt == nil && after.scheduledOn == nil && back
+    return after.resolvedAt == nil && after.scheduledOn == day && back
 }
 
-// 29. moveToToday clears iceboxed_at + scheduled_on: leaves the icebox and
-//     surfaces on today's actionables.
-check("moveToToday: leaves icebox, accumulates on today") {
+// 29. setIceboxed(false) (Remove from Icebox) clears iceboxed_at only; the row
+//     falls back to its scheduled day, or Today when it has none.
+check("setIceboxed(false): leaves icebox, falls back to its day / today") {
     let (store, _) = try makeStore()
     let today = CivilDate(year: 2026, month: 6, day: 12)
-    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
-                       scheduledOn: CivilDate(year: 2026, month: 6, day: 1),
-                       iceboxedAt: Date())
-    try store.create(item)
-    try store.moveToToday(id: item.id)
-    guard let after = try store.fetch(id: item.id) else { return false }
-    let goneFromIcebox = try store.fetchIceboxed().isEmpty
-    let onToday = try store.fetchActionable(asOf: today).contains { $0.id == item.id }
-    return after.iceboxedAt == nil && after.scheduledOn == nil
-        && goneFromIcebox && onToday
+    let future = CivilDate(year: 2026, month: 6, day: 20)
+    let dated = newItem(type: .todo, typeData: .todo(ActionableData()),
+                        scheduledOn: future, iceboxedAt: Date())
+    let bare = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: Date())
+    try store.create(dated); try store.create(bare)
+    try store.setIceboxed(id: dated.id, false)
+    try store.setIceboxed(id: bare.id, false)
+    guard let d = try store.fetch(id: dated.id),
+          let b = try store.fetch(id: bare.id) else { return false }
+    let onSchedule = try store.fetchActive(type: nil, from: future, to: future)
+        .contains { $0.id == dated.id }
+    let onToday = try store.fetchActionable(asOf: today).contains { $0.id == bare.id }
+    return d.iceboxedAt == nil && d.scheduledOn == future && onSchedule
+        && b.iceboxedAt == nil && b.scheduledOn == nil && onToday
 }
 
 // 30. IceboxGrouping: no-list group first, named lists A→Z, newest-first
@@ -686,17 +695,20 @@ check("setTitleAndBody: sets (trimmed), blank body clears, blank title kept") {
         && b.title == "new title" && b.body == nil
 }
 
-// 34. moveToIcebox stamps iceboxed_at + clears scheduled_on (inverse of
-//     moveToToday): the item leaves Today and joins the icebox.
-check("moveToIcebox: enters icebox, drops schedule") {
+// 34. setIceboxed(true) (Move to Icebox) stamps iceboxed_at and KEEPS
+//     scheduled_on; the flag supersedes the schedule, hiding the item from the
+//     active schedule window while it sits in the icebox.
+check("setIceboxed(true): enters icebox, keeps the scheduled day") {
     let (store, _) = try makeStore()
-    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
-                       scheduledOn: CivilDate(year: 2026, month: 6, day: 12))
+    let day = CivilDate(year: 2026, month: 6, day: 20)
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()), scheduledOn: day)
     try store.create(item)
-    try store.moveToIcebox(id: item.id)
+    try store.setIceboxed(id: item.id, true)
     guard let after = try store.fetch(id: item.id) else { return false }
     let inIcebox = try store.fetchIceboxed().contains { $0.id == item.id }
-    return after.iceboxedAt != nil && after.scheduledOn == nil && inIcebox
+    let offSchedule = try store.fetchActive(type: nil, from: day, to: day)
+        .contains { $0.id == item.id } == false
+    return after.iceboxedAt != nil && after.scheduledOn == day && inIcebox && offSchedule
 }
 
 // 35. resolveVerb accumulates across kinds: to-do/explore → "Done", reminder →

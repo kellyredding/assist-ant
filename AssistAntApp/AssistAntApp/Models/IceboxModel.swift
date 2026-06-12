@@ -117,16 +117,12 @@ final class IceboxModel: ObservableObject {
         mutateMany(items) { try store.reopenActionable(id: $0) }
     }
     @discardableResult
-    func moveToToday(_ items: [Item]) -> [Item] {
-        mutateMany(items) { try store.moveToToday(id: $0) }
-    }
-    @discardableResult
-    func reIcebox(_ items: [Item]) -> [Item] {
+    func moveToIcebox(_ items: [Item]) -> [Item] {
         mutateMany(items) { try store.setIceboxed(id: $0, true) }
     }
     @discardableResult
-    func moveToIcebox(_ items: [Item]) -> [Item] {
-        mutateMany(items) { try store.moveToIcebox(id: $0) }
+    func removeFromIcebox(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.setIceboxed(id: $0, false) }
     }
     @discardableResult
     func reclassify(_ items: [Item], to type: ItemType) -> [Item] {

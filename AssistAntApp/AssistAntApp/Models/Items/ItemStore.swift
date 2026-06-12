@@ -27,6 +27,11 @@ protocol ItemStore {
     func upsert(_ item: Item) throws
 
     func softDelete(id: String) throws
+
+    /// Toggle icebox membership: stamp or clear `iceboxed_at`. Preserves
+    /// `scheduled_on` — the icebox flag supersedes the schedule for display, so
+    /// removing from the icebox restores the item to its day (or Today when it
+    /// has none). Backs the Move to / Remove from Icebox action.
     func setIceboxed(id: String, _ iceboxed: Bool) throws
 
     /// Window-scoped reconcile: soft-delete active items for `source` whose
@@ -98,15 +103,6 @@ protocol ItemStore {
     /// item is iceboxed (an active iceboxed item carries no schedule). The undo
     /// for an accidental complete.
     func reopenActionable(id: String) throws
-
-    /// Move an iceboxed item onto Today: clear iceboxed_at and scheduled_on so
-    /// it accumulates as an unscheduled actionable. One atomic write.
-    func moveToToday(id: String) throws
-
-    /// Move an active item into the icebox: stamp iceboxed_at = now and clear
-    /// scheduled_on (an iceboxed item carries no schedule). The inverse of
-    /// moveToToday. One atomic write.
-    func moveToIcebox(id: String) throws
 
     /// Set or clear an actionable item's list name (nil or blank clears it),
     /// preserving the kind and the external URL. No-op for a non-actionable

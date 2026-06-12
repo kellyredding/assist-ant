@@ -9,10 +9,10 @@ import SwiftUI
 /// The two slots are "proper opposites" — no separate Undo:
 ///  - **Resolve**: active → Done/Dismiss (`complete`); resolved → Restore
 ///    (`reopen`). Always enabled.
-///  - **Icebox**: label is always the would-be move by iceboxed state —
-///    iceboxed → Move to Today (`moveToToday`), else Move to Icebox
-///    (`moveToIcebox`). It is *disabled* (not relabeled) while resolved, so
-///    Restore just re-enables the very same button.
+///  - **Icebox**: label flips with iceboxed state — iceboxed → Remove from
+///    Icebox (`removeFromIcebox`), else Move to Icebox (`moveToIcebox`). Both
+///    preserve the item's scheduled day; the flag only supersedes display. It
+///    is *disabled* (not relabeled) while resolved, so Restore re-enables it.
 ///
 /// Batch actions hit the active members (a resolved item has no icebox action
 /// and is already complete). `onChange` reports the single updated item to a
@@ -60,7 +60,7 @@ struct ItemActions: View {
     private var iceboxButton: some View {
         CapsuleActionButton(title: iceboxTitle, compact: true) {
             if state.allIceboxed {
-                apply(activeItems) { model.moveToToday($0) }
+                apply(activeItems) { model.removeFromIcebox($0) }
             } else {
                 apply(activeItems) { model.moveToIcebox($0) }
             }
@@ -70,7 +70,7 @@ struct ItemActions: View {
     }
 
     private var iceboxTitle: String {
-        state.allIceboxed ? "Move to Today" : "Move to Icebox"
+        state.allIceboxed ? "Remove from Icebox" : "Move to Icebox"
     }
 
     // A real pointer-button (hover highlight + hand cursor, like the close /

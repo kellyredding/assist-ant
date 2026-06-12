@@ -411,7 +411,10 @@ final class GRDBItemStore: ItemStore {
             guard var item = try Item.fetchOne(db, key: id) else { return }
             let now = Date()
             item.resolvedAt = now
-            item.scheduledOn = CivilDate(now)   // stamp the completion day
+            // Give an unscheduled item a definite day (the day it was finished)
+            // so resolved items have a stable home and never accumulate; an item
+            // that already carries a day keeps it.
+            if item.scheduledOn == nil { item.scheduledOn = CivilDate(now) }
             item.updatedAt = now
             item.pending = true
             try item.update(db)
@@ -422,35 +425,9 @@ final class GRDBItemStore: ItemStore {
     func reopenActionable(id: String) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
+            // Resolution is the only state cleared; scheduled_on is durable, so
+            // the row returns to whatever day it carried (icebox or schedule).
             item.resolvedAt = nil
-            // An active iceboxed item carries no schedule; drop the completion
-            // day stamped by completeActionable. A non-iceboxed item keeps its
-            // schedule (this undo path is icebox-scoped in the UI anyway).
-            if item.iceboxedAt != nil { item.scheduledOn = nil }
-            item.updatedAt = Date()
-            item.pending = true
-            try item.update(db)
-        }
-        backup.itemsDidChange()
-    }
-
-    func moveToToday(id: String) throws {
-        try dbQueue.write { db in
-            guard var item = try Item.fetchOne(db, key: id) else { return }
-            item.iceboxedAt = nil
-            item.scheduledOn = nil   // unscheduled → accumulates on Today
-            item.updatedAt = Date()
-            item.pending = true
-            try item.update(db)
-        }
-        backup.itemsDidChange()
-    }
-
-    func moveToIcebox(id: String) throws {
-        try dbQueue.write { db in
-            guard var item = try Item.fetchOne(db, key: id) else { return }
-            item.iceboxedAt = Date()
-            item.scheduledOn = nil   // an iceboxed item carries no schedule
             item.updatedAt = Date()
             item.pending = true
             try item.update(db)
