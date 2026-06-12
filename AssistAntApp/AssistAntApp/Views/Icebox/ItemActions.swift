@@ -1,83 +1,74 @@
 import SwiftUI
 
-/// The shared item-actions cluster: a resolve slot, an icebox-aware move slot,
-/// and the ⋮ menu (change kind / list). It drives a SET of 1..N items, so one
-/// component serves the list-row hover, the reader header, and the batch
-/// control bar; every label and enabled state reads the aggregate
-/// (`ItemActionState`).
+/// The shared item-actions cluster: a Resolve slot and an Icebox slot. It drives
+/// a SET of 1..N items, so one component serves the list-row hover, the reader
+/// header, and the batch control bar; every label and enabled state reads the
+/// aggregate (`ItemActionState`).
 ///
-/// `context` tells the move slot how to read an un-iceboxed item — "moved" in
-/// the Icebox, "at rest" in the Schedule:
-///  - `.icebox`:   iceboxed → Move to Today; moved → Undo
-///  - `.schedule`: not iceboxed → Move to Icebox; frozen → Undo
-/// The resolve slot is context-independent: Undo once every target is resolved,
-/// else the accumulated verb (Done / Dismiss / "Done / Dismiss").
+/// The two slots are "proper opposites" — no separate Undo:
+///  - **Resolve**: active → Done/Dismiss (`complete`); resolved → Restore
+///    (`reopen`). Always enabled.
+///  - **Icebox**: label is always the would-be move by iceboxed state —
+///    iceboxed → Move to Today (`moveToToday`), else Move to Icebox
+///    (`moveToIcebox`). It is *disabled* (not relabeled) while resolved, so
+///    Restore just re-enables the very same button.
 ///
-/// `onChange` reports the single updated item to a caller holding its own copy
-/// (the reader); a batch caller omits it — the model updates the snapshot
-/// directly.
+/// Batch actions hit the active members (a resolved item has no icebox action
+/// and is already complete). `onChange` reports the single updated item to a
+/// caller holding its own copy (the reader); a batch caller omits it.
 struct ItemActions: View {
-    enum Context { case icebox, schedule }
-
     let items: [Item]
-    var context: Context = .icebox
     var onChange: (Item) -> Void = { _ in }
 
     @ObservedObject private var model = IceboxModel.shared
 
     private var state: ItemActionState { ItemActionState(items) }
+    /// The members an action targets: resolved items are skipped (already
+    /// complete; no icebox action). For a single active item this is `items`.
+    private var activeItems: [Item] { items.filter { $0.resolvedAt == nil } }
 
     var body: some View {
         HStack(spacing: 6) {
             resolveButton
-            moveButton
+            iceboxButton
             kindMenu
                 .disabled(state.allResolved)
                 .opacity(state.allResolved ? 0.4 : 1)
         }
     }
 
-    // Resolve: Undo once every target is resolved, else the accumulated verb.
+    // Resolve: Restore once everything is resolved, else the accumulated verb
+    // (Done / Dismiss / "Done / Dismiss") completing the active members.
     @ViewBuilder
     private var resolveButton: some View {
         if state.allResolved {
-            CapsuleActionButton(title: "Undo", compact: true) { apply { model.reopen($0) } }
+            CapsuleActionButton(title: "Restore", compact: true) {
+                apply(items) { model.reopen($0) }
+            }
         } else {
             CapsuleActionButton(title: state.resolveVerb, compact: true) {
-                apply { model.complete($0) }
+                apply(activeItems) { model.complete($0) }
             }
         }
     }
 
-    // Move: an icebox toggle labeled by context; "all in the moved/frozen
-    // state" flips it to Undo.
+    // Icebox: the label is purely the would-be move by iceboxed state, so the
+    // text never changes on resolve/restore — only `disabled` flips.
     @ViewBuilder
-    private var moveButton: some View {
-        switch context {
-        case .icebox:
-            if state.allMoved {
-                CapsuleActionButton(title: "Undo", compact: true) { apply { model.reIcebox($0) } }
-            } else {
-                CapsuleActionButton(title: "Move to Today", compact: true) {
-                    apply { model.moveToToday($0) }
-                }
-                .disabled(state.allResolved)
-                .opacity(state.allResolved ? 0.4 : 1)
-            }
-        case .schedule:
+    private var iceboxButton: some View {
+        CapsuleActionButton(title: iceboxTitle, compact: true) {
             if state.allIceboxed {
-                // Phase 2 TODO: the schedule Undo should restore the prior
-                // scheduled day, not land on Today. moveToToday is the current
-                // approximation; revisit when the Schedule list ships.
-                CapsuleActionButton(title: "Undo", compact: true) { apply { model.moveToToday($0) } }
+                apply(activeItems) { model.moveToToday($0) }
             } else {
-                CapsuleActionButton(title: "Move to Icebox", compact: true) {
-                    apply { model.moveToIcebox($0) }
-                }
-                .disabled(state.allResolved)
-                .opacity(state.allResolved ? 0.4 : 1)
+                apply(activeItems) { model.moveToIcebox($0) }
             }
         }
+        .disabled(state.allResolved)
+        .opacity(state.allResolved ? 0.4 : 1)
+    }
+
+    private var iceboxTitle: String {
+        state.allIceboxed ? "Move to Today" : "Move to Icebox"
     }
 
     private var kindMenu: some View {
@@ -85,7 +76,7 @@ struct ItemActions: View {
             Section("Change kind") {
                 ForEach([ItemType.todo, .reminder, .explore], id: \.self) { kind in
                     Button {
-                        apply { model.reclassify($0, to: kind) }
+                        apply(items) { model.reclassify($0, to: kind) }
                     } label: {
                         // Checkmark only when every item already is this kind.
                         if items.allSatisfy({ $0.typeData.kind == kind.rawValue }) {
@@ -103,8 +94,8 @@ struct ItemActions: View {
                 // multiple lists) and applies the choice to every item.
                 switch ListEditorWindowController.present(currentName: sharedListName) {
                 case .cancel: break
-                case .save(let name): apply { model.setListName($0, to: name) }
-                case .remove: apply { model.setListName($0, to: nil) }
+                case .save(let name): apply(items) { model.setListName($0, to: name) }
+                case .remove: apply(items) { model.setListName($0, to: nil) }
                 }
             }
         } label: {
@@ -131,9 +122,10 @@ struct ItemActions: View {
         return names.count == 1 ? names.first! : nil
     }
 
-    /// Dispatch a set op; report the single updated item to a reader caller.
-    private func apply(_ op: ([Item]) -> [Item]) {
-        let updated = op(items)
+    /// Dispatch an op over `targets`; report the single updated item to a reader
+    /// caller (a batch omits onChange).
+    private func apply(_ targets: [Item], _ op: ([Item]) -> [Item]) {
+        let updated = op(targets)
         if items.count == 1, let u = updated.first { onChange(u) }
     }
 }

@@ -710,6 +710,15 @@ check("resolveVerb: per-kind and mixed-batch accumulation") {
         && ItemActionState.verb(for: [todo, reminder]) == "Done / Dismiss"
 }
 
+// 36. ItemActionState.allIceboxed drives the Icebox slot label; true only when
+//     every item is iceboxed.
+check("ItemActionState: allIceboxed across a set") {
+    let iceboxed = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: Date())
+    let onToday = newItem(type: .todo, typeData: .todo(ActionableData()))
+    return ItemActionState([iceboxed]).allIceboxed
+        && !ItemActionState([iceboxed, onToday]).allIceboxed
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

@@ -9,20 +9,17 @@ struct ItemActionState {
     let count: Int
     /// Every target is resolved (resolved_at != nil).
     let allResolved: Bool
-    /// Every target is iceboxed (iceboxed_at != nil).
+    /// Every target is iceboxed (iceboxed_at != nil). Drives the Icebox slot's
+    /// label — which is invariant across resolve/restore; only its enabled
+    /// state changes.
     let allIceboxed: Bool
-    /// Every target is "moved": active, unresolved, and not iceboxed.
-    let allMoved: Bool
-    /// The resolve-button verb for the set (see `resolveVerb(_:)`).
+    /// The resolve-button verb for the set (see `verb(for:)`).
     let resolveVerb: String
 
     init(_ items: [Item]) {
         count = items.count
         allResolved = !items.isEmpty && items.allSatisfy { $0.resolvedAt != nil }
         allIceboxed = !items.isEmpty && items.allSatisfy { $0.iceboxedAt != nil }
-        allMoved = !items.isEmpty && items.allSatisfy {
-            $0.resolvedAt == nil && $0.iceboxedAt == nil
-        }
         resolveVerb = ItemActionState.verb(for: items)
     }
 

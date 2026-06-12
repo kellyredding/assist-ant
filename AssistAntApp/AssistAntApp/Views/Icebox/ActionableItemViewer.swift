@@ -125,7 +125,7 @@ struct ActionableItemViewer: View {
                     .strikethrough(isResolved)
                     .foregroundStyle(isResolved ? .secondary : .primary)
                 Spacer(minLength: 12)
-                ItemActions(items: [item], context: .icebox, onChange: onItemChange)
+                ItemActions(items: [item], onChange: onItemChange)
                 PointerIconButton(
                     systemName: "square.and.pencil", help: "Edit (⌘↵)",
                     action: onBeginEdit
