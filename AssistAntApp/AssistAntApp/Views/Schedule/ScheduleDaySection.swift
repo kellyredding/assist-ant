@@ -1,29 +1,56 @@
 import SwiftUI
 
 /// One day in the agenda: a left gutter (day number / weekday / month, today
-/// circled) and the day's events — or a muted "no events" line when empty.
+/// circled) and the day's content — its calendar events (time-sorted) followed
+/// by its actionable items as the shared list rows grouped into sublists, or a
+/// muted "Nothing scheduled" line when the day is empty.
 struct ScheduleDaySection: View {
     let day: AgendaDay
     let now: Date
-    /// Invoked when an event row is tapped, to open it in the reader.
+    /// Invoked when a row is tapped, to open it in the reader.
     let onOpen: (Item) -> Void
+    let selection: ActionableSelection
+    let actions: ActionableActions
+    let isCollapsed: (String) -> Bool
+    let onToggle: (String) -> Void
 
     private var isToday: Bool { day.date == CivilDate(now) }
+    private var isEmpty: Bool { day.events.isEmpty && day.actionableGroups.isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             gutter.frame(width: 64, alignment: .leading)
             VStack(alignment: .leading, spacing: 6) {
-                if day.items.isEmpty {
-                    Text("No events")
+                if isEmpty {
+                    Text("Nothing scheduled")
                         .font(.callout)
                         .foregroundStyle(.tertiary)
                 } else {
-                    ForEach(day.items, id: \.id) { item in
+                    ForEach(day.events, id: \.id) { item in
                         CalendarEventRow(
                             item: item,
                             isPast: ScheduleAgenda.isPast(item, now: now),
                             onTap: { onOpen(item) }
+                        )
+                    }
+                    // A thin rule between the timed events and the day's to-dos.
+                    if !day.events.isEmpty && !day.actionableGroups.isEmpty {
+                        Divider().padding(.vertical, 2)
+                    }
+                    ForEach(day.actionableGroups) { group in
+                        ActionableListSection(
+                            group: group,
+                            isCollapsed: group.listName.map(isCollapsed) ?? false,
+                            onToggle: onToggle,
+                            selection: selection,
+                            actions: actions,
+                            onOpen: { item in
+                                // Carry focus to the opened row so returning
+                                // from the reader leaves it focused.
+                                selection.focus(item.id)
+                                onOpen(item)
+                            },
+                            context: .schedule
                         )
                     }
                 }

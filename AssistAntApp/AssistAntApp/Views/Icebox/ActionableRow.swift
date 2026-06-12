@@ -12,13 +12,29 @@ struct ActionableRow: View {
     let onOpen: () -> Void
     @ObservedObject var selection: ActionableSelection
     let actions: ActionableActions
+    /// The surface this row renders on; governs which transient state dims the
+    /// row and what the trailing status reads.
+    var context: Context = .icebox
+
+    enum Context { case icebox, schedule }
 
     @State private var isHovering = false
 
     private var isResolved: Bool { item.resolvedAt != nil }
-    private var isMoved: Bool { item.resolvedAt == nil && item.iceboxedAt == nil }
+    private var isIceboxed: Bool { item.iceboxedAt != nil }
     private var isFocused: Bool { selection.focusedItemID == item.id }
     private var isSelected: Bool { selection.selectedIDs.contains(item.id) }
+
+    /// Dim a row whose state has stepped out of its surface's resting set:
+    /// resolved anywhere; in the icebox a row that just left the box; on the
+    /// schedule a row just put into the box. All drop on the next refresh.
+    private var isDimmed: Bool {
+        if isResolved { return true }
+        switch context {
+        case .icebox:   return !isIceboxed
+        case .schedule: return isIceboxed
+        }
+    }
 
     var body: some View {
         // The gutter (focus bar + checkbox) is a SIBLING of the tappable row
@@ -79,7 +95,7 @@ struct ActionableRow: View {
             Text(statusText)
                 .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
         }
-        .opacity(isResolved || isMoved ? 0.5 : 1)
+        .opacity(isDimmed ? 0.5 : 1)
         .padding(.vertical, 6).padding(.horizontal, 6)
         .contentShape(Rectangle())
         // Row body opens the reader; the action overlay sits above it.
@@ -97,12 +113,18 @@ struct ActionableRow: View {
         return title
     }
 
-    /// Right column under the title: the friendly iceboxed date, or the
-    /// moved tag.
+    /// Trailing status column. In the icebox: the friendly iceboxed date, or
+    /// the moved-out tag. On the schedule: empty normally (the day header gives
+    /// the date), tagged only while transiently iceboxed.
     private var statusText: String {
-        if isMoved { return "Moved to Today" }
-        guard let at = item.iceboxedAt else { return "" }
-        return Self.dateFormatter.string(from: at)
+        switch context {
+        case .icebox:
+            if !isResolved && !isIceboxed { return "Moved to Today" }
+            guard let at = item.iceboxedAt else { return "" }
+            return Self.dateFormatter.string(from: at)
+        case .schedule:
+            return isIceboxed ? "Moved to Icebox" : ""
+        }
     }
 
     private var hoverCluster: some View {

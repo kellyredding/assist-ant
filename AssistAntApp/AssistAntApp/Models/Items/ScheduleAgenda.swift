@@ -1,37 +1,53 @@
 import Foundation
 
-/// One day in the agenda: its civil date and the calendar items on it
-/// (sorted by start time; undated-start last). Empty days carry an empty
-/// `items` so the view can still render a header + "no events".
+/// One day in the agenda: its civil date, the calendar events on it (sorted by
+/// start; undated-start last), and the day's actionable items grouped into
+/// sublists (no-list first, then named A→Z). Empty days carry empty halves so
+/// the view can still render a header.
 struct AgendaDay: Identifiable, Equatable {
     let date: CivilDate
-    let items: [Item]
+    let events: [Item]
+    let actionableGroups: [ActionableGroup]
     var id: String { date.iso }
 }
 
-/// Pure derivation of the agenda's day sections. No SwiftUI, no I/O —
-/// mirrors `TodayCalendar`.
+/// Pure derivation of the agenda's day sections. No SwiftUI, no I/O.
 enum ScheduleAgenda {
-    /// Every day from `start` through the last day carrying an event (or
-    /// `start` itself if none), inclusive — empty days included — each with
-    /// its sorted items. `items` is the already-range-fetched set.
+    /// Every day from `start` through the last day carrying an item (or `start`
+    /// itself if none), inclusive — empty days included. Each day splits its
+    /// items into calendar events (time-sorted) and actionables (grouped into
+    /// sublists). `items` is the already-range-fetched set; resolved actionables
+    /// are kept so they render struck as history.
     static func days(items: [Item], from start: CivilDate) -> [AgendaDay] {
         let grouped = Dictionary(grouping: items) { item in
             item.scheduledOn ?? CivilDate(item.createdAt)
         }
-        let lastEventDay = grouped.keys.max() ?? start
-        let end = max(lastEventDay, start)
+        let lastDay = grouped.keys.max() ?? start
+        let end = max(lastDay, start)
 
         var out: [AgendaDay] = []
         var cursor = start
         while cursor <= end {
-            let dayItems = (grouped[cursor] ?? []).sorted { lhs, rhs in
-                (startAt(lhs) ?? .distantFuture) < (startAt(rhs) ?? .distantFuture)
-            }
-            out.append(AgendaDay(date: cursor, items: dayItems))
+            let dayItems = grouped[cursor] ?? []
+            let events = dayItems
+                .filter { isCalendar($0) }
+                .sorted { (startAt($0) ?? .distantFuture) < (startAt($1) ?? .distantFuture) }
+            let actionables = dayItems.filter { !isCalendar($0) }
+            out.append(AgendaDay(
+                date: cursor,
+                events: events,
+                actionableGroups: ActionableGrouping.groups(items: actionables)))
             cursor = cursor.adding(days: 1)
         }
         return out
+    }
+
+    /// Whether the item is a calendar event (vs an actionable todo/reminder/
+    /// explore). Calendar events render with time columns; actionables render as
+    /// the shared list rows.
+    static func isCalendar(_ item: Item) -> Bool {
+        if case .calendar = item.typeData { return true }
+        return false
     }
 
     /// The calendar payload's start instant, if any.

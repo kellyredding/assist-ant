@@ -12,6 +12,9 @@ struct ScheduleControlBar: View {
     let onOpenGoogleCalendar: () -> Void
     let onRefresh: () -> Void
     let isWorking: Bool
+    @ObservedObject var selection: ActionableSelection
+    let actions: ActionableActions
+    let selectedItems: [Item]
 
     var body: some View {
         HStack(spacing: 12) {
@@ -25,7 +28,16 @@ struct ScheduleControlBar: View {
             )
             Text(monthYear)
                 .font(.headline)
+            if selection.hasSelection {
+                Text("\(selection.selectedIDs.count) selected")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
             Spacer()
+            if selection.hasSelection {
+                // The shared cluster, fed the selection — identical to the
+                // icebox; it acts on the whole selection across days.
+                ItemActions(items: selectedItems, actions: actions)
+            }
             // Same glyph component as refresh (hover highlight + hand cursor);
             // independent of sync state, so it stays put while a sync swaps the
             // refresh glyph for a spinner.

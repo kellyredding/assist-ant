@@ -93,13 +93,20 @@ final class ItemViewerModel: ObservableObject {
         edit.isSaving = true
         let title = edit.title, body = edit.body
         // The store write is synchronous; defer so the spinner paints, then
-        // persist, hand the refreshed item back, and drop to the reader.
+        // persist via whichever surface the reader floats over so that list's
+        // snapshot updates the row in place, hand the refreshed item back, and
+        // drop to the reader.
         Task { @MainActor in
-            if let updated = IceboxModel.shared.setTitleAndBody(
-                item, title: title, body: body
-            ) {
-                openItem = updated
+            let updated: Item?
+            switch openedOverTab {
+            case .schedule:
+                updated = ScheduleAgendaModel.shared.setTitleAndBody(
+                    item, title: title, body: body)
+            default:
+                updated = IceboxModel.shared.setTitleAndBody(
+                    item, title: title, body: body)
             }
+            if let updated { openItem = updated }
             edit.finishSaving()
         }
     }

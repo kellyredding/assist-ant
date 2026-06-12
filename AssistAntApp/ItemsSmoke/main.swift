@@ -777,6 +777,52 @@ check("ActionableListNavigation.idsInGroup: scopes to focused row's group") {
         && ActionableListNavigation.idsInGroup(of: nil, groups).isEmpty
 }
 
+// 40. ScheduleAgenda.days: a day splits into time-sorted calendar events and
+//     actionables grouped into sublists (no-list first, then named); calendar
+//     events never enter the groups.
+check("ScheduleAgenda.days: splits events + actionables, time-sorts, groups") {
+    let day = CivilDate(year: 2026, month: 6, day: 15)
+    func at(_ h: Int) -> Date {
+        var c = DateComponents(); c.year = 2026; c.month = 6; c.day = 15; c.hour = h
+        return Calendar.current.date(from: c)!
+    }
+    let evtLate = newItem(type: .calendar,
+                          typeData: .calendar(CalendarData(startAt: at(14), endAt: at(15))),
+                          source: "gcal", externalID: "late", scheduledOn: day)
+    let evtEarly = newItem(type: .calendar,
+                           typeData: .calendar(CalendarData(startAt: at(9), endAt: at(10))),
+                           source: "gcal", externalID: "early", scheduledOn: day)
+    let bare = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       title: "bare", scheduledOn: day)
+    let listed = newItem(type: .reminder, typeData: .reminder(ActionableData(listName: "Errands")),
+                         title: "listed", scheduledOn: day)
+    let days = ScheduleAgenda.days(items: [evtLate, evtEarly, bare, listed], from: day)
+    guard let d = days.first(where: { $0.date == day }) else { return false }
+    let eventsSorted = d.events.map { $0.externalID } == ["early", "late"]
+    let noEventsInGroups = d.actionableGroups.flatMap(\.items)
+        .allSatisfy { !ScheduleAgenda.isCalendar($0) }
+    let groupNames = d.actionableGroups.map { $0.listName }
+    return eventsSorted && noEventsInGroups && groupNames == [nil, "Errands"]
+}
+
+// 41. The schedule's fetch surfaces scheduled actionables alongside events,
+//     keeps resolved ones (struck history, day preserved), excludes iceboxed.
+check("fetchActive(from:to:): scheduled actionables incl. resolved, excl. iceboxed") {
+    let (store, _) = try makeStore()
+    let day = CivilDate(year: 2026, month: 6, day: 15)
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData()), title: "todo", scheduledOn: day)
+    let event = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                        source: "gcal", externalID: "e", scheduledOn: day)
+    let done = newItem(type: .todo, typeData: .todo(ActionableData()), title: "done", scheduledOn: day)
+    let boxed = newItem(type: .todo, typeData: .todo(ActionableData()), title: "boxed", scheduledOn: day)
+    for i in [todo, event, done, boxed] { try store.create(i) }
+    try store.completeActionable(id: done.id)     // resolved; day preserved (15th)
+    try store.setIceboxed(id: boxed.id, true)     // iceboxed; hidden from the schedule
+
+    let ids = Set(try store.fetchActive(type: nil, from: day, to: day).map { $0.id })
+    return ids == Set([todo.id, event.id, done.id])   // boxed excluded; done kept
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

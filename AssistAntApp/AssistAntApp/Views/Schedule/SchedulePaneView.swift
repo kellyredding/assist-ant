@@ -6,11 +6,21 @@ import SwiftUI
 /// in its place. Activates the model on first appear (if the tab is already
 /// selected) and on every switch to `.schedule`. Observes the clock so past-
 /// dimming and the today highlight refresh each minute without re-fetching.
+///
+/// Actionable rows on the agenda reuse the icebox list machinery: a list-level
+/// key monitor (J/K focus, X toggle, Enter opens, `*a` / `*n`) drives the
+/// model's shared `ActionableSelection`, mutually exclusive with the icebox and
+/// reader monitors by tab/state gating.
 struct SchedulePaneView: View {
     @ObservedObject private var model = ScheduleAgendaModel.shared
+    @ObservedObject private var selection = ScheduleAgendaModel.shared.selection
     @ObservedObject private var navigator = MainTabNavigator.shared
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
+
+    @State private var keyMonitor: Any?
+    @State private var pendingStar = false          // saw `*`, awaiting a / n
+    @State private var starTimer: DispatchWorkItem?
 
     var body: some View {
         // The agenda fills the pane; the event reader is presented centrally by
@@ -18,10 +28,14 @@ struct SchedulePaneView: View {
         agendaPane
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(NSColor.textBackgroundColor))
-            .onAppear { if navigator.selectedTab == .schedule { model.activate() } }
+            .onAppear {
+                if navigator.selectedTab == .schedule { model.activate() }
+                installScheduleKeyMonitor()
+            }
             .onChange(of: navigator.selectedTab) { _, tab in
                 if tab == .schedule { model.activate() }
             }
+            .onDisappear { removeScheduleKeyMonitor() }
     }
 
     private var agendaPane: some View {
@@ -36,7 +50,10 @@ struct SchedulePaneView: View {
                     CalendarSyncCoordinator.shared.requestSync()
                     model.refresh()
                 },
-                isWorking: model.isWorking || sync.isSyncing
+                isWorking: model.isWorking || sync.isSyncing,
+                selection: selection,
+                actions: model.actions,
+                selectedItems: model.selectedItems
             )
             Divider()
             agenda
@@ -56,9 +73,11 @@ struct SchedulePaneView: View {
                             ScheduleDaySection(
                                 day: day,
                                 now: clock.currentTime,
-                                onOpen: {
-                                    ItemViewerModel.shared.open($0, over: .schedule)
-                                }
+                                onOpen: { ItemViewerModel.shared.open($0, over: .schedule) },
+                                selection: selection,
+                                actions: model.actions,
+                                isCollapsed: model.isCollapsed,
+                                onToggle: { name in model.toggleCollapse(name) }
                             )
                             .id(day.date)
                             .background(dayPositionReader(day.date))
@@ -75,6 +94,11 @@ struct SchedulePaneView: View {
                         proxy.scrollTo(target, anchor: .top)
                     }
                     DispatchQueue.main.async { model.scrollTarget = nil }
+                }
+                // Keep the keyboard-focused actionable row visible as J/K move it.
+                .onChange(of: selection.focusedItemID) { _, id in
+                    guard let id else { return }
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
                 }
             }
         }
@@ -100,6 +124,67 @@ struct SchedulePaneView: View {
         let f = DateFormatter()
         f.dateFormat = "LLLL yyyy"   // e.g. "June 2026"
         return f.string(from: model.topVisibleDay.noon)
+    }
+
+    // MARK: - List key monitor (mutually exclusive with the icebox + reader)
+
+    private func installScheduleKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Only when the Schedule is the live surface: on its tab, no reader
+            // up, and not typing in a text field.
+            guard navigator.selectedTab == .schedule,
+                  ItemViewerModel.shared.openItem == nil,
+                  !(NSApp.keyWindow?.firstResponder is NSTextView)
+            else { return event }
+
+            let chars = event.charactersIgnoringModifiers?.lowercased()
+
+            // `*` prefix → wait briefly for a / n (Gmail-style sequence).
+            if event.characters == "*" {
+                pendingStar = true
+                starTimer?.cancel()
+                let work = DispatchWorkItem { pendingStar = false }
+                starTimer = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+                return nil
+            }
+            if pendingStar {
+                pendingStar = false
+                starTimer?.cancel()
+                if chars == "a" {
+                    selection.selectAll(in: ActionableListNavigation.idsInGroup(
+                        of: selection.focusedItemID, model.allGroups))
+                    return nil
+                }
+                if chars == "n" { selection.clearSelection(); return nil }
+                // any other key cancels the sequence and falls through
+            }
+
+            switch chars {
+            case "j": selection.moveFocus(by: 1, order: visibleOrder()); return nil
+            case "k": selection.moveFocus(by: -1, order: visibleOrder()); return nil
+            case "x": selection.toggleSelectedFocused(); return nil
+            default: break
+            }
+            if event.keyCode == 36 || event.keyCode == 76 {        // Return / Enter
+                if let item = selection.focusedItem(in: model.allGroups) {
+                    ItemViewerModel.shared.open(item, over: .schedule)
+                    return nil
+                }
+            }
+            return event
+        }
+    }
+
+    private func visibleOrder() -> [String] {
+        ActionableListNavigation.visibleIDs(model.allGroups, collapsed: model.collapsedLists)
+    }
+
+    private func removeScheduleKeyMonitor() {
+        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+        starTimer?.cancel()
+        pendingStar = false
     }
 
     // MARK: - Google Calendar

@@ -11,6 +11,8 @@ struct ActionableListSection: View {
     let selection: ActionableSelection
     let actions: ActionableActions
     let onOpen: (Item) -> Void
+    /// Forwarded to each row to pick its surface-specific dimming + status.
+    var context: ActionableRow.Context = .icebox
 
     /// Indent for items under a named list, so a row's checkbox column lines up
     /// under the list-name text in the header (the disclosure caret hangs in the
@@ -61,7 +63,8 @@ struct ActionableListSection: View {
                     item: item,
                     onOpen: { onOpen(item) },
                     selection: selection,
-                    actions: actions
+                    actions: actions,
+                    context: context
                 )
                 // Explicit id so the pane's ScrollViewReader can scroll the
                 // keyboard-focused row into view.
