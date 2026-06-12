@@ -43,6 +43,16 @@ enum ActionableKindLabel {
         default: return nil
         }
     }
+
+    /// Frosty accent for the iceboxed status pill. Pale and slightly
+    /// cyan-leaning in dark mode so it reads on the dark window; deeper and
+    /// bolder in light mode so it holds contrast on white. Resolved per
+    /// appearance so the outline pill never goes too faint either way.
+    static func iceColor(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.56, green: 0.80, blue: 0.98)
+            : Color(red: 0.13, green: 0.42, blue: 0.70)
+    }
 }
 
 /// The colored kind pill (white text) shown in the icebox list and the item
@@ -67,4 +77,33 @@ struct KindBadge: View {
                 )
         }
     }
+}
+
+/// Outline status pill: a snowflake + "Iceboxed on {date}". The border, glyph,
+/// and text all carry the theme-aware ice accent; a whisper of tint fill keeps
+/// it from reading as a hollow ring. The snowflake mirrors the Icebox tab glyph,
+/// tying the status back to the tab. Shown only for an item that's iceboxed.
+struct IceboxedBadge: View {
+    let date: Date
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let ice = ActionableKindLabel.iceColor(scheme)
+        HStack(spacing: 4) {
+            Image(systemName: "snowflake")
+            Text("Iceboxed on \(Self.dateFormatter.string(from: date))")
+        }
+        .font(.caption).fontWeight(.medium)
+        .foregroundStyle(ice)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill(ice.opacity(0.12)))
+        .overlay(Capsule().strokeBorder(ice, lineWidth: 1))
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
 }

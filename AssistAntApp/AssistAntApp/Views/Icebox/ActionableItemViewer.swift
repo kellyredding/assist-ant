@@ -145,9 +145,12 @@ struct ActionableItemViewer: View {
     private var metaBar: some View {
         HStack(spacing: 8) {
             KindBadge(item: item)
-            if !metaText.isEmpty {
-                Text(metaText)
+            if let list = item.actionableListName, !list.isEmpty {
+                Text(list)
                     .font(.callout).foregroundStyle(.secondary)
+            }
+            if let at = item.iceboxedAt {
+                IceboxedBadge(date: at)
             }
             Spacer(minLength: 0)
             if let url = item.actionableExternalURL, let u = URL(string: url) {
@@ -213,21 +216,6 @@ struct ActionableItemViewer: View {
         .background(Color(.windowBackgroundColor))
     }
 
-    /// List name and iceboxed date, joined with a middot — the non-badge meta.
-    private var metaText: String {
-        var parts: [String] = []
-        if let list = item.actionableListName { parts.append(list) }
-        if let at = item.iceboxedAt {
-            parts.append("Iceboxed \(Self.dateFormatter.string(from: at))")
-        }
-        return parts.joined(separator: "  ·  ")
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMMd")
-        return f
-    }()
 }
 
 /// Editable plain-text body editor for the actionable reader — an AppKit
