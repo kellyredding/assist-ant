@@ -10,18 +10,15 @@ import Combine
 /// `DeskSettings.timerPhase(at:)`). Audio is: while a nudge is pending the
 /// service runs a 20s repeat timer, and each tick submits the desk nudge
 /// to `AudioAnnouncementCoordinator` only if `AppSettings.audioGateOpen`
-/// (inside the schedule window, not snoozed, mic free). It raises the main
-/// window the first time the nudge is audible in an episode.
+/// (inside the schedule window, not snoozed, mic free). The nudge is
+/// audio-only and never surfaces the app window, so it cannot pull focus
+/// away from whatever app is in front.
 final class DeskService {
     static let shared = DeskService()
 
     private var clockObserver: AnyCancellable?
     private var micObserver: AnyCancellable?
     private var repeatTimer: Timer?
-
-    /// Guards the once-per-episode window raise — set false when a fresh
-    /// nudge episode begins, true once it has surfaced the window.
-    private var raisedForCurrentNudge = false
 
     /// Cadence of the audible nudge repeat while a switch is pending.
     private static let nudgeRepeat: TimeInterval = 20.0
@@ -120,7 +117,6 @@ final class DeskService {
 
         if case .nudge = desk.timerPhase(at: now) {
             if repeatTimer == nil {
-                raisedForCurrentNudge = false
                 fireDeskAudioIfAllowed()      // first audible attempt
                 startRepeatTimer()
             }
@@ -146,8 +142,9 @@ final class DeskService {
     }
 
     /// Submit the desk nudge audio if a nudge is pending and the shared
-    /// gate is open. Raises the main window the first time it's audible in
-    /// this nudge episode (not on a silent, gated-out attempt).
+    /// gate is open. Audio only — it deliberately does not surface or
+    /// activate the app window, so a nudge never interrupts work in
+    /// another app; the user relies on the audible cue.
     private func fireDeskAudioIfAllowed() {
         let appSettings = SettingsManager.shared.settings
         let desk = appSettings.desk
@@ -166,10 +163,5 @@ final class DeskService {
             voiceIdentifier: desk.voiceIdentifier,
             priority: .desk
         ))
-
-        if !raisedForCurrentNudge {
-            raisedForCurrentNudge = true
-            NotificationCenter.default.post(name: .raiseMainWindow, object: nil)
-        }
     }
 }

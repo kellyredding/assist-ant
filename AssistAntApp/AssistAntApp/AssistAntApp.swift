@@ -179,17 +179,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PreferencesWindowController.showPreferences()
         }
         notificationObservers.append(prefsObserver)
-
-        // Surfaced by DeskService when a desk nudge first becomes audible,
-        // so the actionable banner is in front when it speaks.
-        let raiseObserver = NotificationCenter.default.addObserver(
-            forName: .raiseMainWindow,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.openMainWindow()
-        }
-        notificationObservers.append(raiseObserver)
     }
 
     // MARK: - Window lifecycle
@@ -351,10 +340,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
-    /// Posted by `DeskService` when a desk nudge first becomes audible, so
-    /// the AppDelegate can bring the main window forward.
-    static let raiseMainWindow = Notification.Name("raiseMainWindow")
-
     /// Posted by the actionable-sync handler right after it applies a Linear
     /// sync to the item store. Snapshot views that don't observe the store
     /// live (the Icebox) re-fetch on it.
