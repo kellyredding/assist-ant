@@ -248,9 +248,12 @@ module AssistAnt
         # the metadata on its own line instead of folding it into the ticket.
         io << "\n\n#{parts.join("  ·  ")}" unless parts.empty?
 
-        # Issue description (markdown; bare URLs linkified).
+        # Issue description (markdown; bare URLs linkified). Linear's list
+        # response truncates a long description and appends a "(truncated …)"
+        # marker inline with the last line; lift it onto its own block so the
+        # reader's block renderer doesn't fold it into a trailing heading/list.
         if desc = i.description
-          cleaned = linkify_bare_urls(desc.strip)
+          cleaned = lift_truncation_marker(linkify_bare_urls(desc.strip))
           io << "\n\n#{cleaned}" unless cleaned.empty?
         end
       end
@@ -263,6 +266,21 @@ module AssistAnt
 
     def self.linkify_bare_urls(text : String) : String
       text.gsub(URL_RE) { |u| "[#{u}](#{u})" }
+    end
+
+    # Linear's list_issues truncates a long description and appends a trailing
+    # "(truncated, use get_issue for full description)" parenthetical inline
+    # with the last line of content. Under block markdown that styles the
+    # marker as part of whatever the line was — a heading, a list item. Lift it
+    # onto its own block, separated by a blank line, so it renders as its own
+    # plain paragraph. A description without the marker is returned unchanged.
+    TRUNCATION_RE = /\s*(\(truncated[^()]*\))\s*\z/i
+
+    def self.lift_truncation_marker(text : String) : String
+      return text unless m = TRUNCATION_RE.match(text)
+      head = m.pre_match.rstrip
+      marker = m[1]
+      head.empty? ? marker : "#{head}\n\n#{marker}"
     end
   end
 end

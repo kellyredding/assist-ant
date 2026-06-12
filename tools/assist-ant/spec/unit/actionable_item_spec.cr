@@ -55,7 +55,29 @@ describe AssistAnt::LinearSync do
     end
   end
 
+  describe ".lift_truncation_marker" do
+    it "moves a trailing (truncated …) marker onto its own block" do
+      input = "### OAuth Impl... (truncated, use get_issue for full description)"
+      AssistAnt::LinearSync.lift_truncation_marker(input)
+        .should eq "### OAuth Impl...\n\n(truncated, use get_issue for full description)"
+    end
+
+    it "leaves a description without the marker untouched" do
+      input = "## Overview\n\nSome description text."
+      AssistAnt::LinearSync.lift_truncation_marker(input).should eq input
+    end
+  end
+
   describe ".compose_body" do
+    it "lifts Linear's trailing truncation marker onto its own block" do
+      raw = %({"issues":[
+        {"id":"FLEX-8","title":"X","url":"https://l/8","statusType":"started","status":"In Progress","description":"## Technical Requirements\\n\\n### OAuth Impl... (truncated, use get_issue for full description)"}
+      ]})
+      body = AssistAnt::LinearSync.compose_body(linear.parse(raw).first)
+      body.should contain "### OAuth Impl...\n\n(truncated, use get_issue for full description)"
+      body.should_not contain "Impl... (truncated"
+    end
+
     it "leads with the ticket link, then project · milestone · status, then the linkified description" do
       raw = %({"issues":[
         {"id":"FLEX-7","title":"X","url":"https://linear.app/kajabi/issue/FLEX-7","statusType":"started","status":"In Progress","team":"Flex","priority":{"value":2,"name":"High"},"project":"c3: MCP","projectMilestone":{"name":"Panel"},"labels":["bug"],"description":"Repro at https://repro.test/x and see [docs](https://docs.test)."}
