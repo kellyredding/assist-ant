@@ -114,10 +114,18 @@ struct ActionableItemViewer: View {
         HStack(spacing: 10) {
             if edit.isEditing {
                 TextField("Title", text: $edit.title)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .font(.headline)
                     .focused($fieldFocus, equals: .title)
                     .onSubmit { edit.focus = .body }
+                    // Suppress the system focus ring so only the custom border
+                    // shows — matching the body, whose NSTextView sets
+                    // focusRingType = .none.
+                    .focusEffectDisabled()
+                    // The 6/8 inset mirrors the body NSTextView's
+                    // textContainerInset so title and body align as one pair.
+                    .padding(.horizontal, 6).padding(.vertical, 8)
+                    .actionableFieldBorder(focused: edit.focus == .title)
                     .frame(maxWidth: .infinity)
             } else {
                 Text(item.title)
@@ -185,15 +193,7 @@ struct ActionableItemViewer: View {
                 onFocusGained: { if edit.isEditing { edit.focus = .body } }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 6).fill(Color(.textBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6).strokeBorder(
-                    edit.focus == .body ? Color.accentColor : Color(.separatorColor),
-                    lineWidth: edit.focus == .body ? 2 : 1
-                )
-            )
+            .actionableFieldBorder(focused: edit.focus == .body)
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
             .disabled(edit.isSaving)
             Divider()
@@ -305,5 +305,23 @@ final class FocusReportingTextView: NSTextView {
         let ok = super.becomeFirstResponder()
         if ok { onFocusGained?() }
         return ok
+    }
+}
+
+private extension View {
+    /// Rounded focus-highlighting border shared by the actionable reader's
+    /// title and body fields, so the two read as one styled pair: an accent
+    /// stroke at 2pt when focused, a separator stroke at 1pt at rest, over the
+    /// text-background fill.
+    func actionableFieldBorder(focused: Bool) -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 6).fill(Color(.textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6).strokeBorder(
+                focused ? Color.accentColor : Color(.separatorColor),
+                lineWidth: focused ? 2 : 1
+            )
+        )
     }
 }
