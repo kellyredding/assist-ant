@@ -62,22 +62,40 @@ final class IceboxModel: ObservableObject {
     }
 
     // MARK: - Row actions (mutate store + snapshot, no re-fetch)
+    //
+    // The action surface takes a SET of items so one cluster (row hover, reader,
+    // and the batch control bar) can drive it. A single-item caller passes
+    // [item]; the return is the updated rows. `mutateMany` is the set form of
+    // `mutate`.
 
     @discardableResult
-    func complete(_ item: Item) -> Item? { mutate(item) { try store.completeActionable(id: $0) } }
-    @discardableResult
-    func reopen(_ item: Item) -> Item? { mutate(item) { try store.reopenActionable(id: $0) } }
-    @discardableResult
-    func moveToToday(_ item: Item) -> Item? { mutate(item) { try store.moveToToday(id: $0) } }
-    @discardableResult
-    func reIcebox(_ item: Item) -> Item? { mutate(item) { try store.setIceboxed(id: $0, true) } }
-    @discardableResult
-    func reclassify(_ item: Item, to type: ItemType) -> Item? {
-        mutate(item) { try store.reclassify(id: $0, to: type) }
+    func complete(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.completeActionable(id: $0) }
     }
-    /// Save an edited title + body. Not structural (grouping is by list name),
-    /// so the row swaps in place — the list-row title and body preview refresh
-    /// with it.
+    @discardableResult
+    func reopen(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.reopenActionable(id: $0) }
+    }
+    @discardableResult
+    func moveToToday(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.moveToToday(id: $0) }
+    }
+    @discardableResult
+    func reIcebox(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.setIceboxed(id: $0, true) }
+    }
+    @discardableResult
+    func moveToIcebox(_ items: [Item]) -> [Item] {
+        mutateMany(items) { try store.moveToIcebox(id: $0) }
+    }
+    @discardableResult
+    func reclassify(_ items: [Item], to type: ItemType) -> [Item] {
+        mutateMany(items) { try store.reclassify(id: $0, to: type) }
+    }
+
+    /// Save an edited title + body for one item (the reader's edit). Not
+    /// structural, so the row swaps in place — the list-row title + body preview
+    /// refresh with it.
     @discardableResult
     func setTitleAndBody(_ item: Item, title: String, body: String?) -> Item? {
         mutate(item) { try store.setTitleAndBody(id: $0, title: title, body: body) }
@@ -88,21 +106,18 @@ final class IceboxModel: ObservableObject {
         (try? store.knownListNames()) ?? []
     }
 
-    /// Set or clear an item's list name, then regroup. A list change is
-    /// structural — the item moves to a different group — so unlike resolve /
-    /// move this re-reads the snapshot rather than swapping the row in place.
-    /// Returns the updated item so the reader can refresh from it.
+    /// Set or clear the list name for a set, then regroup. A list change is
+    /// structural — items move to a different group — so this re-reads the
+    /// snapshot. (The batch-selection effort replaces this re-fetch with an
+    /// in-place regroup so a multi-action selection survives.)
     @discardableResult
-    func setListName(_ item: Item, to listName: String?) -> Item? {
-        do {
-            try store.setListName(id: item.id, to: listName)
-            let updated = try store.fetch(id: item.id)
-            load(spinner: false)
-            return updated
-        } catch {
-            NSLog("IceboxModel: setListName failed: \(error)")
-            return nil
+    func setListName(_ items: [Item], to listName: String?) -> [Item] {
+        for item in items {
+            do { try store.setListName(id: item.id, to: listName) }
+            catch { NSLog("IceboxModel: setListName failed for \(item.id): \(error)") }
         }
+        load(spinner: false)
+        return items.compactMap { try? store.fetch(id: $0.id) }
     }
 
     /// Run a store mutation, then re-read the single row and swap it into
@@ -121,6 +136,25 @@ final class IceboxModel: ObservableObject {
             NSLog("IceboxModel: action failed: \(error)")
         }
         return nil
+    }
+
+    /// The set form of `mutate`: apply `op` per id, re-read each row, swap it
+    /// into `groups` in place (same position), and return the updated rows.
+    @discardableResult
+    private func mutateMany(_ items: [Item], _ op: (String) throws -> Void) -> [Item] {
+        var updated: [Item] = []
+        for item in items {
+            do {
+                try op(item.id)
+                if let u = try store.fetch(id: item.id) {
+                    replaceInPlace(u)
+                    updated.append(u)
+                }
+            } catch {
+                NSLog("IceboxModel: batch action failed for \(item.id): \(error)")
+            }
+        }
+        return updated
     }
 
     private func replaceInPlace(_ updated: Item) {

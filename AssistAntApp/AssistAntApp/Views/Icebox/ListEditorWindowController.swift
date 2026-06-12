@@ -18,15 +18,16 @@ final class ListEditorWindowController: NSWindowController, NSWindowDelegate {
     private var outcome: ListEditorOutcome = .cancel
     private var escapeMonitor: Any?
 
-    /// Show the editor for `item`, block until dismissed, and return the chosen
-    /// outcome. The caller applies it (via IceboxModel) so the store mutation
-    /// stays in the action layer.
-    static func present(for item: Item) -> ListEditorOutcome {
-        ListEditorWindowController(item: item).runModalForOutcome()
+    /// Show the editor prefilled with `currentName` (the shared list name, or
+    /// nil for "Add to list" / a mixed selection), block until dismissed, and
+    /// return the chosen outcome. The caller applies it (via IceboxModel) so the
+    /// store mutation stays in the action layer.
+    static func present(currentName: String?) -> ListEditorOutcome {
+        ListEditorWindowController(currentName: currentName).runModalForOutcome()
     }
 
-    private init(item: Item) {
-        let current = item.actionableListName
+    private init(currentName: String?) {
+        let current = currentName
         let known = (try? GRDBItemStore.shared.knownListNames()) ?? []
 
         let window = NSWindow(

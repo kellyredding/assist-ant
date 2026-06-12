@@ -686,6 +686,30 @@ check("setTitleAndBody: sets (trimmed), blank body clears, blank title kept") {
         && b.title == "new title" && b.body == nil
 }
 
+// 34. moveToIcebox stamps iceboxed_at + clears scheduled_on (inverse of
+//     moveToToday): the item leaves Today and joins the icebox.
+check("moveToIcebox: enters icebox, drops schedule") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       scheduledOn: CivilDate(year: 2026, month: 6, day: 12))
+    try store.create(item)
+    try store.moveToIcebox(id: item.id)
+    guard let after = try store.fetch(id: item.id) else { return false }
+    let inIcebox = try store.fetchIceboxed().contains { $0.id == item.id }
+    return after.iceboxedAt != nil && after.scheduledOn == nil && inIcebox
+}
+
+// 35. resolveVerb accumulates across kinds: to-do/explore → "Done", reminder →
+//     "Dismiss", a mixed batch → "Done / Dismiss".
+check("resolveVerb: per-kind and mixed-batch accumulation") {
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData()))
+    let explore = newItem(type: .explore, typeData: .explore(ActionableData()))
+    let reminder = newItem(type: .reminder, typeData: .reminder(ActionableData()))
+    return ItemActionState.verb(for: [todo, explore]) == "Done"
+        && ItemActionState.verb(for: [reminder]) == "Dismiss"
+        && ItemActionState.verb(for: [todo, reminder]) == "Done / Dismiss"
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

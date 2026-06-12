@@ -446,6 +446,18 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    func moveToIcebox(id: String) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.iceboxedAt = Date()
+            item.scheduledOn = nil   // an iceboxed item carries no schedule
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
     // Rewrite the actionable payload with a new list name, preserving the kind
     // and external URL. A blank/whitespace name clears the list. Non-actionable
     // items have no list and are left untouched.

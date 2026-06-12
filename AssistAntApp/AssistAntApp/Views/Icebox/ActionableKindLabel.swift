@@ -14,11 +14,10 @@ enum ActionableKindLabel {
         }
     }
 
-    /// Resolve-button verb: "Done" for to-do and explore, "Dismiss" for
-    /// reminder.
+    /// Resolve-button verb for one item — delegates to the model-layer
+    /// `ItemActionState` so the single source of truth also covers batches.
     static func resolveVerb(for item: Item) -> String {
-        if case .reminder = item.typeData { return "Dismiss" }
-        return "Done"
+        ItemActionState.verb(for: [item])
     }
 
     /// Menu title for a kind offered by the reclassify menu.

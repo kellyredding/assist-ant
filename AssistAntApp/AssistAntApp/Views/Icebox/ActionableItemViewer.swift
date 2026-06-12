@@ -114,7 +114,7 @@ struct ActionableItemViewer: View {
                 Text(item.title)
                     .font(.headline).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 12)
-                IceboxItemActions(item: item, onChange: onItemChange)
+                ItemActions(items: [item], context: .icebox, onChange: onItemChange)
                 PointerIconButton(
                     systemName: "square.and.pencil", help: "Edit (⌘↵)",
                     action: onBeginEdit

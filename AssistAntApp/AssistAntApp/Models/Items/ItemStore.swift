@@ -103,6 +103,11 @@ protocol ItemStore {
     /// it accumulates as an unscheduled actionable. One atomic write.
     func moveToToday(id: String) throws
 
+    /// Move an active item into the icebox: stamp iceboxed_at = now and clear
+    /// scheduled_on (an iceboxed item carries no schedule). The inverse of
+    /// moveToToday. One atomic write.
+    func moveToIcebox(id: String) throws
+
     /// Set or clear an actionable item's list name (nil or blank clears it),
     /// preserving the kind and the external URL. No-op for a non-actionable
     /// item.

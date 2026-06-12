@@ -84,7 +84,7 @@ struct IceboxRow: View {
         // Shared with the actionable reader's control bar. The list row needs
         // no onChange callback — it re-renders from the model's regrouped
         // snapshot after a mutation.
-        IceboxItemActions(item: item)
+        ItemActions(items: [item], context: .icebox)
             // Scrim so the floating buttons stay legible over the title/date.
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(
