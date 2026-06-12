@@ -67,6 +67,11 @@ struct ActionableItemViewer: View {
 
     @FocusState private var fieldFocus: ActionableEditField?
 
+    /// A resolved (done/dismissed) item reads as struck-through and dimmed in
+    /// the reader, mirroring the list row — a settled item still opens, it just
+    /// shows as complete.
+    private var isResolved: Bool { item.resolvedAt != nil }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -76,6 +81,10 @@ struct ActionableItemViewer: View {
             } else {
                 EventBodyTextView(markdown: item.body ?? "")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The body renders its own text colors, so opacity (not a
+                    // foreground style) is what mutes the whole resolved block —
+                    // matching the dimmed, secondary title above it.
+                    .opacity(isResolved ? 0.5 : 1)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -113,6 +122,8 @@ struct ActionableItemViewer: View {
             } else {
                 Text(item.title)
                     .font(.headline).lineLimit(1).truncationMode(.tail)
+                    .strikethrough(isResolved)
+                    .foregroundStyle(isResolved ? .secondary : .primary)
                 Spacer(minLength: 12)
                 ItemActions(items: [item], context: .icebox, onChange: onItemChange)
                 PointerIconButton(
