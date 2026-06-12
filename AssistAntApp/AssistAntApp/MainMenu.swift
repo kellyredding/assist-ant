@@ -371,6 +371,18 @@ final class MenuActions: NSObject {
         return false
     }
 
+    /// Whether the key window's first responder is an *editable* text view —
+    /// e.g. the actionable reader's title field editor or its body editor.
+    /// Read-only text (the rendered body: selectable but not editable) returns
+    /// false, so View ▸ Previous/Next view stays enabled while merely viewing.
+    /// Used to surrender ⌘←/→ and ⌘H/⌘L to the focused editor so its native
+    /// line navigation — including ⌘⇧←/→ selection and ⌥-word motion — works.
+    static func editableTextIsFocused() -> Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder as? NSTextView
+        else { return false }
+        return responder.isEditable
+    }
+
     // MARK: - Agent menu actions
 
     /// Agent ▸ Scrollback. Posts the notification the agent terminal host
@@ -426,7 +438,9 @@ extension MenuActions: NSMenuItemValidation {
         let controller = AgentSessionController.shared
         switch menuItem.action {
         case #selector(previousView(_:)), #selector(nextView(_:)):
-            return MainTab.allCases.count > 1
+            // Surrender ⌘←/→ and ⌘H/⌘L to a focused text editor so its native
+            // line navigation (incl. ⌘⇧←/→ selection) wins over tab switching.
+            return MainTab.allCases.count > 1 && !Self.editableTextIsFocused()
         case #selector(defaultTerminalFontSize(_:)):
             return Self.agentTerminalIsFocused()
         case #selector(biggerTerminalFontSize(_:)):

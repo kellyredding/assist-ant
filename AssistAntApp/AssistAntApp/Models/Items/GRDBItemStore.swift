@@ -387,6 +387,25 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    // Save the user-editable title and body in one write. The title is
+    // trimmed and required — a blank value is ignored so the existing title
+    // survives. The body trims (so editor-trailing blank lines don't
+    // accumulate) and clears to NULL when blank. Type-agnostic: any item
+    // carries both a title and a body.
+    func setTitleAndBody(id: String, title: String, body: String?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { item.title = t }
+            let b = body?.trimmingCharacters(in: .whitespacesAndNewlines)
+            item.body = (b?.isEmpty == false) ? b : nil
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
     func completeActionable(id: String) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }

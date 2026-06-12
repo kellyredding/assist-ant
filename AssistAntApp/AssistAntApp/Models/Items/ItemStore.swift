@@ -71,6 +71,13 @@ protocol ItemStore {
     /// makes it always-today.
     func reschedule(id: String, to scheduledOn: CivilDate?) throws
 
+    /// Save the user-editable title and body in one write. The title is
+    /// trimmed and required — a blank title is ignored (the existing one is
+    /// kept); the body trims, and a blank value clears it to NULL. A local
+    /// edit — on a synced item the next sync still refreshes both from
+    /// upstream.
+    func setTitleAndBody(id: String, title: String, body: String?) throws
+
     /// Swap an actionable item's kind, preserving payload/identity/schedule/
     /// resolution/position. Throws `reclassifyRequiresActionable` if the item
     /// or the target is not actionable.

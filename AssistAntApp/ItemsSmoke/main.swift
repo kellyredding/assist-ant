@@ -672,6 +672,20 @@ check("setListName: sets, preserves URL, surfaces in known, blank clears") {
         && d2.listName == nil
 }
 
+// 33. setTitleAndBody trims and stores both; a blank body clears to NULL, and
+//     a blank title is ignored (the existing title survives).
+check("setTitleAndBody: sets (trimmed), blank body clears, blank title kept") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()), title: "orig")
+    try store.create(item)
+    try store.setTitleAndBody(id: item.id, title: "  new title  ", body: "  new body  ")
+    guard let a = try store.fetch(id: item.id) else { return false }
+    try store.setTitleAndBody(id: item.id, title: "   ", body: "   ")
+    guard let b = try store.fetch(id: item.id) else { return false }
+    return a.title == "new title" && a.body == "new body"
+        && b.title == "new title" && b.body == nil
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

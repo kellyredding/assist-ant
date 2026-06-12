@@ -75,6 +75,13 @@ final class IceboxModel: ObservableObject {
     func reclassify(_ item: Item, to type: ItemType) -> Item? {
         mutate(item) { try store.reclassify(id: $0, to: type) }
     }
+    /// Save an edited title + body. Not structural (grouping is by list name),
+    /// so the row swaps in place — the list-row title and body preview refresh
+    /// with it.
+    @discardableResult
+    func setTitleAndBody(_ item: Item, title: String, body: String?) -> Item? {
+        mutate(item) { try store.setTitleAndBody(id: $0, title: title, body: body) }
+    }
 
     /// Distinct list names in use, for the list-editor combobox suggestions.
     func knownListNames() -> [String] {
