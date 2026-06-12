@@ -25,7 +25,11 @@ struct IceboxRow: View {
             // Overlay (not a ZStack child) so the floating buttons never add
             // to the row's height — a hovered row stays the same size.
             .overlay(alignment: .trailing) {
-                if isHovering { actions.padding(.trailing, 8) }
+                // Flush to the row's trailing content edge — the outer
+                // .padding(.horizontal, 8) below is the only right inset, so
+                // the floating card sits 8pt from the list edge with no extra
+                // gap stacked on top of it.
+                if isHovering { actions }
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
