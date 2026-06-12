@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The shared item-actions cluster: a Resolve slot and an Icebox slot. It drives
@@ -21,6 +22,7 @@ struct ItemActions: View {
     var onChange: (Item) -> Void = { _ in }
 
     @ObservedObject private var model = IceboxModel.shared
+    @State private var kindMenuHovering = false
 
     private var state: ItemActionState { ItemActionState(items) }
     /// The members an action targets: resolved items are skipped (already
@@ -71,44 +73,64 @@ struct ItemActions: View {
         state.allIceboxed ? "Move to Today" : "Move to Icebox"
     }
 
+    // A real pointer-button (hover highlight + hand cursor, like the close /
+    // link buttons) — the overlay is the topmost hit view, so the hand cursor
+    // wins over the glyph everywhere. A SwiftUI Menu can't be a pointerButton
+    // (the button would eat the click the menu needs), so the click pops an
+    // AppKit NSMenu built from the same items. Vertical triple-dots: the
+    // horizontal `ellipsis` rotated 90° (no guaranteed vertical SF Symbol).
     private var kindMenu: some View {
-        Menu {
-            Section("Change kind") {
-                ForEach([ItemType.todo, .reminder, .explore], id: \.self) { kind in
-                    Button {
-                        apply(items) { model.reclassify($0, to: kind) }
-                    } label: {
-                        // Checkmark only when every item already is this kind.
-                        if items.allSatisfy({ $0.typeData.kind == kind.rawValue }) {
-                            Label(ActionableKindLabel.menuTitle(kind), systemImage: "checkmark")
-                        } else {
-                            Text(ActionableKindLabel.menuTitle(kind))
-                        }
-                    }
-                }
-            }
-            Button(listMenuTitle) {
-                // Menu actions fire after the menu's tracking loop ends, so it
-                // is safe to spin the modal window's nested run loop here. The
-                // editor prefills the shared list name (nil when the set spans
-                // multiple lists) and applies the choice to every item.
-                switch ListEditorWindowController.present(currentName: sharedListName) {
-                case .cancel: break
-                case .save(let name): apply(items) { model.setListName($0, to: name) }
-                case .remove: apply(items) { model.setListName($0, to: nil) }
-                }
-            }
-        } label: {
-            // Vertical triple-dots: rotate the horizontal `ellipsis` 90° (no
-            // standalone vertical SF Symbol is guaranteed across SDKs).
-            Image(systemName: "ellipsis")
-                .rotationEffect(.degrees(90))
-                .font(.system(size: 13)).foregroundStyle(.primary)
-                .frame(width: 22, height: 20)
+        Image(systemName: "ellipsis")
+            .rotationEffect(.degrees(90))
+            .font(.system(size: 13)).foregroundStyle(.primary)
+            .frame(width: 24, height: 24)
+            .background(Circle().fill(Color.primary.opacity(kindMenuHovering ? 0.12 : 0)))
+            .animation(.easeInOut(duration: 0.15), value: kindMenuHovering)
+            .pointerButton(onHoverChange: { kindMenuHovering = $0 }, action: presentKindMenu)
+    }
+
+    private func presentKindMenu() {
+        let menu = NSMenu()
+
+        let header = NSMenuItem(title: "Change kind", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        for kind in [ItemType.todo, .reminder, .explore] {
+            // Checkmark only when every item already is this kind.
+            let allThisKind = items.allSatisfy { $0.typeData.kind == kind.rawValue }
+            menu.addItem(ClosureMenuItem(
+                title: ActionableKindLabel.menuTitle(kind),
+                state: allThisKind ? .on : .off
+            ) { apply(items) { model.reclassify($0, to: kind) } })
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 22)
+
+        menu.addItem(.separator())
+        // The editor prefills the shared list name (nil when the set spans
+        // multiple lists) and applies the choice to every item. The menu's
+        // tracking loop has ended by the time this fires, so spinning the
+        // editor's modal run loop here is safe.
+        menu.addItem(ClosureMenuItem(title: listMenuTitle) {
+            switch ListEditorWindowController.present(currentName: sharedListName) {
+            case .cancel: break
+            case .save(let name): apply(items) { model.setListName($0, to: name) }
+            case .remove: apply(items) { model.setListName($0, to: nil) }
+            }
+        })
+
+        // Match the window's light/dark appearance — a detached NSMenu otherwise
+        // defaults to the system appearance — and clamp the origin so the whole
+        // menu stays inside the window instead of spilling past its edge.
+        // `in: nil` → `at` is the menu's top-left in screen coordinates (the
+        // menu extends down and right from there).
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        menu.appearance = window?.effectiveAppearance
+        var origin = NSEvent.mouseLocation
+        if let frame = window?.frame {
+            let size = menu.size
+            origin.x = max(frame.minX, min(origin.x, frame.maxX - size.width))
+            origin.y = min(frame.maxY, max(origin.y, frame.minY + size.height))
+        }
+        menu.popUp(positioning: nil, at: origin, in: nil)
     }
 
     /// "Add to list" when no item has a list, else "Change list".
@@ -128,4 +150,22 @@ struct ItemActions: View {
         let updated = op(targets)
         if items.count == 1, let u = updated.first { onChange(u) }
     }
+}
+
+/// An NSMenuItem that runs a closure when chosen (it is its own target/action),
+/// so a SwiftUI-built popup menu needs no separate @objc coordinator.
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, state: NSControl.StateValue = .off, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
+        target = self
+        self.state = state
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func invoke() { handler() }
 }
