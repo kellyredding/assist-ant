@@ -9,6 +9,7 @@ struct TodayItemsView: View {
     @StateObject private var model = TodayItemsModel()
     @ObservedObject private var layout = SidebarLayoutModel.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
+    @ObservedObject private var linearSync = LinearSyncCoordinator.shared
 
     private var isExpanded: Bool {
         layout.fraction >= SidebarMetrics.toggleThreshold
@@ -83,14 +84,31 @@ struct TodayItemsView: View {
     /// to-do feature.
     private var todoColumn: some View {
         ItemListSection(
-            title: "To-Do",
+            title: "Todo / Explore",
             emoji: "✅",
             isEmpty: true,
-            emptyText: "No to-dos"
+            emptyText: "No to-dos",
+            headerAccessory: AnyView(linearSyncButton)
         ) {
             EmptyView()
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Re-sync affordance in the To-Do header: asks the agent to run the Linear
+    /// sync skill. A spinner shows while a sync is in flight; the list updates
+    /// itself when the new data lands (TodayItemsModel observes the store).
+    @ViewBuilder private var linearSyncButton: some View {
+        if linearSync.isSyncing {
+            ProgressView().controlSize(.small)
+        } else {
+            PointerIconButton(
+                systemName: "arrow.clockwise",
+                help: "Re-sync to-dos with the agent"
+            ) {
+                LinearSyncCoordinator.shared.requestSync()
+            }
+        }
     }
 }
