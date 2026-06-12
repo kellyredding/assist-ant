@@ -1,18 +1,21 @@
 import SwiftUI
 
-/// One icebox group. The no-list group (listName == nil) renders its rows
-/// flat at the top with no header; a named list gets a chevron header that
-/// collapses/expands its rows.
-struct IceboxGroupSection: View {
-    let group: IceboxGroup
+/// One actionable list group. The no-list group (listName == nil) renders its
+/// rows flat at the top with no header; a named list gets a chevron header that
+/// collapses/expands its rows. Forwards the shared selection + actions to each
+/// row so the same list renders on any surface (Icebox today, Schedule next).
+struct ActionableListSection: View {
+    let group: ActionableGroup
     let isCollapsed: Bool
     let onToggle: (String) -> Void
+    let selection: ActionableSelection
+    let actions: ActionableActions
     let onOpen: (Item) -> Void
 
     /// Indent for items under a named list, so a row's checkbox column lines up
     /// under the list-name text in the header (the disclosure caret hangs in the
-    /// left margin) and the rows read as a sub-list. Every row now leads with
-    /// the selection gutter (focus bar + checkbox), so this is the header name's
+    /// left margin) and the rows read as a sub-list. Every row leads with the
+    /// selection gutter (focus bar + checkbox), so this is the header name's
     /// offset (pad 12 + caret 14 + spacing 6 = 32) minus the checkbox's offset
     /// within a row (outer pad 8 + gutter lead 6 + bar 3 + spacing 8 = 25).
     private static let nestedIndent: CGFloat = 7
@@ -54,10 +57,15 @@ struct IceboxGroupSection: View {
     private var rows: some View {
         VStack(spacing: 0) {
             ForEach(group.items, id: \.id) { item in
-                IceboxRow(item: item, onOpen: { onOpen(item) })
-                    // Explicit id so the pane's ScrollViewReader can scroll the
-                    // keyboard-focused row into view.
-                    .id(item.id)
+                ActionableRow(
+                    item: item,
+                    onOpen: { onOpen(item) },
+                    selection: selection,
+                    actions: actions
+                )
+                // Explicit id so the pane's ScrollViewReader can scroll the
+                // keyboard-focused row into view.
+                .id(item.id)
             }
         }
     }

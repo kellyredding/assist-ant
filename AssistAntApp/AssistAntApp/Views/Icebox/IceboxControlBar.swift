@@ -5,23 +5,29 @@ import SwiftUI
 /// selection exists it also shows a count and the shared actions cluster, which
 /// then drives the whole selection as a batch.
 struct IceboxControlBar: View {
+    let groups: [ActionableGroup]
+    let collapsedLists: Set<String>
+    @ObservedObject var selection: ActionableSelection
+    let actions: ActionableActions
     let onRefresh: () -> Void
     let isWorking: Bool
-    @ObservedObject private var model = IceboxModel.shared
 
     var body: some View {
         HStack(spacing: 12) {
             Text("Items").font(.headline)
-            if model.hasSelection {
-                Text("\(model.selectedIDs.count) selected")
+            if selection.hasSelection {
+                Text("\(selection.selectedIDs.count) selected")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
-            if model.hasSelection {
-                // Same cluster as the row hover / reader, fed the selection. A
-                // batch omits onChange — the model updates the snapshot and the
-                // selection directly. The slots are state-driven (no context).
-                ItemActions(items: model.selectedItems)
+            if selection.hasSelection {
+                // Same cluster as the row hover / reader, fed the selection. The
+                // batch omits onChange — the actions update the snapshot + the
+                // selection directly. Slots are state-driven (no view context).
+                ItemActions(
+                    items: selection.selectedItems(in: groups, collapsed: collapsedLists),
+                    actions: actions
+                )
             }
             if isWorking {
                 ProgressView().controlSize(.small)

@@ -7,17 +7,18 @@ import SwiftUI
 /// snapshot item, so an action's effect shows immediately while the list keeps
 /// the row until the next refresh: a resolved row is struck + dimmed, and a row
 /// that has just left the icebox dims in place until it drops on refresh.
-struct IceboxRow: View {
+struct ActionableRow: View {
     let item: Item
     let onOpen: () -> Void
+    @ObservedObject var selection: ActionableSelection
+    let actions: ActionableActions
 
-    @ObservedObject private var model = IceboxModel.shared
     @State private var isHovering = false
 
     private var isResolved: Bool { item.resolvedAt != nil }
     private var isMoved: Bool { item.resolvedAt == nil && item.iceboxedAt == nil }
-    private var isFocused: Bool { model.focusedItemID == item.id }
-    private var isSelected: Bool { model.selectedIDs.contains(item.id) }
+    private var isFocused: Bool { selection.focusedItemID == item.id }
+    private var isSelected: Bool { selection.selectedIDs.contains(item.id) }
 
     var body: some View {
         // The gutter (focus bar + checkbox) is a SIBLING of the tappable row
@@ -32,7 +33,7 @@ struct IceboxRow: View {
         // row's height — a hovered row stays the same size. Flush to the row's
         // trailing content edge: the outer .padding(.horizontal, 8) is the only
         // right inset, so the floating card sits 8pt from the list edge.
-        .overlay(alignment: .trailing) { if isHovering { actions } }
+        .overlay(alignment: .trailing) { if isHovering { hoverCluster } }
         // Persistent selected shading, with the transient hover tint layered on.
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -59,7 +60,7 @@ struct IceboxRow: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
-                .pointerButton(onHoverChange: { _ in }, action: { model.toggleSelected(item.id) })
+                .pointerButton(onHoverChange: { _ in }, action: { selection.toggleSelected(item.id) })
         }
         .padding(.leading, 6)
     }
@@ -104,11 +105,10 @@ struct IceboxRow: View {
         return Self.dateFormatter.string(from: at)
     }
 
-    private var actions: some View {
-        // Shared with the actionable reader's control bar. The list row needs
-        // no onChange callback — it re-renders from the model's regrouped
-        // snapshot after a mutation.
-        ItemActions(items: [item])
+    private var hoverCluster: some View {
+        // Shared with the reader's control bar. The list row needs no onChange
+        // callback — it re-renders from the model's regrouped snapshot.
+        ItemActions(items: [item], actions: actions)
             // Scrim so the floating buttons stay legible over the title/date.
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(

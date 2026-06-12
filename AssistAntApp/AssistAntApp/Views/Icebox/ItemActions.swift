@@ -20,8 +20,8 @@ import SwiftUI
 struct ItemActions: View {
     let items: [Item]
     var onChange: (Item) -> Void = { _ in }
+    let actions: ActionableActions
 
-    @ObservedObject private var model = IceboxModel.shared
     @State private var kindMenuHovering = false
 
     private var state: ItemActionState { ItemActionState(items) }
@@ -45,11 +45,11 @@ struct ItemActions: View {
     private var resolveButton: some View {
         if state.allResolved {
             CapsuleActionButton(title: "Restore", compact: true) {
-                apply(items) { model.reopen($0) }
+                apply(items) { actions.reopen($0) }
             }
         } else {
             CapsuleActionButton(title: state.resolveVerb, compact: true) {
-                apply(activeItems) { model.complete($0) }
+                apply(activeItems) { actions.complete($0) }
             }
         }
     }
@@ -60,9 +60,9 @@ struct ItemActions: View {
     private var iceboxButton: some View {
         CapsuleActionButton(title: iceboxTitle, compact: true) {
             if state.allIceboxed {
-                apply(activeItems) { model.removeFromIcebox($0) }
+                apply(activeItems) { actions.removeFromIcebox($0) }
             } else {
-                apply(activeItems) { model.moveToIcebox($0) }
+                apply(activeItems) { actions.moveToIcebox($0) }
             }
         }
         .disabled(state.allResolved)
@@ -101,7 +101,7 @@ struct ItemActions: View {
             menu.addItem(ClosureMenuItem(
                 title: ActionableKindLabel.menuTitle(kind),
                 state: allThisKind ? .on : .off
-            ) { apply(items) { model.reclassify($0, to: kind) } })
+            ) { apply(items) { actions.reclassify($0, kind) } })
         }
 
         menu.addItem(.separator())
@@ -112,8 +112,8 @@ struct ItemActions: View {
         menu.addItem(ClosureMenuItem(title: listMenuTitle) {
             switch ListEditorWindowController.present(currentName: sharedListName) {
             case .cancel: break
-            case .save(let name): apply(items) { model.setListName($0, to: name) }
-            case .remove: apply(items) { model.setListName($0, to: nil) }
+            case .save(let name): apply(items) { actions.setListName($0, name) }
+            case .remove: apply(items) { actions.setListName($0, nil) }
             }
         })
 

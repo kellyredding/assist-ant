@@ -8,12 +8,14 @@ import SwiftUI
 /// keystroke handling — the reader is no longer hosted here.
 ///
 /// The pane installs a list-level key monitor for Gmail-style navigation and
-/// selection (J/K focus, X toggle, Enter opens, `*a` / `*n` select-all / none).
-/// It is mutually exclusive with the reader's own monitor: every handler is
-/// gated on `ItemViewerModel.openItem == nil` and goes inert while a text field
-/// holds focus, so the two monitors never both act on a keystroke.
+/// selection (J/K focus, X toggle, Enter opens, `*a` / `*n` select-all / none),
+/// driving the model's shared `ActionableSelection`. It is mutually exclusive
+/// with the reader's own monitor: every handler is gated on
+/// `ItemViewerModel.openItem == nil` and goes inert while a text field holds
+/// focus, so the two monitors never both act on a keystroke.
 struct IceboxPaneView: View {
     @ObservedObject private var model = IceboxModel.shared
+    @ObservedObject private var selection = IceboxModel.shared.selection
     @ObservedObject private var navigator = MainTabNavigator.shared
 
     @State private var keyMonitor: Any?
@@ -37,6 +39,10 @@ struct IceboxPaneView: View {
     private var listPane: some View {
         VStack(spacing: 0) {
             IceboxControlBar(
+                groups: model.groups,
+                collapsedLists: model.collapsedLists,
+                selection: selection,
+                actions: model.actions,
                 onRefresh: { model.refresh() },
                 isWorking: model.isWorking
             )
@@ -63,14 +69,16 @@ struct IceboxPaneView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.groups) { group in
-                            IceboxGroupSection(
+                            ActionableListSection(
                                 group: group,
                                 isCollapsed: group.listName.map(model.isCollapsed) ?? false,
                                 onToggle: { name in model.toggleCollapse(name) },
+                                selection: selection,
+                                actions: model.actions,
                                 onOpen: { item in
                                     // Carry keyboard focus to the opened row so
                                     // returning from the reader leaves it focused.
-                                    model.focus(item.id)
+                                    selection.focus(item.id)
                                     ItemViewerModel.shared.open(item, over: .icebox)
                                 }
                             )
@@ -78,7 +86,7 @@ struct IceboxPaneView: View {
                     }
                 }
                 // Keep the keyboard-focused row visible as J/K move it.
-                .onChange(of: model.focusedItemID) { _, id in
+                .onChange(of: selection.focusedItemID) { _, id in
                     guard let id else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
                 }
@@ -113,25 +121,33 @@ struct IceboxPaneView: View {
             if pendingStar {
                 pendingStar = false
                 starTimer?.cancel()
-                if chars == "a" { model.selectAllInFocusedGroup(); return nil }
-                if chars == "n" { model.clearSelection(); return nil }
+                if chars == "a" {
+                    selection.selectAll(in: ActionableListNavigation.idsInGroup(
+                        of: selection.focusedItemID, model.groups))
+                    return nil
+                }
+                if chars == "n" { selection.clearSelection(); return nil }
                 // any other key cancels the sequence and falls through
             }
 
             switch chars {
-            case "j": model.moveFocus(by: 1); return nil
-            case "k": model.moveFocus(by: -1); return nil
-            case "x": model.toggleSelectedFocused(); return nil
+            case "j": selection.moveFocus(by: 1, order: visibleOrder()); return nil
+            case "k": selection.moveFocus(by: -1, order: visibleOrder()); return nil
+            case "x": selection.toggleSelectedFocused(); return nil
             default: break
             }
             if event.keyCode == 36 || event.keyCode == 76 {        // Return / Enter
-                if let item = model.focusedItem {
+                if let item = selection.focusedItem(in: model.groups) {
                     ItemViewerModel.shared.open(item, over: .icebox)
                     return nil
                 }
             }
             return event
         }
+    }
+
+    private func visibleOrder() -> [String] {
+        ActionableListNavigation.visibleIDs(model.groups, collapsed: model.collapsedLists)
     }
 
     private func removeListKeyMonitor() {

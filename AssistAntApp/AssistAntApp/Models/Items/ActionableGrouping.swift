@@ -1,23 +1,23 @@
 import Foundation
 
-/// One named (or unnamed) list of iceboxed items. `listName == nil` is the
+/// One named (or unnamed) list of actionable items. `listName == nil` is the
 /// "no list" group, rendered first. `id` is stable for ForEach + collapse
 /// tracking.
-struct IceboxGroup: Identifiable, Equatable {
+struct ActionableGroup: Identifiable, Equatable {
     let listName: String?
     let items: [Item]
     var isNamed: Bool { listName != nil }
     var id: String { listName ?? "\u{0}__no_list__" }
 }
 
-/// Pure derivation of the icebox's list sections. No SwiftUI, no I/O.
-enum IceboxGrouping {
-    /// Group `items` (already fetched via `fetchIceboxed`) into: the no-list
-    /// group first, then named lists ordered case-insensitively A→Z. A named
-    /// list appears only when at least one fetched item carries it — empty
-    /// lists never render, since the groups derive from the items present.
-    /// Within each group, newest-iceboxed first (nil iceboxed last), then id.
-    static func groups(items: [Item]) -> [IceboxGroup] {
+/// Pure derivation of an actionable list's sections. No SwiftUI, no I/O.
+enum ActionableGrouping {
+    /// Group `items` into: the no-list group first, then named lists ordered
+    /// case-insensitively A→Z. A named list appears only when at least one item
+    /// carries it — empty lists never render, since the groups derive from the
+    /// items present. Within each group, newest-iceboxed first (nil iceboxed
+    /// last), then id.
+    static func groups(items: [Item]) -> [ActionableGroup] {
         let grouped = Dictionary(grouping: items) { $0.actionableListName }
 
         func sortedItems(_ items: [Item]) -> [Item] {
@@ -31,15 +31,15 @@ enum IceboxGrouping {
             }
         }
 
-        var out: [IceboxGroup] = []
+        var out: [ActionableGroup] = []
         if let noList = grouped[nil], !noList.isEmpty {
-            out.append(IceboxGroup(listName: nil, items: sortedItems(noList)))
+            out.append(ActionableGroup(listName: nil, items: sortedItems(noList)))
         }
         let named = grouped
             .compactMap { key, value in key.map { ($0, value) } }
             .sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
         for (name, items) in named {
-            out.append(IceboxGroup(listName: name, items: sortedItems(items)))
+            out.append(ActionableGroup(listName: name, items: sortedItems(items)))
         }
         return out
     }
@@ -47,7 +47,7 @@ enum IceboxGrouping {
 
 extension Item {
     /// The actionable list name, normalized (trimmed; empty → nil). The
-    /// icebox grouping key. Non-actionable items have no list name.
+    /// grouping key. Non-actionable items have no list name.
     var actionableListName: String? {
         let raw: String?
         switch typeData {

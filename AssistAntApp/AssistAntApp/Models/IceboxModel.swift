@@ -10,18 +10,16 @@ import Combine
 final class IceboxModel: ObservableObject {
     static let shared = IceboxModel()
 
-    @Published private(set) var groups: [IceboxGroup] = []
+    @Published private(set) var groups: [ActionableGroup] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isWorking = false
     /// Collapsed named lists (by list name). In-memory for the session;
     /// survives tab switches (singleton) but not relaunch.
     @Published private(set) var collapsedLists: Set<String> = []
-    /// Rows selected for batch actions, by item id — survives regrouping so a
-    /// chained selection stays visible and undoable.
-    @Published private(set) var selectedIDs: Set<String> = []
-    /// The row receiving X / Enter (the focus bar), by item id. Distinct from
-    /// selection: a row can be focused without being selected and vice-versa.
-    @Published private(set) var focusedItemID: String?
+    /// Selection + keyboard focus for the list, by item id. A separate
+    /// observable so the row, control bar, and key monitor observe it without
+    /// re-rendering on every snapshot change.
+    let selection = ActionableSelection()
 
     private let store: ItemStore
     private var hasActivatedOnce = false
@@ -67,38 +65,19 @@ final class IceboxModel: ObservableObject {
         collapsedLists.contains(listName)
     }
 
-    // MARK: - Selection & focus (by item id, survives regrouping)
+    // MARK: - Shared action API (bound to the snapshot mutations below)
 
-    var hasSelection: Bool { !selectedIDs.isEmpty }
-
-    /// The selected items in visible (top→bottom) order, for feeding the
-    /// batch cluster.
-    var selectedItems: [Item] {
-        let order = IceboxNavigation.visibleIDs(groups, collapsed: collapsedLists)
-        let byID = Dictionary(
-            uniqueKeysWithValues: groups.flatMap(\.items).map { ($0.id, $0) })
-        return order.filter(selectedIDs.contains).compactMap { byID[$0] }
-    }
-
-    /// The currently focused item, for Enter-to-open.
-    var focusedItem: Item? {
-        guard let focusedItemID else { return nil }
-        return groups.flatMap(\.items).first { $0.id == focusedItemID }
-    }
-
-    func toggleSelected(_ id: String) {
-        if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
-    }
-    func clearSelection() { selectedIDs.removeAll() }            // *n
-    func selectAllInFocusedGroup() {                             // *a
-        selectedIDs.formUnion(IceboxNavigation.idsInGroup(of: focusedItemID, groups))
-    }
-
-    func focus(_ id: String?) { focusedItemID = id }
-    func toggleSelectedFocused() { if let id = focusedItemID { toggleSelected(id) } }   // X
-    func moveFocus(by delta: Int) {
-        let order = IceboxNavigation.visibleIDs(groups, collapsed: collapsedLists)
-        focusedItemID = IceboxNavigation.step(from: focusedItemID, by: delta, in: order)
+    /// The cluster's actions, bound to this model's in-place snapshot
+    /// mutations, so `ItemActions` (row hover, reader, batch bar) drives the
+    /// icebox without referencing this model directly.
+    var actions: ActionableActions {
+        ActionableActions(
+            complete: { self.complete($0) },
+            reopen: { self.reopen($0) },
+            moveToIcebox: { self.moveToIcebox($0) },
+            removeFromIcebox: { self.removeFromIcebox($0) },
+            reclassify: { self.reclassify($0, to: $1) },
+            setListName: { self.setListName($0, to: $1) })
     }
 
     // MARK: - Row actions (mutate store + snapshot, no re-fetch)
@@ -206,7 +185,7 @@ final class IceboxModel: ObservableObject {
             if let i = group.items.firstIndex(where: { $0.id == updated.id }) {
                 var items = group.items
                 items[i] = updated
-                groups[g] = IceboxGroup(listName: group.listName, items: items)
+                groups[g] = ActionableGroup(listName: group.listName, items: items)
                 return
             }
         }
@@ -216,25 +195,21 @@ final class IceboxModel: ObservableObject {
     /// structural batch op (a list change) moves rows between groups while
     /// retaining resolved / moved rows. Used by `setListName`.
     private func regroupInPlace() {
-        groups = IceboxGrouping.groups(items: groups.flatMap(\.items))
+        groups = ActionableGrouping.groups(items: groups.flatMap(\.items))
     }
 
     private func load(spinner: Bool) {
         if spinner { isLoading = true } else { isWorking = true }
         do {
-            groups = IceboxGrouping.groups(items: try store.fetchIceboxed())
+            groups = ActionableGrouping.groups(items: try store.fetchIceboxed())
         } catch {
             NSLog("IceboxModel: load failed: \(error)")
         }
         // Prune selection / focus to the rows that still exist (a refresh drops
-        // resolved + moved rows), then seat focus on the first visible row when
-        // it isn't already on a live row.
-        let present = Set(groups.flatMap(\.items).map { $0.id })
-        selectedIDs.formIntersection(present)
-        if let f = focusedItemID, !present.contains(f) { focusedItemID = nil }
-        if focusedItemID == nil {
-            focusedItemID = IceboxNavigation.visibleIDs(groups, collapsed: collapsedLists).first
-        }
+        // resolved + moved rows), then seat focus on the first visible row.
+        selection.reconcile(
+            visible: ActionableListNavigation.visibleIDs(groups, collapsed: collapsedLists),
+            present: Set(groups.flatMap(\.items).map { $0.id }))
         isLoading = false
         isWorking = false
     }

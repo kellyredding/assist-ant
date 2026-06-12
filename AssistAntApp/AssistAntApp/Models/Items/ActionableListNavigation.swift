@@ -1,13 +1,13 @@
 import Foundation
 
-/// Pure helpers over the grouped icebox snapshot for keyboard navigation and
+/// Pure helpers over a grouped actionable snapshot for keyboard navigation and
 /// selection. No SwiftUI, no model state — operate on groups + the collapsed
 /// set so ItemsSmoke can exercise them.
-enum IceboxNavigation {
+enum ActionableListNavigation {
     /// The visible item ids top→bottom: every group's items in order, skipping
     /// the items inside collapsed named groups (the no-list group is never
     /// collapsible). This is the J/K traversal order.
-    static func visibleIDs(_ groups: [IceboxGroup], collapsed: Set<String>) -> [String] {
+    static func visibleIDs(_ groups: [ActionableGroup], collapsed: Set<String>) -> [String] {
         groups.flatMap { group -> [String] in
             if let name = group.listName, collapsed.contains(name) { return [] }
             return group.items.map { $0.id }
@@ -27,7 +27,7 @@ enum IceboxNavigation {
 
     /// The ids of every item in the group that contains `focused` — the `*a`
     /// target. Empty when nothing is focused.
-    static func idsInGroup(of focused: String?, _ groups: [IceboxGroup]) -> [String] {
+    static func idsInGroup(of focused: String?, _ groups: [ActionableGroup]) -> [String] {
         guard let focused else { return [] }
         for group in groups where group.items.contains(where: { $0.id == focused }) {
             return group.items.map { $0.id }
