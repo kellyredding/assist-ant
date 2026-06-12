@@ -79,31 +79,84 @@ struct KindBadge: View {
     }
 }
 
-/// Outline status pill: a snowflake + "Iceboxed on {date}". The border, glyph,
-/// and text all carry the theme-aware ice accent; a whisper of tint fill keeps
-/// it from reading as a hollow ring. The snowflake mirrors the Icebox tab glyph,
-/// tying the status back to the tab. Shown only for an item that's iceboxed.
+/// The shared outline status-pill chrome used in the reader's meta line: a
+/// glyph + text in a capsule whose border, glyph, and text all carry `color`,
+/// over a faint same-color tint so it reads as a chip, not a hollow ring.
+/// Callers pick the color — an accent for a special status like iceboxed, or
+/// `.secondary` for the everyday scheduled date.
+struct StatusPill: View {
+    let systemImage: String
+    let text: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.caption).fontWeight(.medium)
+        .foregroundStyle(color)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.12)))
+        .overlay(Capsule().strokeBorder(color, lineWidth: 1))
+    }
+}
+
+/// Iceboxed status pill: a snowflake + "Iceboxed on {date}" in the ice accent —
+/// the special set-aside state, so it stands out. The snowflake mirrors the
+/// Icebox tab glyph. Shown only for an item that's iceboxed.
 struct IceboxedBadge: View {
     let date: Date
 
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let ice = ActionableKindLabel.iceColor(scheme)
-        HStack(spacing: 4) {
-            Image(systemName: "snowflake")
-            Text("Iceboxed on \(Self.dateFormatter.string(from: date))")
-        }
-        .font(.caption).fontWeight(.medium)
-        .foregroundStyle(ice)
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(ice.opacity(0.12)))
-        .overlay(Capsule().strokeBorder(ice, lineWidth: 1))
+        StatusPill(
+            systemImage: "snowflake",
+            text: "Iceboxed on \(Self.dateFormatter.string(from: date))",
+            color: ActionableKindLabel.iceColor(scheme)
+        )
     }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
+}
+
+/// Scheduled status pill: just the calendar glyph and the friendly date, in
+/// secondary — the everyday state, so it stays quiet rather than carrying a
+/// status accent like the iceboxed pill. The year is appended only when it
+/// isn't the current year. The calendar glyph mirrors the Schedule tab, as the
+/// iceboxed pill's snowflake mirrors the Icebox tab.
+struct ScheduledBadge: View {
+    let date: CivilDate
+
+    var body: some View {
+        StatusPill(
+            systemImage: "calendar",
+            text: Self.friendly(date),
+            color: .secondary
+        )
+    }
+
+    /// "Jun 12" in the current year; "Jun 12, 2027" otherwise.
+    private static func friendly(_ date: CivilDate) -> String {
+        let formatter = date.year == CivilDate.today.year
+            ? sameYearFormatter : otherYearFormatter
+        return formatter.string(from: date.noon)
+    }
+
+    private static let sameYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
+
+    private static let otherYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMdyyyy")
         return f
     }()
 }

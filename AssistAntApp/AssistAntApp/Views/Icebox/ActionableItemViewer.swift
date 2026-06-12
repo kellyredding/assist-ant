@@ -151,6 +151,8 @@ struct ActionableItemViewer: View {
             }
             if let at = item.iceboxedAt {
                 IceboxedBadge(date: at)
+            } else {
+                ScheduledBadge(date: item.scheduledOn ?? .today)
             }
             Spacer(minLength: 0)
             if let url = item.actionableExternalURL, let u = URL(string: url) {
