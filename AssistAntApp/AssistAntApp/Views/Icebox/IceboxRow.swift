@@ -15,29 +15,57 @@ struct IceboxRow: View {
     let item: Item
     let onOpen: () -> Void
 
+    @ObservedObject private var model = IceboxModel.shared
     @State private var isHovering = false
 
     private var isResolved: Bool { item.resolvedAt != nil }
     private var isMoved: Bool { item.resolvedAt == nil && item.iceboxedAt == nil }
+    private var isFocused: Bool { model.focusedItemID == item.id }
+    private var isSelected: Bool { model.selectedIDs.contains(item.id) }
 
     var body: some View {
-        rowContent
-            // Overlay (not a ZStack child) so the floating buttons never add
-            // to the row's height — a hovered row stays the same size.
-            .overlay(alignment: .trailing) {
-                // Flush to the row's trailing content edge — the outer
-                // .padding(.horizontal, 8) below is the only right inset, so
-                // the floating card sits 8pt from the list edge with no extra
-                // gap stacked on top of it.
-                if isHovering { actions }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
-            )
-            .padding(.horizontal, 8)
-            .animation(.easeInOut(duration: 0.12), value: isHovering)
-            .onHover { isHovering = $0 }
+        // The gutter (focus bar + checkbox) is a SIBLING of the tappable row
+        // body, not nested inside it: rowContent puts the onOpen pointerButton
+        // over its whole HStack, and that overlay would shadow the checkbox's
+        // own tap. Splitting them keeps the two gestures independent.
+        HStack(spacing: 0) {
+            gutter
+            rowContent
+        }
+        // Overlay (not a ZStack child) so the floating buttons never add to the
+        // row's height — a hovered row stays the same size. Flush to the row's
+        // trailing content edge: the outer .padding(.horizontal, 8) is the only
+        // right inset, so the floating card sits 8pt from the list edge.
+        .overlay(alignment: .trailing) { if isHovering { actions } }
+        // Persistent selected shading, with the transient hover tint layered on.
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor.opacity(isSelected ? 0.12 : 0))
+        )
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
+        )
+        .padding(.horizontal, 8)
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
+        .onHover { isHovering = $0 }
+    }
+
+    /// Focus bar + checkbox. Kept OUTSIDE rowContent's `.opacity(resolved/moved)`
+    /// so the selection affordance stays full-strength on a greyed row. The
+    /// checkbox owns its own tap (toggle), distinct from the row body's open.
+    private var gutter: some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(isFocused ? Color.accentColor : Color.clear)
+                .frame(width: 3)
+            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+                .pointerButton(onHoverChange: { _ in }, action: { model.toggleSelected(item.id) })
+        }
+        .padding(.leading, 6)
     }
 
     private var rowContent: some View {

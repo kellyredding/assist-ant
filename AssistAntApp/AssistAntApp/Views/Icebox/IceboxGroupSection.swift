@@ -9,10 +9,13 @@ struct IceboxGroupSection: View {
     let onToggle: (String) -> Void
     let onOpen: (Item) -> Void
 
-    /// Indent for items under a named list, so a row's content lines up with
-    /// the list-name text in the header (past the disclosure caret) and reads
-    /// as a sub-list. ≈ caret frame width (14) + its trailing spacing.
-    private static let nestedIndent: CGFloat = 18
+    /// Indent for items under a named list, so a row's checkbox column lines up
+    /// under the list-name text in the header (the disclosure caret hangs in the
+    /// left margin) and the rows read as a sub-list. Every row now leads with
+    /// the selection gutter (focus bar + checkbox), so this is the header name's
+    /// offset (pad 12 + caret 14 + spacing 6 = 32) minus the checkbox's offset
+    /// within a row (outer pad 8 + gutter lead 6 + bar 3 + spacing 8 = 25).
+    private static let nestedIndent: CGFloat = 7
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,6 +55,9 @@ struct IceboxGroupSection: View {
         VStack(spacing: 0) {
             ForEach(group.items, id: \.id) { item in
                 IceboxRow(item: item, onOpen: { onOpen(item) })
+                    // Explicit id so the pane's ScrollViewReader can scroll the
+                    // keyboard-focused row into view.
+                    .id(item.id)
             }
         }
     }

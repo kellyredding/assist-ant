@@ -719,6 +719,52 @@ check("ItemActionState: allIceboxed across a set") {
         && !ItemActionState([iceboxed, onToday]).allIceboxed
 }
 
+// 37. IceboxNavigation.visibleIDs: top→bottom across groups, skipping the items
+//     inside collapsed named groups.
+check("IceboxNavigation.visibleIDs: order, skips collapsed") {
+    func ice(_ list: String?, _ title: String, _ at: Int) -> Item {
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: list)),
+                title: title, iceboxedAt: Date(timeIntervalSince1970: TimeInterval(at)))
+    }
+    // Groups derive as: no-list (free1 newer, free2), "alpha" (a1), "Zeta" (z1).
+    let items = [ice(nil, "free1", 2), ice(nil, "free2", 1),
+                 ice("alpha", "a1", 50), ice("Zeta", "z1", 60)]
+    let groups = IceboxGrouping.groups(items: items)
+    let id = Dictionary(uniqueKeysWithValues:
+        groups.flatMap(\.items).map { ($0.title, $0.id) })
+    let all = IceboxNavigation.visibleIDs(groups, collapsed: [])
+    let collapsed = IceboxNavigation.visibleIDs(groups, collapsed: ["Zeta"])
+    return all == ["free1", "free2", "a1", "z1"].compactMap { id[$0] }
+        && collapsed == ["free1", "free2", "a1"].compactMap { id[$0] }
+}
+
+// 38. IceboxNavigation.step: +1/-1 clamps at the ends (no wrap); nil/unknown
+//     current resolves to first (down) or last (up); empty order → nil.
+check("IceboxNavigation.step: clamps, nil/unknown → first/last") {
+    let order = ["a", "b", "c"]
+    return IceboxNavigation.step(from: "a", by: 1, in: order) == "b"
+        && IceboxNavigation.step(from: "c", by: 1, in: order) == "c"     // clamp end
+        && IceboxNavigation.step(from: "a", by: -1, in: order) == "a"    // clamp start
+        && IceboxNavigation.step(from: nil, by: 1, in: order) == "a"     // nil → first
+        && IceboxNavigation.step(from: nil, by: -1, in: order) == "c"    // nil → last
+        && IceboxNavigation.step(from: "x", by: 1, in: order) == "a"     // unknown → first
+        && IceboxNavigation.step(from: "z", by: 1, in: []) == nil        // empty → nil
+}
+
+// 39. IceboxNavigation.idsInGroup: the *a target — every id in the group holding
+//     the focused row; empty when nothing is focused.
+check("IceboxNavigation.idsInGroup: scopes to focused row's group") {
+    func ice(_ list: String?, _ title: String) -> Item {
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: list)), title: title)
+    }
+    let items = [ice(nil, "free"), ice("alpha", "a1"), ice("alpha", "a2"), ice("Zeta", "z1")]
+    let groups = IceboxGrouping.groups(items: items)
+    let alpha = groups.first { $0.listName == "alpha" }!
+    let a1 = alpha.items.first { $0.title == "a1" }!
+    return Set(IceboxNavigation.idsInGroup(of: a1.id, groups)) == Set(alpha.items.map { $0.id })
+        && IceboxNavigation.idsInGroup(of: nil, groups).isEmpty
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")
