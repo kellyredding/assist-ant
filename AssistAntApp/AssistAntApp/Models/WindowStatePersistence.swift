@@ -36,6 +36,9 @@ struct PersistedWindowState: Codable {
     /// before tabs shipped; decodes to nil so the navigator falls back to its
     /// default.
     let selectedMainTab: String?
+    /// Id of the item open in the reader at last write, reopened on relaunch.
+    /// Absent from older files; decodes to nil so nothing reopens.
+    let openItemId: String?
 
     init(
         version: Int,
@@ -43,7 +46,8 @@ struct PersistedWindowState: Codable {
         screenIdentifier: String,
         screenFrame: PersistedScreenFrame,
         sidebarFraction: Double,
-        selectedMainTab: String?
+        selectedMainTab: String?,
+        openItemId: String?
     ) {
         self.version = version
         self.windowFrame = windowFrame
@@ -51,6 +55,7 @@ struct PersistedWindowState: Codable {
         self.screenFrame = screenFrame
         self.sidebarFraction = sidebarFraction
         self.selectedMainTab = selectedMainTab
+        self.openItemId = openItemId
     }
 
     init(from decoder: Decoder) throws {
@@ -71,6 +76,9 @@ struct PersistedWindowState: Codable {
         ) ?? Double(SidebarMetrics.defaultFraction)
         selectedMainTab = try c.decodeIfPresent(
             String.self, forKey: .selectedMainTab
+        )
+        openItemId = try c.decodeIfPresent(
+            String.self, forKey: .openItemId
         )
     }
 }
@@ -108,6 +116,10 @@ final class WindowStatePersistence {
     /// Latest selected main-tab raw value to persist. Seeded on first read
     /// via `loadSelectedMainTab()` and updated by `saveSelectedMainTab(_:)`.
     private var selectedMainTab: String?
+
+    /// Latest open-reader item id to persist. Seeded on first read via
+    /// `loadOpenItemId()` and updated by `saveOpenItemId(_:)`.
+    private var openItemId: String?
 
     private init() {
         let appSupport = FileManager.default.urls(
@@ -151,7 +163,8 @@ final class WindowStatePersistence {
                 height: screen.frame.size.height
             ),
             sidebarFraction: sidebarFraction,
-            selectedMainTab: selectedMainTab
+            selectedMainTab: selectedMainTab,
+            openItemId: openItemId
         )
 
         scheduleDebouncedFlush()
@@ -180,7 +193,8 @@ final class WindowStatePersistence {
                 screenIdentifier: existing.screenIdentifier,
                 screenFrame: existing.screenFrame,
                 sidebarFraction: sidebarFraction,
-                selectedMainTab: selectedMainTab
+                selectedMainTab: selectedMainTab,
+                openItemId: openItemId
             )
         }
 
@@ -214,7 +228,8 @@ final class WindowStatePersistence {
                 screenIdentifier: existing.screenIdentifier,
                 screenFrame: existing.screenFrame,
                 sidebarFraction: existing.sidebarFraction,
-                selectedMainTab: selectedMainTab
+                selectedMainTab: selectedMainTab,
+                openItemId: openItemId
             )
         }
         scheduleDebouncedFlush()
@@ -225,6 +240,33 @@ final class WindowStatePersistence {
     func loadSelectedMainTab() -> String? {
         let raw = load()?.selectedMainTab
         selectedMainTab = raw
+        return raw
+    }
+
+    /// Persist the open-reader item id (nil when the reader closes). Coalesces
+    /// through the same debounced write as the other window-state changes.
+    func saveOpenItemId(_ id: String?) {
+        openItemId = id
+        isDirty = true
+        if let existing = currentState {
+            currentState = PersistedWindowState(
+                version: existing.version,
+                windowFrame: existing.windowFrame,
+                screenIdentifier: existing.screenIdentifier,
+                screenFrame: existing.screenFrame,
+                sidebarFraction: existing.sidebarFraction,
+                selectedMainTab: existing.selectedMainTab,
+                openItemId: openItemId
+            )
+        }
+        scheduleDebouncedFlush()
+    }
+
+    /// The persisted open-reader item id, or nil if none was saved. Also seeds
+    /// the in-memory copy so a later window-state write carries it.
+    func loadOpenItemId() -> String? {
+        let raw = load()?.openItemId
+        openItemId = raw
         return raw
     }
 

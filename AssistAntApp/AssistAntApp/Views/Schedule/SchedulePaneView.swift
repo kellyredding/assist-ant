@@ -12,40 +12,16 @@ struct SchedulePaneView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
 
-    /// The event currently shown in the reader; nil shows the agenda.
-    @State private var openEvent: Item?
-    /// Local Escape monitor, installed only while the reader is open.
-    @State private var escapeMonitor: Any?
-
     var body: some View {
-        ZStack {
-            // Stays mounted (just disabled) while the reader is open, so the
-            // agenda keeps its exact scroll position behind it — closing the
-            // reader returns to the same spot. `.disabled` also quiets the
-            // rows' pointer overlays so their tracking areas don't fire the
-            // hand cursor through the reader covering them.
-            agendaPane
-                .disabled(openEvent != nil)
-
-            if let event = openEvent {
-                CalendarEventViewer(event: event, onClose: { openEvent = nil })
+        // The agenda fills the pane; the event reader is presented centrally by
+        // ItemViewerModel as an overlay above the tab content, not here.
+        agendaPane
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.textBackgroundColor))
+            .onAppear { if navigator.selectedTab == .schedule { model.activate() } }
+            .onChange(of: navigator.selectedTab) { _, tab in
+                if tab == .schedule { model.activate() }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.textBackgroundColor))
-        .onAppear {
-            if navigator.selectedTab == .schedule { model.activate() }
-            consumePendingEventShow()
-        }
-        .onChange(of: navigator.selectedTab) { _, tab in
-            if tab == .schedule { model.activate() }
-        }
-        .onChange(of: navigator.pendingEventShow) { _, _ in
-            consumePendingEventShow()
-        }
-        .onChange(of: openEvent != nil) { _, isOpen in
-            if isOpen { installEscapeMonitor() } else { removeEscapeMonitor() }
-        }
     }
 
     private var agendaPane: some View {
@@ -80,7 +56,9 @@ struct SchedulePaneView: View {
                             ScheduleDaySection(
                                 day: day,
                                 now: clock.currentTime,
-                                onOpen: { openEvent = $0 }
+                                onOpen: {
+                                    ItemViewerModel.shared.open($0, over: .schedule)
+                                }
                             )
                             .id(day.date)
                             .background(dayPositionReader(day.date))
@@ -138,41 +116,4 @@ struct SchedulePaneView: View {
         NSWorkspace.shared.open(googleCalendarURL)
     }
 
-    // MARK: - Opening events
-
-    /// Open the event queued by a Today-sidebar tap. Fetches the item straight
-    /// from the store by id — robust whether or not its day is inside the
-    /// agenda's currently-loaded window — and opens only active calendar items.
-    private func consumePendingEventShow() {
-        guard let id = navigator.pendingEventShow else { return }
-        navigator.pendingEventShow = nil
-        guard let item = try? GRDBItemStore.shared.fetch(id: id),
-              item.deletedAt == nil,
-              case .calendar = item.typeData
-        else { return }
-        openEvent = item
-    }
-
-    // MARK: - Escape monitor
-
-    /// Install a local Escape monitor while the reader is open. The tab guard
-    /// keeps it from swallowing an Escape meant for another tab if the reader
-    /// is left open in the background.
-    private func installEscapeMonitor() {
-        guard escapeMonitor == nil else { return }
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == 53 else { return event }   // 53 = Escape
-            guard navigator.selectedTab == .schedule else { return event }
-            DispatchQueue.main.async { openEvent = nil }
-            removeEscapeMonitor()
-            return nil
-        }
-    }
-
-    private func removeEscapeMonitor() {
-        if let monitor = escapeMonitor {
-            NSEvent.removeMonitor(monitor)
-            escapeMonitor = nil
-        }
-    }
 }

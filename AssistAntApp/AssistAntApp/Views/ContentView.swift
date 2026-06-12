@@ -15,6 +15,7 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject private var layout = SidebarLayoutModel.shared
     @ObservedObject private var tabs = MainTabNavigator.shared
+    @ObservedObject private var viewer = ItemViewerModel.shared
 
     /// Live width (pixels) while a resize drag is in flight; nil otherwise, at
     /// which point the width is derived from the persisted fraction × the
@@ -108,18 +109,54 @@ struct ContentView: View {
                 .opacity(tabs.selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .agent)
                 .zIndex(tabs.selectedTab == .agent ? 1 : 0)
+                .disabled(viewer.openItem != nil)
 
             SchedulePaneView()
                 .opacity(tabs.selectedTab == .schedule ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .schedule)
                 .zIndex(tabs.selectedTab == .schedule ? 1 : 0)
+                .disabled(viewer.openItem != nil)
 
             IceboxPaneView()
                 .opacity(tabs.selectedTab == .icebox ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .icebox)
                 .zIndex(tabs.selectedTab == .icebox ? 1 : 0)
+                .disabled(viewer.openItem != nil)
+
+            // The item reader is presented once here, above whichever tab is
+            // selected, so it can be launched from any tab and float over it.
+            // The panes stay mounted but disabled beneath (preserving scroll
+            // position); zIndex keeps it above the selected pane's zIndex of 1.
+            if let item = viewer.openItem {
+                itemReader(for: item)
+                    .zIndex(10)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: tabs.selectedTab) { _, newTab in
+            viewer.tabChanged(to: newTab)
+        }
+        .onAppear { viewer.restoreIfNeeded() }
+    }
+
+    /// Dispatch to the right reader by item type: calendar events are
+    /// read-only; actionable items (todo / reminder / explore) edit via the
+    /// session the presenter hosts.
+    @ViewBuilder
+    private func itemReader(for item: Item) -> some View {
+        if case .calendar = item.typeData {
+            CalendarEventViewer(event: item, onClose: { viewer.close() })
+        } else {
+            ActionableItemViewer(
+                item: item,
+                edit: viewer.edit,
+                onClose: { viewer.close() },
+                onItemChange: { viewer.updateOpenItem($0) },
+                onBeginEdit: { viewer.beginEdit() },
+                onCancelEdit: { viewer.cancelEdit() },
+                onSave: { viewer.saveEdit() }
+            )
+        }
     }
 
     // MARK: - Resize Handle

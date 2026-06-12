@@ -11,6 +11,10 @@ struct MainTabBar: View {
         HStack(spacing: 2) {
             ForEach(MainTab.allCases, id: \.self) { tab in
                 Button {
+                    // Any tab click dismisses an open reader — including a click
+                    // on the current tab, which leaves the selection unchanged
+                    // (so the tab-change observer wouldn't fire on its own).
+                    ItemViewerModel.shared.close()
                     navigator.selectedTab = tab
                 } label: {
                     HStack(spacing: 4) {
