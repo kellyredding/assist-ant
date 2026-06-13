@@ -103,6 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         socket.onEnvelope = { [weak self] envelope in
             self?.events.route(envelope)
         }
+        // Request events (the persona's briefing read) get a reply on the same
+        // connection; handled off the main queue since it's a quick store read.
+        socket.onRequest = { [weak self] envelope in
+            self?.handleRequest(envelope)
+        }
         if !socket.start() {
             // Another AssistAnt is already running. Refuse to bind
             // and exit. Single-instance discipline.
@@ -210,6 +215,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("AssistAnt: ping — \(message)")
         default:
             NSLog("AssistAnt: unhandled event '\(e.event)'")
+        }
+    }
+
+    /// Answer a request envelope that expects a reply — the persona's startup
+    /// briefing read. Runs on the socket listener queue (store reads are
+    /// thread-safe), returning the JSON reply bytes, or nil for non-request
+    /// events (which fall through to the fire-and-forget `handleEvent` path).
+    private func handleRequest(_ e: EventEnvelope) -> Data? {
+        switch e.event {
+        case "briefing.query":
+            return BriefingSnapshot.replyData()
+        default:
+            return nil
         }
     }
 

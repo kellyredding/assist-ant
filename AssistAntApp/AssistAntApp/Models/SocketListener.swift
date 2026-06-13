@@ -26,6 +26,13 @@ final class SocketListener {
     /// envelope.
     var onEnvelope: ((EventEnvelope) -> Void)?
 
+    /// Callback for request envelopes that expect a reply. Invoked on the
+    /// listener queue (so a quick store read can answer inline before the
+    /// connection closes); returns the reply bytes — one JSON line, no trailing
+    /// newline; this adds the terminator — or nil to fall through to the
+    /// fire-and-forget `onEnvelope` path.
+    var onRequest: ((EventEnvelope) -> Data?)?
+
     private var activeConnections: [NWConnection] = []
 
     /// Per-connection accumulator for partial JSON lines. Bytes
@@ -210,8 +217,14 @@ final class SocketListener {
 
             do {
                 let envelope = try JSONDecoder().decode(EventEnvelope.self, from: jsonData)
-                DispatchQueue.main.async { [weak self] in
-                    self?.onEnvelope?(envelope)
+                // A request event gets a reply on this same connection; anything
+                // else stays fire-and-forget, dispatched on the main queue.
+                if let reply = onRequest?(envelope) {
+                    sendReply(reply, on: connection)
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onEnvelope?(envelope)
+                    }
                 }
             } catch {
                 NSLog("SocketListener: failed to decode envelope (\(jsonData.count)B): \(error.localizedDescription) — preview: \(String(trimmed.prefix(200)))")
@@ -223,6 +236,15 @@ final class SocketListener {
         } else {
             connectionBuffers[key] = Data()
         }
+    }
+
+    /// Write a reply line back on the originating connection — newline-framed so
+    /// the CLI's line reader sees a complete record — then let the connection
+    /// close on the client's teardown.
+    private func sendReply(_ data: Data, on connection: NWConnection) {
+        var framed = data
+        framed.append(0x0A)
+        connection.send(content: framed, completion: .contentProcessed { _ in })
     }
 
     // MARK: - Error recovery
