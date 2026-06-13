@@ -1,15 +1,22 @@
 import SwiftUI
 
 /// The Quick Capture popover's content: a centered glyph chooser + a growing
-/// native text field (type or dictate via Wispr) + a stubbed Send. Phase 1 —
-/// "send" only logs; wiring to the live agent / inbox lands in later phases.
+/// native text field (type or dictate via Wispr) + Send. Send routes through
+/// `onSend`, which delivers Ask to the live agent and item kinds to the ingest
+/// skill; it returns an error string (shown inline, popover kept open) or nil on
+/// success (the controller dismisses).
 struct CaptureContentView: View {
     @ObservedObject var model: CaptureModel
+    @ObservedObject private var agent = AgentSessionController.shared
     var colorScheme: ColorScheme?
     var onKindSelected: () -> Void = {}
     var onClose: () -> Void
+    /// Performs the send. Returns nil on success (the controller dismisses) or an
+    /// error message to show inline while keeping the captured content.
+    var onSend: (CaptureKind, String) -> String?
 
     @State private var text: String = ""
+    @State private var sendError: String?
 
     // ⌘1–⌘4 select a kind. (The bare-number / arrow chooser-state machine is a
     // follow-up refinement; ⌘-number avoids fighting typing for now.)
@@ -34,6 +41,14 @@ struct CaptureContentView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(.secondary.opacity(0.25)))
 
+            if let status = statusMessage {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(sendError != nil ? Color.red : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack {
                 Text(hint).font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -51,6 +66,21 @@ struct CaptureContentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .preferredColorScheme(colorScheme)
         .onExitCommand { onClose() }
+        .onChange(of: text) { _, _ in sendError = nil }
+        .onChange(of: model.kind) { _, _ in sendError = nil }
+    }
+
+    private var agentRunning: Bool { agent.state == .running }
+
+    /// The inline status line: a send error takes precedence (red); otherwise a
+    /// passive heads-up when the agent isn't running (orange), so the user knows
+    /// a send won't go through before committing to one.
+    private var statusMessage: String? {
+        if let sendError { return sendError }
+        if !agentRunning {
+            return "Agent isn’t running — start it from the main window, then send."
+        }
+        return nil
     }
 
     private var placeholder: String {
@@ -94,8 +124,11 @@ struct CaptureContentView: View {
     private func send() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // Phase 1: stubbed — log what would be sent. Wiring lands in Phase 2.
-        NSLog("QuickCapture: [\(model.kind.rawValue)] would send: \(trimmed)")
-        onClose()
+        // onSend delivers to the live agent and, on success, the controller
+        // dismisses (Ask surfaces the agent; items restore the prior app). On
+        // failure it returns a message — keep the popover open and the content.
+        if let error = onSend(model.kind, trimmed) {
+            sendError = error
+        }
     }
 }

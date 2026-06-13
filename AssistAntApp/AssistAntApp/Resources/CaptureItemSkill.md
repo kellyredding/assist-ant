@@ -1,15 +1,17 @@
 ---
 name: assist-ant-capture-item
-description: Turn a captured note into a local AssistAnt item (to-do, reminder, or explore), resolving any day mentioned in the text, routing to the Icebox when asked, and following any public URL to enrich the description. Invoked by Quick Capture with the kind and the captured text.
+description: Turn a captured note into a local AssistAnt item (to-do, reminder, or explore), resolving any day mentioned in the text, routing to the Icebox when asked, and following any public URL to enrich the description. Invoked by Quick Capture with the path to a JSON payload file holding the kind and the captured text.
 ---
 
 # Capture an item into AssistAnt
 
-You are given a **kind** (`todo`, `reminder`, or `explore`) and a short
-**captured text**. Turn it into one item via `assist-ant actionable-item
-create`. The CLI persists deterministically; your job is the interpretation the
-CLI can't do — resolving a date, deciding Today vs Icebox, following a URL, and
-composing a clean title + markdown body.
+You are invoked as `/assist-ant-capture-item <path>` with the path to a JSON
+payload file. **First, read that file with the Read tool** — it holds
+`{ "kind": "<todo|reminder|explore>", "text": "<the captured text>" }`. Use that
+**kind** and **text** for everything below. Turn it into one item via
+`assist-ant actionable-item create`. The CLI persists deterministically; your job
+is the interpretation the CLI can't do — resolving a date, deciding Today vs
+Icebox, following a URL, and composing a clean title + markdown body.
 
 ## Procedure
 
@@ -64,4 +66,5 @@ composing a clean title + markdown body.
 - Do not invent a schedule or icebox a thing on your own. Only set
   `--scheduled-on` when the text names a day, and only set `--icebox` when the
   text asks to stash it.
+- The payload file is a transient handoff — you don't need to delete it.
 - Run `assist-ant actionable-item create --help` if you need the flag list.

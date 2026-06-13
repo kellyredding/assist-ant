@@ -53,7 +53,11 @@ final class CapturePanelController {
             model: model,
             colorScheme: Self.colorScheme(for: theme),
             onKindSelected: { [weak self] in self?.focusField() },
-            onClose: { [weak self] in self?.dismiss() })
+            onClose: { [weak self] in self?.dismiss() },
+            onSend: { [weak self] kind, text in
+                guard let self else { return "Capture is unavailable." }
+                return self.handleSend(kind: kind, text: text)
+            })
         let hosting = NSHostingController(rootView: content)
         hosting.sizingOptions = [.preferredContentSize] // window tracks content size
 
@@ -70,6 +74,7 @@ final class CapturePanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.isMovableByWindowBackground = true  // borderless: drag by the background
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
@@ -109,15 +114,14 @@ final class CapturePanelController {
             self?.focusField()
         }
 
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        // After a cross-screen activation the panel can land front-but-not-key;
-        // re-key on the next tick so it takes key (firing didBecomeKey above).
-        DispatchQueue.main.async { [weak self, weak panel] in
-            guard let panel, self?.panel === panel else { return }
-            panel.makeKeyAndOrderFront(nil)
-            self?.focusField()
-        }
+        // Summoning from another app is a cross-app activation that lands
+        // asynchronously: makeKeyAndOrderFront can run before the app is active,
+        // leaving the panel front-but-not-key (so the field never focuses), and
+        // a quick close→reopen makes the tussle worse. Drive activation to
+        // completion — retry activate + makeKey on a short cadence until the
+        // panel is actually key, then stop. The become-key observer and initial
+        // first responder put the cursor in the field once key lands.
+        activateAndFocus(panel, attempt: 0)
         // Auto-arm Wispr hands-free once the field is focused — but only for a
         // direct Ask summon, and only if the user left it enabled. Switching
         // kinds inside an open popover routes through summon(kind:), never
@@ -149,6 +153,22 @@ final class CapturePanelController {
         return find(content)
     }
 
+    /// Force the panel to key and focus the field, retrying briefly to win the
+    /// cross-app activation race a global-hotkey summon creates (and the
+    /// close→reopen tussle). Self-terminating: stops as soon as the panel is
+    /// key, when the panel is gone (dismissed mid-retry), or after a bounded
+    /// number of attempts (~0.5s).
+    private func activateAndFocus(_ panel: NSPanel, attempt: Int) {
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        focusField()
+        guard !panel.isKeyWindow, attempt < 12 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self, weak panel] in
+            guard let self, let panel, self.panel === panel else { return }
+            self.activateAndFocus(panel, attempt: attempt + 1)
+        }
+    }
+
     private func centerOnActiveScreen(_ panel: NSWindow) {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
@@ -160,7 +180,9 @@ final class CapturePanelController {
             y: visible.midY - size.height / 2))
     }
 
-    func dismiss() {
+    /// Tear down the panel + observers without touching app activation. Both
+    /// close paths build on this.
+    private func closePanel() {
         // Stop hands-free so the mic doesn't keep listening after we close.
         WisprArmer.stop()
         if let resizeObserver {
@@ -175,9 +197,78 @@ final class CapturePanelController {
         panel?.orderOut(nil)
         panel = nil
         model = nil
-        // Hand focus back to whatever app the user was in.
-        prevApp?.activate()
+    }
+
+    /// Dismiss and hand focus back to whatever app the user was in. The default
+    /// close — Esc and item sends use it.
+    func dismiss() {
+        closePanel()
+        // Hand focus back to the app the user summoned from — unless that was us
+        // (a quick close→reopen can capture AssistAnt as prevApp), which would
+        // pointlessly steal activation back and fight the next summon.
+        if let prevApp, prevApp.bundleIdentifier != Bundle.main.bundleIdentifier {
+            prevApp.activate()
+        }
         prevApp = nil
+    }
+
+    /// Close and bring AssistAnt's main window forward instead of restoring the
+    /// previous app — used after an Ask send so the user watches the reply.
+    private func closeAndSurfaceAgent() {
+        closePanel()
+        prevApp = nil
+        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+    }
+
+    /// Route a send to the live agent. Returns nil on success (the panel is
+    /// dismissed here) or an error message to show inline (the popover stays
+    /// open, content preserved). Guards on the agent running — a capture must
+    /// never be lost, so when the agent is down we refuse and keep the text
+    /// rather than auto-spawning.
+    private func handleSend(kind: CaptureKind, text: String) -> String? {
+        guard AgentSessionController.shared.state == .running else {
+            return "Agent isn’t running. Open AssistAnt and start it, then send."
+        }
+        switch kind {
+        case .ask:
+            // Paste the prompt into the live session, then submit. Paste keeps
+            // multi-line intact; the brief delay lets the TUI register the text
+            // before Return (mirrors the scrollback "Send to Claude").
+            AgentSessionController.shared.send(text: text, asPaste: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                AgentSessionController.shared.submit()
+            }
+            closeAndSurfaceAgent()
+            return nil
+        case .todo, .reminder, .explore:
+            do {
+                let path = try Self.writeCapturePayload(kind: kind, text: text)
+                AgentSessionController.shared.sendCommand(
+                    "/assist-ant-capture-item \(path)")
+                dismiss()
+                return nil
+            } catch {
+                NSLog("CapturePanel: capture payload write failed: \(error)")
+                return "Couldn’t save the capture. Try again."
+            }
+        }
+    }
+
+    /// Write the capture as a transient `{kind, text}` JSON payload under the
+    /// runtime dir and return its path for the ingest skill to read.
+    private static func writeCapturePayload(
+        kind: CaptureKind, text: String
+    ) throws -> String {
+        let dir = AssistAntPaths.runtimeDir
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(
+            "capture-\(UUID().uuidString.lowercased()).json")
+        let payload: [String: String] = ["kind": kind.rawValue, "text": text]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+        return url.path
     }
 
     private static func nsAppearance(for theme: ThemePreference) -> NSAppearance? {
@@ -202,4 +293,29 @@ final class CapturePanelController {
 final class CapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    /// While the capture popover is the key window it takes precedence over the
+    /// app's keyboard shortcuts. AppKit normally hands an unclaimed key
+    /// equivalent to the main menu, whose items act on the main window / agent —
+    /// so a shortcut pressed "in" the popover would run in AssistAnt instead.
+    /// Order here: our own content (kind ⌘1–4, ⌘⏎ send) handles it first;
+    /// standard text-editing shortcuts fall through to the Edit menu so
+    /// Cut/Copy/Paste/Select-All/Undo keep working in the field; every other
+    /// ⌘-shortcut is swallowed so it can't fire the app's menu underneath us.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if super.performKeyEquivalent(with: event) { return true }
+
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard mods.contains(.command) else { return false }  // plain keys → the field
+
+        if mods == [.command] || mods == [.command, .shift] {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "x", "c", "v", "a", "z":
+                return false  // let the Edit menu run it on the first responder
+            default:
+                break
+            }
+        }
+        return true  // swallow other app shortcuts while the popover is key
+    }
 }

@@ -190,6 +190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             PreferencesWindowController.showPreferences()
         }
         notificationObservers.append(prefsObserver)
+
+        let openWindowObserver = NotificationCenter.default.addObserver(
+            forName: .openMainWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openMainWindow()
+        }
+        notificationObservers.append(openWindowObserver)
     }
 
     // MARK: - Window lifecycle
@@ -405,6 +414,10 @@ extension Notification.Name {
     /// live (the Icebox) re-fetch on it.
     static let actionableItemsDidChange =
         Notification.Name("actionableItemsDidChange")
+
+    /// Posted to bring the main window forward (e.g. after a Quick Capture
+    /// "Ask" so the user watches the agent reply). Observed by AppDelegate.
+    static let openMainWindow = Notification.Name("openMainWindow")
 }
 
 // MARK: - Click-through swizzle
