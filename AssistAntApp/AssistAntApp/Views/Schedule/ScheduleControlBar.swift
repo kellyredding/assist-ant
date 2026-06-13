@@ -36,7 +36,7 @@ struct ScheduleControlBar: View {
             if selection.hasSelection {
                 // The shared cluster, fed the selection — identical to the
                 // icebox; it acts on the whole selection across days.
-                ItemActions(items: selectedItems, actions: actions)
+                ItemActions(items: selectedItems, actions: actions, showsMnemonics: true)
             }
             // Same glyph component as refresh (hover highlight + hand cursor);
             // independent of sync state, so it stays put while a sync swaps the

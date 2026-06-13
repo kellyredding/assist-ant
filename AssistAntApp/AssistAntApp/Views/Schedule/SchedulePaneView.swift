@@ -18,9 +18,7 @@ struct SchedulePaneView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
 
-    @State private var keyMonitor: Any?
-    @State private var pendingStar = false          // saw `*`, awaiting a / n
-    @State private var starTimer: DispatchWorkItem?
+    @State private var chords = ActionableListChords()
 
     var body: some View {
         // The agenda fills the pane; the event reader is presented centrally by
@@ -30,12 +28,19 @@ struct SchedulePaneView: View {
             .background(Color(NSColor.textBackgroundColor))
             .onAppear {
                 if navigator.selectedTab == .schedule { model.activate() }
-                installScheduleKeyMonitor()
+                chords.install(.init(
+                    tab: .schedule,
+                    selection: selection,
+                    groups: { model.allGroups },
+                    collapsed: { model.collapsedLists },
+                    actions: model.actions,
+                    open: { ItemViewerModel.shared.open($0, over: .schedule) }
+                ))
             }
             .onChange(of: navigator.selectedTab) { _, tab in
                 if tab == .schedule { model.activate() }
             }
-            .onDisappear { removeScheduleKeyMonitor() }
+            .onDisappear { chords.remove() }
     }
 
     private var agendaPane: some View {
@@ -124,67 +129,6 @@ struct SchedulePaneView: View {
         let f = DateFormatter()
         f.dateFormat = "LLLL yyyy"   // e.g. "June 2026"
         return f.string(from: model.topVisibleDay.noon)
-    }
-
-    // MARK: - List key monitor (mutually exclusive with the icebox + reader)
-
-    private func installScheduleKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Only when the Schedule is the live surface: on its tab, no reader
-            // up, and not typing in a text field.
-            guard navigator.selectedTab == .schedule,
-                  ItemViewerModel.shared.openItem == nil,
-                  !(NSApp.keyWindow?.firstResponder is NSTextView)
-            else { return event }
-
-            let chars = event.charactersIgnoringModifiers?.lowercased()
-
-            // `*` prefix → wait briefly for a / n (Gmail-style sequence).
-            if event.characters == "*" {
-                pendingStar = true
-                starTimer?.cancel()
-                let work = DispatchWorkItem { pendingStar = false }
-                starTimer = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-                return nil
-            }
-            if pendingStar {
-                pendingStar = false
-                starTimer?.cancel()
-                if chars == "a" {
-                    selection.selectAll(in: ActionableListNavigation.idsInGroup(
-                        of: selection.focusedItemID, model.allGroups))
-                    return nil
-                }
-                if chars == "n" { selection.clearSelection(); return nil }
-                // any other key cancels the sequence and falls through
-            }
-
-            switch chars {
-            case "j": selection.moveFocus(by: 1, order: visibleOrder()); return nil
-            case "k": selection.moveFocus(by: -1, order: visibleOrder()); return nil
-            case "x": selection.toggleSelectedFocused(); return nil
-            default: break
-            }
-            if event.keyCode == 36 || event.keyCode == 76 {        // Return / Enter
-                if let item = selection.focusedItem(in: model.allGroups) {
-                    ItemViewerModel.shared.open(item, over: .schedule)
-                    return nil
-                }
-            }
-            return event
-        }
-    }
-
-    private func visibleOrder() -> [String] {
-        ActionableListNavigation.visibleIDs(model.allGroups, collapsed: model.collapsedLists)
-    }
-
-    private func removeScheduleKeyMonitor() {
-        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-        starTimer?.cancel()
-        pendingStar = false
     }
 
     // MARK: - Google Calendar

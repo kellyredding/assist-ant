@@ -18,9 +18,7 @@ struct IceboxPaneView: View {
     @ObservedObject private var selection = IceboxModel.shared.selection
     @ObservedObject private var navigator = MainTabNavigator.shared
 
-    @State private var keyMonitor: Any?
-    @State private var pendingStar = false          // saw `*`, awaiting a / n
-    @State private var starTimer: DispatchWorkItem?
+    @State private var chords = ActionableListChords()
 
     var body: some View {
         listPane
@@ -28,12 +26,19 @@ struct IceboxPaneView: View {
             .background(Color(NSColor.textBackgroundColor))
             .onAppear {
                 if navigator.selectedTab == .icebox { model.activate() }
-                installListKeyMonitor()
+                chords.install(.init(
+                    tab: .icebox,
+                    selection: selection,
+                    groups: { model.groups },
+                    collapsed: { model.collapsedLists },
+                    actions: model.actions,
+                    open: { ItemViewerModel.shared.open($0, over: .icebox) }
+                ))
             }
             .onChange(of: navigator.selectedTab) { _, tab in
                 if tab == .icebox { model.activate() }
             }
-            .onDisappear { removeListKeyMonitor() }
+            .onDisappear { chords.remove() }
     }
 
     private var listPane: some View {
@@ -94,65 +99,4 @@ struct IceboxPaneView: View {
         }
     }
 
-    // MARK: - List key monitor (mutually exclusive with the reader's)
-
-    private func installListKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Only when the Icebox list is the live surface: on its tab, no
-            // reader up (the reader owns its own monitor), and not typing in a
-            // text field.
-            guard navigator.selectedTab == .icebox,
-                  ItemViewerModel.shared.openItem == nil,
-                  !(NSApp.keyWindow?.firstResponder is NSTextView)
-            else { return event }
-
-            let chars = event.charactersIgnoringModifiers?.lowercased()
-
-            // `*` prefix → wait briefly for a / n (Gmail-style sequence).
-            if event.characters == "*" {
-                pendingStar = true
-                starTimer?.cancel()
-                let work = DispatchWorkItem { pendingStar = false }
-                starTimer = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-                return nil
-            }
-            if pendingStar {
-                pendingStar = false
-                starTimer?.cancel()
-                if chars == "a" {
-                    selection.selectAll(in: ActionableListNavigation.idsInGroup(
-                        of: selection.focusedItemID, model.groups))
-                    return nil
-                }
-                if chars == "n" { selection.clearSelection(); return nil }
-                // any other key cancels the sequence and falls through
-            }
-
-            switch chars {
-            case "j": selection.moveFocus(by: 1, order: visibleOrder()); return nil
-            case "k": selection.moveFocus(by: -1, order: visibleOrder()); return nil
-            case "x": selection.toggleSelectedFocused(); return nil
-            default: break
-            }
-            if event.keyCode == 36 || event.keyCode == 76 {        // Return / Enter
-                if let item = selection.focusedItem(in: model.groups) {
-                    ItemViewerModel.shared.open(item, over: .icebox)
-                    return nil
-                }
-            }
-            return event
-        }
-    }
-
-    private func visibleOrder() -> [String] {
-        ActionableListNavigation.visibleIDs(model.groups, collapsed: model.collapsedLists)
-    }
-
-    private func removeListKeyMonitor() {
-        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-        starTimer?.cancel()
-        pendingStar = false
-    }
 }

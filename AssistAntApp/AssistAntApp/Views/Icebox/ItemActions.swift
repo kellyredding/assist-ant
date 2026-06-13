@@ -21,8 +21,25 @@ struct ItemActions: View {
     let items: [Item]
     var onChange: (Item) -> Void = { _ in }
     let actions: ActionableActions
+    /// The batch control bar passes true → labels and kind-menu items underline
+    /// their chord letter. Default false (row hover, reader header) keeps plain
+    /// labels, since the chords only fire on a batch selection.
+    var showsMnemonics: Bool = false
 
     @State private var kindMenuHovering = false
+
+    /// The mnemonic char for a label, or nil when mnemonics are off.
+    private func mnem(_ c: Character) -> Character? { showsMnemonics ? c : nil }
+
+    /// Kind-menu mnemonic: To-do → T, Reminder → R, Explore → E.
+    private static func kindMnemonic(_ kind: ItemType) -> Character {
+        switch kind {
+        case .todo: return "T"
+        case .reminder: return "R"
+        case .explore: return "E"
+        case .calendar: return " "
+        }
+    }
 
     private var state: ItemActionState { ItemActionState(items) }
     /// The members an action targets: resolved items are skipped (already
@@ -44,11 +61,11 @@ struct ItemActions: View {
     @ViewBuilder
     private var resolveButton: some View {
         if state.allResolved {
-            CapsuleActionButton(title: "Restore", compact: true) {
+            CapsuleActionButton(title: "Restore", compact: true, mnemonic: mnem("R")) {
                 apply(items) { actions.reopen($0) }
             }
         } else {
-            CapsuleActionButton(title: state.resolveVerb, compact: true) {
+            CapsuleActionButton(title: state.resolveVerb, compact: true, mnemonic: mnem("D")) {
                 apply(activeItems) { actions.complete($0) }
             }
         }
@@ -58,7 +75,8 @@ struct ItemActions: View {
     // text never changes on resolve/restore — only `disabled` flips.
     @ViewBuilder
     private var iceboxButton: some View {
-        CapsuleActionButton(title: iceboxTitle, compact: true) {
+        CapsuleActionButton(title: iceboxTitle, compact: true,
+                            mnemonic: mnem(state.allIceboxed ? "v" : "i")) {
             if state.allIceboxed {
                 apply(activeItems) { actions.removeFromIcebox($0) }
             } else {
@@ -100,6 +118,7 @@ struct ItemActions: View {
             let allThisKind = items.allSatisfy { $0.typeData.kind == kind.rawValue }
             menu.addItem(ClosureMenuItem(
                 title: ActionableKindLabel.menuTitle(kind),
+                mnemonic: showsMnemonics ? Self.kindMnemonic(kind) : nil,
                 state: allThisKind ? .on : .off
             ) { apply(items) { actions.reclassify($0, kind) } })
         }
@@ -109,7 +128,10 @@ struct ItemActions: View {
         // multiple lists) and applies the choice to every item. The menu's
         // tracking loop has ended by the time this fires, so spinning the
         // editor's modal run loop here is safe.
-        menu.addItem(ClosureMenuItem(title: listMenuTitle) {
+        menu.addItem(ClosureMenuItem(
+            title: listMenuTitle,
+            mnemonic: showsMnemonics ? "l" : nil
+        ) {
             switch ListEditorWindowController.present(currentName: sharedListName) {
             case .cancel: break
             case .save(let name): apply(items) { actions.setListName($0, name) }
@@ -157,11 +179,20 @@ struct ItemActions: View {
 private final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void
 
-    init(title: String, state: NSControl.StateValue = .off, handler: @escaping () -> Void) {
+    init(title: String, mnemonic: Character? = nil,
+         state: NSControl.StateValue = .off, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(title: title, action: #selector(invoke), keyEquivalent: "")
         target = self
         self.state = state
+        if let mnemonic,
+           let r = title.range(of: String(mnemonic), options: .caseInsensitive) {
+            let attr = NSMutableAttributedString(string: title)
+            attr.addAttribute(.underlineStyle,
+                              value: NSUnderlineStyle.single.rawValue,
+                              range: NSRange(r, in: title))
+            attributedTitle = attr
+        }
     }
 
     @available(*, unavailable)

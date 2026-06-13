@@ -19,12 +19,15 @@ struct CapsuleActionButton: View {
     /// body row (size + weight) and the capsule is shorter, so a hovered row
     /// doesn't grow vertically. Default keeps the original 14pt-medium pill.
     var compact: Bool = false
+    /// Underlines the first (case-insensitive) occurrence of this character in
+    /// the label — the mnemonic hint for a keyboard chord. nil = plain label.
+    var mnemonic: Character? = nil
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Text(title)
+        label
             .font(compact ? .callout : .system(size: 14 * scale, weight: .medium))
             .foregroundStyle(labelStyle)
             .padding(.horizontal, (onAccent ? 12 : 10) * scale)
@@ -32,6 +35,22 @@ struct CapsuleActionButton: View {
             .background(fillStyle, in: Capsule())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
             .pointerButton(onHoverChange: { isHovering = $0 }, action: action)
+    }
+
+    /// The label, underlining the first (case-insensitive) occurrence of the
+    /// mnemonic character when one is set.
+    private var label: Text {
+        guard let mnemonic,
+              let i = title.firstIndex(where: {
+                  $0.lowercased() == String(mnemonic).lowercased()
+              })
+        else { return Text(title) }
+        var attr = AttributedString(title)
+        let offset = title.distance(from: title.startIndex, to: i)
+        let start = attr.index(attr.startIndex, offsetByCharacters: offset)
+        let end = attr.index(start, offsetByCharacters: 1)
+        attr[start..<end].underlineStyle = .single
+        return Text(attr)
     }
 
     private var labelStyle: AnyShapeStyle {

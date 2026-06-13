@@ -26,7 +26,8 @@ struct IceboxControlBar: View {
                 // selection directly. Slots are state-driven (no view context).
                 ItemActions(
                     items: selection.selectedItems(in: groups, collapsed: collapsedLists),
-                    actions: actions
+                    actions: actions,
+                    showsMnemonics: true
                 )
             }
             if isWorking {
