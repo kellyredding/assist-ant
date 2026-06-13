@@ -204,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch e.event {
         case "calendar_item.sync": syncCalendarItems(e)
         case "actionable_item.sync": syncActionableItems(e)
+        case "actionable_item.create": createActionableItem(e)
         case "ping":
             let message = e.detailValue("message", as: String.self) ?? "<no message>"
             NSLog("AssistAnt: ping — \(message)")
@@ -341,6 +342,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 name: .actionableItemsDidChange, object: nil)
         } catch {
             NSLog("AssistAnt: actionable_item.sync failed: \(error)")
+        }
+    }
+
+    /// Apply an `actionable_item.create` envelope: build one manual actionable
+    /// (todo/reminder/explore) and insert it. The disposition (manual source,
+    /// unscheduled unless a day was named, never iceboxed) lives in
+    /// `CapturedItem.make` so it stays unit-testable; this handler resolves the
+    /// workspace, inserts, and nudges the snapshot views to re-fetch.
+    private func createActionableItem(_ e: EventEnvelope) {
+        let workspaceID: String
+        do { workspaceID = try WorkspaceStore.shared.current().id }
+        catch {
+            NSLog("AssistAnt: actionable_item.create — cannot resolve workspace: \(error)")
+            return
+        }
+
+        guard let item = CapturedItem.make(
+            kind: e.detailValue("kind", as: String.self),
+            title: e.detailValue("title", as: String.self),
+            body: e.detailValue("body", as: String.self),
+            scheduledOnISO: e.detailValue("scheduled_on", as: String.self),
+            externalURL: e.detailValue("external_url", as: String.self),
+            icebox: e.detailValue("icebox", as: Bool.self) ?? false,
+            workspaceID: workspaceID
+        ) else {
+            NSLog("AssistAnt: actionable_item.create — invalid kind/title, skipping")
+            return
+        }
+
+        do {
+            try GRDBItemStore.shared.create(item)
+            NSLog("AssistAnt: actionable_item.create — created \(item.type): \(item.title)")
+            NotificationCenter.default.post(name: .actionableItemsDidChange, object: nil)
+        } catch {
+            NSLog("AssistAnt: actionable_item.create failed: \(error)")
         }
     }
 }

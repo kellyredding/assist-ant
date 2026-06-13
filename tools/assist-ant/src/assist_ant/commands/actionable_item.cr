@@ -8,6 +8,10 @@ module AssistAnt
     # batch to a temp file, and publishes an `actionable_item.sync` envelope
     # carrying that file's path. Works whether or not the app is up.
     class ActionableItem
+      # Actionable kinds the `create` verb accepts. Calendar items are created
+      # via `calendar-item sync`, not here.
+      VALID_KINDS = {"todo", "reminder", "explore"}
+
       def run(args : Array(String))
         rest = args.dup
         sub = rest.shift?
@@ -15,9 +19,11 @@ module AssistAnt
         case sub
         when "sync"
           sync(rest)
+        when "create"
+          create(rest)
         else
           STDERR.puts "Error: unknown actionable-item subcommand '#{sub}'"
-          STDERR.puts "Subcommands: sync"
+          STDERR.puts "Subcommands: sync, create"
           exit 1
         end
       end
@@ -83,6 +89,78 @@ module AssistAnt
         open = issues.size - completed
         puts "Synced #{issues.size} actionable items " \
              "(source=#{source}, #{open} open, #{completed} completed, reconcile=#{reconcile})."
+      end
+
+      # Create ONE manual actionable (todo/reminder/explore) from flags + a
+      # markdown body file. Deterministic and fire-and-forget like `sync` — no
+      # network and no enrichment (the capture skill does that). Validates the
+      # kind/title/date, then publishes an `actionable_item.create` envelope the
+      # app persists via GRDBItemStore.create. The body comes from --body-file so
+      # multi-line markdown survives intact.
+      private def create(args : Array(String))
+        kind = ""
+        title = ""
+        body_path : String? = nil
+        scheduled_on : String? = nil
+        url : String? = nil
+        icebox = false
+
+        OptionParser.parse(args) do |p|
+          p.on("--kind=KIND", "todo | reminder | explore (required)") { |v| kind = v }
+          p.on("--title=TITLE", "Item title (required)") { |v| title = v }
+          p.on("--body-file=PATH", "File with the markdown body (optional)") { |v| body_path = v }
+          p.on("--scheduled-on=YYYY-MM-DD", "Schedule day (default: unscheduled → Today)") { |v| scheduled_on = v }
+          p.on("--url=URL", "Primary external URL (optional)") { |v| url = v }
+          p.on("--icebox", "Capture straight to the Icebox instead of Today") { icebox = true }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
+        end
+
+        require_flag("--kind", kind)
+        require_flag("--title", title)
+        unless VALID_KINDS.includes?(kind)
+          STDERR.puts "Error: --kind must be one of #{VALID_KINDS.to_a.sort.join(", ")}"
+          exit 1
+        end
+        if d = scheduled_on
+          unless d =~ /\A\d{4}-\d{2}-\d{2}\z/
+            STDERR.puts "Error: --scheduled-on must be YYYY-MM-DD"
+            exit 1
+          end
+        end
+
+        body =
+          if path = body_path
+            File.read(path)
+          else
+            ""
+          end
+
+        detail = {} of String => JSON::Any
+        detail["kind"] = JSON::Any.new(kind)
+        detail["title"] = JSON::Any.new(title)
+        detail["body"] = JSON::Any.new(body) unless body.strip.empty?
+        if d = scheduled_on
+          detail["scheduled_on"] = JSON::Any.new(d)
+        end
+        if u = url
+          detail["external_url"] = JSON::Any.new(u)
+        end
+        detail["icebox"] = JSON::Any.new(true) if icebox
+
+        AssistAnt::EventPublisher.publish(
+          event: "actionable_item.create",
+          detail_data: detail,
+        )
+
+        where =
+          if icebox
+            "→ Icebox"
+          elsif scheduled_on
+            "scheduled #{scheduled_on}"
+          else
+            "unscheduled → Today"
+          end
+        puts "Created #{kind} item: #{title} (#{where})."
       end
 
       # Serialize the batch the app applies in one transaction: every issue as a

@@ -864,6 +864,49 @@ check("fetchActive(from:to:): scheduled actionables incl. resolved, excl. icebox
     return ids == Set([todo.id, event.id, done.id])   // boxed excluded; done kept
 }
 
+// 42. CapturedItem.make: a bare capture lands unscheduled on Today; a dated
+//     capture carries its day; calendar/blank are rejected.
+check("CapturedItem.make: manual disposition + validation") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    guard let bare = CapturedItem.make(
+        kind: "todo", title: "laundry", body: nil,
+        scheduledOnISO: nil, externalURL: nil, workspaceID: "local") else { return false }
+    guard let dated = CapturedItem.make(
+        kind: "reminder", title: "call mom", body: "## note",
+        scheduledOnISO: "2026-06-20", externalURL: nil, workspaceID: "local") else { return false }
+    let badKind = CapturedItem.make(
+        kind: "calendar", title: "x", body: nil,
+        scheduledOnISO: nil, externalURL: nil, workspaceID: "local")
+    let blankTitle = CapturedItem.make(
+        kind: "todo", title: "   ", body: nil,
+        scheduledOnISO: nil, externalURL: nil, workspaceID: "local")
+    guard badKind == nil, blankTitle == nil else { return false }
+
+    try store.create(bare)
+    try store.create(dated)
+    let onToday = try store.fetchActionable(asOf: today).contains { $0.id == bare.id }
+    return bare.source == "manual" && bare.externalID == nil
+        && bare.scheduledOn == nil && bare.iceboxedAt == nil && onToday
+        && dated.scheduledOn == CivilDate(year: 2026, month: 6, day: 20)
+        && dated.type == "reminder"
+}
+
+// 43. CapturedItem.make(icebox: true) stamps iceboxedAt → lands in the Icebox,
+//     not on Today.
+check("CapturedItem.make: icebox flag routes to the Icebox") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(year: 2026, month: 6, day: 12)
+    guard let boxed = CapturedItem.make(
+        kind: "todo", title: "later task", body: nil,
+        scheduledOnISO: nil, externalURL: nil, icebox: true,
+        workspaceID: "local") else { return false }
+    try store.create(boxed)
+    let onToday = try store.fetchActionable(asOf: today).contains { $0.id == boxed.id }
+    let inIcebox = try store.fetchIceboxed().contains { $0.id == boxed.id }
+    return boxed.iceboxedAt != nil && !onToday && inIcebox
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

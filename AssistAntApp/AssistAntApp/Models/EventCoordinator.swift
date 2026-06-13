@@ -12,6 +12,7 @@ final class EventCoordinator {
         "ping",
         "calendar_item.sync",
         "actionable_item.sync",
+        "actionable_item.create",
     ]
 
     var onEvent: ((EventEnvelope) -> Void)?

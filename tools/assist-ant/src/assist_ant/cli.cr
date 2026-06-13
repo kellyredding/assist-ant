@@ -50,6 +50,8 @@ module AssistAnt
                                         atomically upsert + prune the window.
           actionable-item sync [flags]  Ingest a provider's issue list (Linear),
                                         upsert as todos + resolve completed.
+          actionable-item create        Create one manual to-do / reminder /
+                                        explore item (unscheduled → Today).
 
         Options:
           -h, --help       Show help

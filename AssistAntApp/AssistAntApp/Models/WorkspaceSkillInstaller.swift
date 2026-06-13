@@ -12,6 +12,7 @@ enum WorkspaceSkillInstaller {
     private static let skills: [(resource: String, name: String)] = [
         ("SyncCalendarSkill", "assist-ant-sync-calendar-items"),
         ("SyncLinearSkill", "assist-ant-sync-linear-items"),
+        ("CaptureItemSkill", "assist-ant-capture-item"),
     ]
 
     static func installIfNeeded() {
