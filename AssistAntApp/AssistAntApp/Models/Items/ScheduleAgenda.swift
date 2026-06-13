@@ -13,17 +13,20 @@ struct AgendaDay: Identifiable, Equatable {
 
 /// Pure derivation of the agenda's day sections. No SwiftUI, no I/O.
 enum ScheduleAgenda {
-    /// Every day from `start` through the last day carrying an item (or `start`
-    /// itself if none), inclusive — empty days included. Each day splits its
-    /// items into calendar events (time-sorted) and actionables (grouped into
-    /// sublists). `items` is the already-range-fetched set; resolved actionables
-    /// are kept so they render struck as history.
-    static func days(items: [Item], from start: CivilDate) -> [AgendaDay] {
-        let grouped = Dictionary(grouping: items) { item in
-            item.scheduledOn ?? CivilDate(item.createdAt)
-        }
+    /// Every day from `start` through the last day carrying an item (or `start`/
+    /// `today`, whichever is later, if none), inclusive — empty days included.
+    /// Each day splits its items into calendar events (time-sorted) and
+    /// actionables (grouped into sublists). `items` is the already-range-fetched
+    /// set; resolved actionables are kept so they render struck as history.
+    ///
+    /// Days are assigned by `bucket(for:today:)`: open unscheduled/overdue
+    /// actionables roll onto `today` (mirroring the Today sidebar), while
+    /// resolved and future-scheduled actionables — and all calendar events —
+    /// anchor to their own scheduled day.
+    static func days(items: [Item], from start: CivilDate, today: CivilDate) -> [AgendaDay] {
+        let grouped = Dictionary(grouping: items) { bucket(for: $0, today: today) }
         let lastDay = grouped.keys.max() ?? start
-        let end = max(lastDay, start)
+        let end = [lastDay, start, today].max()!
 
         var out: [AgendaDay] = []
         var cursor = start
@@ -40,6 +43,21 @@ enum ScheduleAgenda {
             cursor = cursor.adding(days: 1)
         }
         return out
+    }
+
+    /// The agenda day an item renders on. Calendar events and resolved
+    /// actionables anchor to their scheduled day (history); an item with no
+    /// scheduled day falls back to its creation day. An OPEN actionable mirrors
+    /// the Today sidebar's surfacing rule: unscheduled or overdue (scheduled
+    /// on/before `today`) rolls forward onto `today`, while a future-scheduled
+    /// one stays on its day. This keeps the schedule's today column consistent
+    /// with the Today list, which shows the same unscheduled/overdue items.
+    static func bucket(for item: Item, today: CivilDate) -> CivilDate {
+        guard !isCalendar(item), item.resolvedAt == nil else {
+            return item.scheduledOn ?? CivilDate(item.createdAt)
+        }
+        guard let scheduled = item.scheduledOn else { return today }
+        return scheduled <= today ? today : scheduled
     }
 
     /// Whether the item is a calendar event (vs an actionable todo/reminder/

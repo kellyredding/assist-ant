@@ -215,13 +215,28 @@ final class ScheduleAgendaModel: ObservableObject {
         }
     }
 
+    /// Union two item sets by id (first occurrence wins; the windowed and
+    /// Today-sidebar queries return the same row for any overlap, so order is
+    /// immaterial — ScheduleAgenda re-buckets and re-sorts).
+    private static func mergeByID(_ a: [Item], _ b: [Item]) -> [Item] {
+        var byID: [String: Item] = [:]
+        for item in a + b where byID[item.id] == nil { byID[item.id] = item }
+        return Array(byID.values)
+    }
+
     private func load(spinner: Bool) {
         if spinner { isLoading = true } else { isWorking = true }
         do {
             // All types in the window: calendar events + scheduled actionables
-            // (resolved kept for history; iceboxed excluded by the store).
-            let items = try store.fetchActive(type: nil, from: windowStart, to: nil)
-            days = ScheduleAgenda.days(items: items, from: windowStart)
+            // (resolved kept for history; iceboxed excluded by the store). Plus
+            // the Today sidebar's working set — the unscheduled + overdue open
+            // actionables that surface on Today but carry no in-window
+            // scheduled_on — so the today column mirrors the Today list.
+            // ScheduleAgenda routes each (merged, deduped) item to its day.
+            let windowed = try store.fetchActive(type: nil, from: windowStart, to: nil)
+            let todaySurface = try store.fetchTodaySidebar(asOf: .today)
+            let merged = Self.mergeByID(windowed, todaySurface)
+            days = ScheduleAgenda.days(items: merged, from: windowStart, today: .today)
         } catch {
             NSLog("ScheduleAgendaModel: load failed: \(error)")
         }

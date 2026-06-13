@@ -837,7 +837,7 @@ check("ScheduleAgenda.days: splits events + actionables, time-sorts, groups") {
                        title: "bare", scheduledOn: day)
     let listed = newItem(type: .reminder, typeData: .reminder(ActionableData(listName: "Errands")),
                          title: "listed", scheduledOn: day)
-    let days = ScheduleAgenda.days(items: [evtLate, evtEarly, bare, listed], from: day)
+    let days = ScheduleAgenda.days(items: [evtLate, evtEarly, bare, listed], from: day, today: day)
     guard let d = days.first(where: { $0.date == day }) else { return false }
     let eventsSorted = d.events.map { $0.externalID } == ["early", "late"]
     let noEventsInGroups = d.actionableGroups.flatMap(\.items)
@@ -862,6 +862,38 @@ check("fetchActive(from:to:): scheduled actionables incl. resolved, excl. icebox
 
     let ids = Set(try store.fetchActive(type: nil, from: day, to: day).map { $0.id })
     return ids == Set([todo.id, event.id, done.id])   // boxed excluded; done kept
+}
+
+// 41b. ScheduleAgenda.days routes actionables like the Today sidebar: an OPEN
+//      item that's unscheduled or overdue rolls onto today; a future open item
+//      keeps its day; a resolved overdue item anchors to its (out-of-window)
+//      scheduled day and never leaks onto today. Guards the bug where
+//      Today-surface items were missing from the schedule's today column.
+check("ScheduleAgenda.days: unscheduled/overdue open actionables surface on today") {
+    let today = CivilDate(year: 2026, month: 6, day: 13)
+    func day(_ d: Int) -> CivilDate { CivilDate(year: 2026, month: 6, day: d) }
+    let overdue = newItem(type: .todo, typeData: .todo(ActionableData()),
+                          title: "overdue", scheduledOn: day(10))
+    let unscheduled = newItem(type: .explore, typeData: .explore(ActionableData()),
+                              title: "unscheduled", scheduledOn: nil)
+    let future = newItem(type: .todo, typeData: .todo(ActionableData()),
+                         title: "future", scheduledOn: day(20))
+    let resolvedOverdue = newItem(type: .todo, typeData: .todo(ActionableData()),
+                                  title: "resolvedOverdue", scheduledOn: day(10),
+                                  resolvedAt: Date())
+    let days = ScheduleAgenda.days(
+        items: [overdue, unscheduled, future, resolvedOverdue],
+        from: today, today: today)
+    func titles(on d: CivilDate) -> Set<String> {
+        Set(days.first(where: { $0.date == d })?.actionableGroups
+            .flatMap(\.items).map(\.title) ?? [])
+    }
+    let onToday = titles(on: today) == Set(["overdue", "unscheduled"])
+    let onFuture = titles(on: day(20)) == Set(["future"])
+    // resolvedOverdue buckets to day(10) — before `from`/today, so outside the
+    // rendered window: it must not appear, least of all on today.
+    let resolvedHidden = !titles(on: today).contains("resolvedOverdue")
+    return onToday && onFuture && resolvedHidden
 }
 
 // 42. CapturedItem.make: a bare capture lands unscheduled on Today; a dated
