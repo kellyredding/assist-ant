@@ -86,5 +86,43 @@ module AssistAnt
     rescue
       false
     end
+
+    # Send a request envelope and read the app's reply line (newline-framed
+    # JSON). Unlike `publish` (fire-and-forget), this waits for a response — used
+    # by read commands like `briefing`. Returns the reply line (newline trimmed)
+    # or nil on connect failure / timeout / no reply. A read requires the app to
+    # be running; the persona always runs inside it.
+    READ_TIMEOUT = 5.seconds
+
+    def request(
+      event : String,
+      detail_data : Hash(String, JSON::Any)? = nil,
+      ref : String? = nil,
+    ) : String?
+      envelope = build_envelope(event, detail_data, ref)
+      request_over_socket(envelope)
+    rescue
+      nil
+    end
+
+    # Low-level request: connect, write the JSON line, read the reply line.
+    # Separated from `request` for testability.
+    def request_over_socket(
+      envelope : String,
+      socket_path : String = Paths.socket_path.to_s,
+    ) : String?
+      socket = UNIXSocket.new(socket_path)
+      begin
+        socket.sync = true
+        socket.write_timeout = WRITE_TIMEOUT
+        socket.puts(envelope)
+        socket.read_timeout = READ_TIMEOUT
+        socket.gets(chomp: true)
+      ensure
+        socket.close
+      end
+    rescue
+      nil
+    end
   end
 end

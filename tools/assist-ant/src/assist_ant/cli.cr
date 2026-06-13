@@ -29,6 +29,8 @@ module AssistAnt
         Commands::CalendarItem.new.run(rest)
       when "actionable-item"
         Commands::ActionableItem.new.run(rest)
+      when "briefing"
+        Commands::Briefing.new.run(rest)
       else
         if command.starts_with?("-")
           STDERR.puts "Error: unknown flag '#{command}'"
@@ -52,6 +54,9 @@ module AssistAnt
                                         upsert as todos + resolve completed.
           actionable-item create        Create one manual to-do / reminder /
                                         explore item (unscheduled → Today).
+          briefing                      Ask the running app for the startup
+                                        briefing snapshot (JSON: today, upcoming,
+                                        icebox).
 
         Options:
           -h, --help       Show help
