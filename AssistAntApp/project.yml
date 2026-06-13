@@ -12,6 +12,9 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     exactVersion: 7.5.0
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts.git
+    exactVersion: 1.10.0
 
 targets:
   AssistAntApp:
@@ -24,6 +27,8 @@ targets:
         product: Galactic
       - package: GRDB
         product: GRDB
+      - package: KeyboardShortcuts
+        product: KeyboardShortcuts
     info:
       path: AssistAntApp/Info.plist
       properties:

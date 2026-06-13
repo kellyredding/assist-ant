@@ -36,6 +36,12 @@ struct AppSettings: Codable, Equatable {
     var defaultTerminalFontSize: CGFloat   // point size for the agent terminal
     var terminalScrollbackLines: Int       // scrollback buffer depth in lines
 
+    // Quick Capture. The per-kind summon shortcuts persist through the
+    // KeyboardShortcuts library (not here); this is the one capture knob the
+    // library doesn't own — whether a direct Ask summon auto-starts Wispr
+    // hands-free dictation.
+    var captureAutoArmWisprOnAsk: Bool
+
     static let current = AppSettings(
         version: 1,
         themePreference: .system,
@@ -49,7 +55,8 @@ struct AppSettings: Codable, Equatable {
         calendarAnnouncement: .defaults,
         terminalFontFamily: "SF Mono",
         defaultTerminalFontSize: 13.0,
-        terminalScrollbackLines: 10_000
+        terminalScrollbackLines: 10_000,
+        captureAutoArmWisprOnAsk: true
     )
 
     // Constraints for the Agent settings tab fields (the tab clamps typed
@@ -131,6 +138,9 @@ struct AppSettings: Codable, Equatable {
         self.terminalScrollbackLines = try container.decodeIfPresent(
             Int.self, forKey: .terminalScrollbackLines
         ) ?? AppSettings.current.terminalScrollbackLines
+        self.captureAutoArmWisprOnAsk = try container.decodeIfPresent(
+            Bool.self, forKey: .captureAutoArmWisprOnAsk
+        ) ?? AppSettings.current.captureAutoArmWisprOnAsk
     }
 
     init(
@@ -146,7 +156,8 @@ struct AppSettings: Codable, Equatable {
         calendarAnnouncement: CalendarAnnouncementSettings,
         terminalFontFamily: String,
         defaultTerminalFontSize: CGFloat,
-        terminalScrollbackLines: Int
+        terminalScrollbackLines: Int,
+        captureAutoArmWisprOnAsk: Bool
     ) {
         self.version = version
         self.themePreference = themePreference
@@ -161,6 +172,7 @@ struct AppSettings: Codable, Equatable {
         self.terminalFontFamily = terminalFontFamily
         self.defaultTerminalFontSize = defaultTerminalFontSize
         self.terminalScrollbackLines = terminalScrollbackLines
+        self.captureAutoArmWisprOnAsk = captureAutoArmWisprOnAsk
     }
 
     /// Whether audible announcements (time or desk) may play right now:
@@ -201,6 +213,7 @@ struct AppSettings: Codable, Equatable {
         case terminalFontFamily
         case defaultTerminalFontSize
         case terminalScrollbackLines
+        case captureAutoArmWisprOnAsk
     }
 
     /// Legacy keys for reading the announcement hours + muteWhileMicInUse out

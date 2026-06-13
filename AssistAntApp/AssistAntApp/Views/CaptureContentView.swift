@@ -4,11 +4,11 @@ import SwiftUI
 /// native text field (type or dictate via Wispr) + a stubbed Send. Phase 1 —
 /// "send" only logs; wiring to the live agent / inbox lands in later phases.
 struct CaptureContentView: View {
+    @ObservedObject var model: CaptureModel
     var colorScheme: ColorScheme?
     var onKindSelected: () -> Void = {}
     var onClose: () -> Void
 
-    @State private var kind: CaptureKind = .ask
     @State private var text: String = ""
 
     // ⌘1–⌘4 select a kind. (The bare-number / arrow chooser-state machine is a
@@ -54,19 +54,19 @@ struct CaptureContentView: View {
     }
 
     private var placeholder: String {
-        kind == .ask
+        model.kind == .ask
             ? "Ask the agent… (type or dictate)"
-            : "Capture a \(kind.title.lowercased())…"
+            : "Capture a \(model.kind.title.lowercased())…"
     }
 
     private var hint: String {
-        "\(kind.title) · return for newline · ⌘⏎ to send · esc to close"
+        "\(model.kind.title) · return for newline · ⌘⏎ to send · esc to close"
     }
 
     private func chooserGlyph(_ k: CaptureKind, index: Int) -> some View {
-        let selected = (k == kind)
+        let selected = (k == model.kind)
         return Button {
-            kind = k
+            model.kind = k
             onKindSelected()
         } label: {
             VStack(spacing: 3) {
@@ -95,7 +95,7 @@ struct CaptureContentView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         // Phase 1: stubbed — log what would be sent. Wiring lands in Phase 2.
-        NSLog("QuickCapture: [\(kind.rawValue)] would send: \(trimmed)")
+        NSLog("QuickCapture: [\(model.kind.rawValue)] would send: \(trimmed)")
         onClose()
     }
 }

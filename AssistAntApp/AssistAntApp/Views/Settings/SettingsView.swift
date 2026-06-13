@@ -55,15 +55,17 @@ struct SettingsView: View {
                     DeskSettingsTab(settingsManager: settingsManager)
                 case .agent:
                     AgentSettingsTab(settingsManager: settingsManager)
+                case .capture:
+                    CaptureSettingsTab(settingsManager: settingsManager)
                 }
             }
         }
         // Width is fixed because picker widths and the tab strip are
-        // designed around a set point size. 540pt keeps every tab label —
+        // designed around a set point size. 600pt keeps every tab label —
         // the longest being "Workspace" — on a single line across the full
-        // strip; each added tab narrows every tab's share, so bump this
-        // whenever a new tab starts wrapping a label. Height stays
+        // eight-tab strip; each added tab narrows every tab's share, so bump
+        // this whenever a new tab starts wrapping a label. Height stays
         // unconstrained so the controller's auto-sizing has room to grow.
-        .frame(width: 540)
+        .frame(width: 600)
     }
 }
