@@ -31,6 +31,10 @@ module AssistAnt
         Commands::ActionableItem.new.run(rest)
       when "briefing"
         Commands::Briefing.new.run(rest)
+      when "session-event"
+        Commands::SessionEvent.new.run(rest)
+      when "install-hooks"
+        Commands::InstallHooks.new.run(rest)
       else
         if command.starts_with?("-")
           STDERR.puts "Error: unknown flag '#{command}'"
@@ -60,6 +64,10 @@ module AssistAnt
           briefing                      Ask the running app for the startup
                                         briefing snapshot (JSON: today, upcoming,
                                         icebox).
+          session-event                 Publish a session:ready event from the
+                                        SessionStart hook (installed automatically).
+          install-hooks [uninstall]     Install/remove the SessionStart hook in
+                                        the agent workspace settings.json.
 
         Options:
           -h, --help       Show this help

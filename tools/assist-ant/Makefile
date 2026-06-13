@@ -32,6 +32,9 @@ install: build
 	@mkdir -p $(BINDIR) $(LOCAL_BINDIR)
 	install -m 0755 build/$(BINARY) $(BINDIR)/$(BINARY)
 	ln -sf $(BINDIR)/$(BINARY) $(LOCAL_BINDIR)/$(BINARY)
+	# Seed/refresh the workspace SessionStart hook (idempotent; skips when the
+	# workspace symlink is absent, so it's harmless on non-agent machines).
+	-$(LOCAL_BINDIR)/$(BINARY) install-hooks
 
 clean:
 	rm -rf build
