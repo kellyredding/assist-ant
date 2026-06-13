@@ -38,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // hand-edited copy).
         WorkspaceInstaller.installIfNeeded()
 
+        // Install/refresh the SessionStart hook in the workspace BEFORE the
+        // agent spawns, so it fires on this launch's resume and the app learns
+        // the live session id. The CLI owns the marker-merge (single source of
+        // truth); this just triggers it.
+        AgentHookInstaller.installIfNeeded()
+
         // Warm the items database so its migrations run and the file is ready
         // before any view queries it. Machine-local; the consistent backup
         // snapshot rides Syncthing via ItemBackupCoordinator (debounced on
@@ -86,12 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // to the desk is manual.
         AwayTriggerService.shared.start()
 
-        // Warm + start the embedded agent session. App-level so it survives
-        // the main window closing. Resumes the persisted session id, or
-        // starts fresh (and runs the persona's daily briefing once) when no
-        // id exists on this machine.
-        AgentSessionController.shared.startOnLaunch()
-
+        // Socket + event routing must be live BEFORE the agent spawns: the
+        // agent's SessionStart hook publishes `session:ready` to this socket
+        // immediately on resume, and we must not miss it.
         events = EventCoordinator()
         events.onEvent = { [weak self] envelope in
             self?.handleEvent(envelope)
@@ -116,6 +119,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+
+        // Warm + start the embedded agent session. App-level so it survives
+        // the main window closing. Resumes the persisted session id, or starts
+        // fresh (and runs the persona's daily briefing once) when no id exists
+        // on this machine. Started after the socket is listening so the
+        // resume's `session:ready` is captured.
+        AgentSessionController.shared.startOnLaunch()
 
         menuBar = MenuBarController(
             onOpenMainWindow: { [weak self] in self?.openMainWindow() },
@@ -220,6 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "calendar_item.sync": syncCalendarItems(e)
         case "actionable_item.sync": syncActionableItems(e)
         case "actionable_item.create": createActionableItem(e)
+        case "session:ready":
+            guard let id = e.detailValue("session_id", as: String.self) else { break }
+            let source = e.detailValue("source", as: String.self) ?? ""
+            AgentSessionController.shared.reconcileSession(id: id, source: source)
         case "ping":
             let message = e.detailValue("message", as: String.self) ?? "<no message>"
             NSLog("AssistAnt: ping — \(message)")

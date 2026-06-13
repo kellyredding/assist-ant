@@ -13,6 +13,7 @@ final class EventCoordinator {
         "calendar_item.sync",
         "actionable_item.sync",
         "actionable_item.create",
+        "session:ready",
     ]
 
     var onEvent: ((EventEnvelope) -> Void)?

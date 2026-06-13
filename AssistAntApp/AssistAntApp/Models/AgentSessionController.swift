@@ -113,6 +113,10 @@ final class AgentSessionController: ObservableObject {
 
     private var settingsCancellable: AnyCancellable?
 
+    /// True between a resume spawn and the agent's `session:ready` — gates the
+    /// one-shot post-resume reflow (replaces the old blind timer).
+    private var awaitingResumeReady = false
+
     private init() {
         self.personaBinaryPath = Self.findBinaryPath(name: "claude-persona")
         self.sessionId = AgentStatePersistence.shared.loadSessionId()
@@ -159,6 +163,30 @@ final class AgentSessionController: ObservableObject {
         backend.terminateProcess(signal: SIGHUP)
         teardown()
         state = .stopped
+    }
+
+    /// Handle a `session:ready` event from the workspace SessionStart hook.
+    /// Adopts the current session id as the resume target — filtering out the
+    /// extraction-sidecar sessions that share the workspace cwd — and fires the
+    /// gated post-resume reflow. Keeps the persisted id current across `/clear`
+    /// and `/compact` so the next launch resumes the live session, not a stale
+    /// one. Main-thread (EventCoordinator dispatches the event there).
+    func reconcileSession(id: String, source: String) {
+        let decision = SessionReconciler.decide(
+            source: source, reportedId: id,
+            spawnedId: sessionId, awaitingResumeReady: awaitingResumeReady)
+        guard !decision.ignored else { return }
+
+        if let newId = decision.adoptId, newId != sessionId {
+            sessionId = newId
+            AgentStatePersistence.shared.saveSessionId(newId)
+            NSLog("AgentSessionController: reconciled session id (%@) → %@",
+                  source, newId)
+        }
+        if decision.reflow, awaitingResumeReady {
+            awaitingResumeReady = false
+            reflowBuffer()
+        }
     }
 
     // MARK: - Terminal font zoom (transient)
@@ -416,21 +444,21 @@ final class AgentSessionController: ObservableObject {
 
         state = .running
 
-        // On resume the freshly-built backend can come back showing a
-        // resize artifact until the restored view repaints, and only the
-        // child repainting clears it. There's no deterministic "rendered"
-        // signal here, so mirror Galaxy's post-resume reflow: send a form
-        // feed on a short fixed delay once the resumed TUI is up. A fresh
-        // start needs no reflow — it opens on a clean screen. Starting knob;
-        // raise the delay if the garble sometimes outlives it. (Galaxy uses
-        // 0.25s, but it reflows after sending a resume command to an
-        // already-running session, whereas this fires after a fresh process
-        // launch, which needs longer to bring its TUI up.)
+        // On resume the freshly-built backend can show a resize artifact until
+        // the restored TUI repaints. Rather than guess a delay, we reflow when
+        // the agent's `session:ready` arrives (see reconcileSession) — the
+        // SessionStart hook fires once the resumed TUI is up, matching Galaxy's
+        // session:ready gating. A longer fallback timer covers a lost or
+        // never-delivered event so the screen can never stay garbled. A fresh
+        // start needs no reflow — it opens on a clean screen.
         if resume {
+            awaitingResumeReady = true
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + 0.75
+                deadline: .now() + 3.0
             ) { [weak self] in
-                self?.reflowBuffer()
+                guard let self, self.awaitingResumeReady else { return }
+                self.awaitingResumeReady = false
+                self.reflowBuffer()
             }
         }
 

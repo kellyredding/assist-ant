@@ -70,6 +70,7 @@ targets:
     sources:
       - AssistAntApp/Models/Items
       - AssistAntApp/Models/Paths.swift
+      - AssistAntApp/Models/SessionReconciler.swift
       - ItemsSmoke
     dependencies:
       - package: GRDB

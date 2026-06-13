@@ -1006,6 +1006,40 @@ check("BriefingSnapshot.current: today / upcoming / icebox slices") {
         && snap.icebox.total == 1                          // the one boxed todo
 }
 
+// SessionReconciler: resume of the tracked agent gates the post-resume reflow.
+check("SessionReconciler: resume matching spawned id → reflow, no adopt") {
+    let d = SessionReconciler.decide(
+        source: "resume", reportedId: "A", spawnedId: "A", awaitingResumeReady: true)
+    return d.reflow && d.adoptId == nil && !d.ignored
+}
+
+// SessionReconciler: a sidecar's startup (foreign id) is ignored — never stomps.
+check("SessionReconciler: startup with foreign id → ignored") {
+    let d = SessionReconciler.decide(
+        source: "startup", reportedId: "SIDECAR", spawnedId: "A", awaitingResumeReady: true)
+    return d.ignored && d.adoptId == nil && !d.reflow
+}
+
+// SessionReconciler: /clear adopts the new id (and never reflows mid-session).
+check("SessionReconciler: clear adopts the new id") {
+    let d = SessionReconciler.decide(
+        source: "clear", reportedId: "B", spawnedId: "A", awaitingResumeReady: false)
+    return d.adoptId == "B" && !d.reflow && !d.ignored
+}
+
+// SessionReconciler: /compact with the same id → no adopt, no reflow.
+check("SessionReconciler: compact with same id → no adopt") {
+    let d = SessionReconciler.decide(
+        source: "compact", reportedId: "A", spawnedId: "A", awaitingResumeReady: false)
+    return d.adoptId == nil && !d.reflow && !d.ignored
+}
+
+// SessionReconciler: an unknown source is ignored.
+check("SessionReconciler: unknown source ignored") {
+    SessionReconciler.decide(
+        source: "weird", reportedId: "A", spawnedId: "A", awaitingResumeReady: false).ignored
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")
