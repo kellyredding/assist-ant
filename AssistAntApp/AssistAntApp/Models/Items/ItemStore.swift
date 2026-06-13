@@ -14,6 +14,16 @@ enum ItemStoreError: Error {
     case reclassifyRequiresActionable
 }
 
+/// Trend summary of the icebox (active, unresolved, iceboxed items) — counts and
+/// aging, never the items themselves. Surfaced in the persona's startup briefing
+/// so it can speak to a growing or stale backlog without pulling the whole box.
+struct IceboxSummary: Codable, Equatable {
+    var total: Int
+    var byKind: [String: Int]      // "todo" / "reminder" / "explore" → count
+    var oldestAgeDays: Int?        // age in days of the longest-sitting item
+    var olderThan30: Int           // how many have sat more than 30 days
+}
+
 /// The seam the rest of the app uses to read and mutate items. A GRDB-backed
 /// local implementation exists today; the sync engine plugs in behind this
 /// same protocol later.
@@ -105,6 +115,10 @@ protocol ItemStore {
     /// NULL. Ordered newest-iceboxed first, then id. The Icebox view groups
     /// these by list name.
     func fetchIceboxed() throws -> [Item]
+
+    /// Trend summary over the same set as `fetchIceboxed` — total, per-kind
+    /// counts, and aging — without materializing the items. For the briefing.
+    func iceboxSummary(asOf today: CivilDate) throws -> IceboxSummary
 
     /// Complete an actionable: stamp resolved_at = now and scheduled_on = the
     /// completion day, leaving iceboxed_at untouched so the completion stays

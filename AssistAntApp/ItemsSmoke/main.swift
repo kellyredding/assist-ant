@@ -907,6 +907,56 @@ check("CapturedItem.make: icebox flag routes to the Icebox") {
     return boxed.iceboxedAt != nil && !onToday && inIcebox
 }
 
+// 44. iceboxSummary: counts the iceboxed set by kind with aging; excludes
+//     resolved / deleted / non-iceboxed.
+check("iceboxSummary: counts by kind + aging") {
+    let (store, _) = try makeStore()
+    let today = CivilDate.today
+    func ago(_ days: Int) -> Date { Date().addingTimeInterval(-Double(days) * 86_400) }
+    let t1 = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: ago(5))
+    let t2 = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: ago(40))
+    let r1 = newItem(type: .reminder, typeData: .reminder(ActionableData()), iceboxedAt: ago(2))
+    let e1 = newItem(type: .explore, typeData: .explore(ActionableData()), iceboxedAt: ago(50))
+    let active = newItem(type: .todo, typeData: .todo(ActionableData()))   // not iceboxed
+    let doneBoxed = newItem(type: .todo, typeData: .todo(ActionableData()),
+                            iceboxedAt: ago(10), resolvedAt: Date())       // resolved → excluded
+    for i in [t1, t2, r1, e1, active, doneBoxed] { try store.create(i) }
+    let s = try store.iceboxSummary(asOf: today)
+    return s.total == 4
+        && s.byKind["todo"] == 2 && s.byKind["reminder"] == 1 && s.byKind["explore"] == 1
+        && s.olderThan30 == 2                          // t2 (40d) + e1 (50d)
+        && (s.oldestAgeDays ?? 0) >= 49                // oldest ≈ 50d
+}
+
+// 45. BriefingSnapshot.current: the today list (unscheduled + today-scheduled,
+//     calendar dropped, iceboxed excluded), the lookahead window, and the
+//     icebox summary.
+check("BriefingSnapshot.current: today / upcoming / icebox slices") {
+    let (store, _) = try makeStore()
+    let today = CivilDate.today
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData()), title: "do it")
+    let rem = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                      title: "nudge", scheduledOn: today)
+    let soon = newItem(type: .explore, typeData: .explore(ActionableData()),
+                       title: "later", scheduledOn: today.adding(days: 3))
+    let far = newItem(type: .todo, typeData: .todo(ActionableData()),
+                      title: "far", scheduledOn: today.adding(days: 60))
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "e1", scheduledOn: today)
+    let boxed = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: Date())
+    for i in [todo, rem, soon, far, cal, boxed] { try store.create(i) }
+
+    let snap = try BriefingSnapshot.current(store: store, asOf: today)
+    let upcomingTitles = snap.upcoming.map { $0.title }
+    return snap.today.contains { $0.id == todo.id }        // unscheduled accumulates
+        && snap.today.contains { $0.id == rem.id }         // today-scheduled reminder
+        && !snap.today.contains { $0.kind == "calendar" }  // calendar dropped
+        && !snap.today.contains { $0.id == boxed.id }      // iceboxed excluded
+        && upcomingTitles.contains("later")                // in-window future
+        && !upcomingTitles.contains("far")                 // beyond the window
+        && snap.icebox.total == 1                          // the one boxed todo
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

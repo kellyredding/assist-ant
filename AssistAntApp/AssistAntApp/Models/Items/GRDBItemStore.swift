@@ -373,6 +373,36 @@ final class GRDBItemStore: ItemStore {
         }
     }
 
+    func iceboxSummary(asOf today: CivilDate) throws -> IceboxSummary {
+        try dbQueue.read { db in
+            // Same set as fetchIceboxed; aggregate in Swift (the box is small).
+            let rows = try Item
+                .filter(sql: """
+                    type IN ('todo', 'reminder', 'explore')
+                    AND deleted_at IS NULL
+                    AND iceboxed_at IS NOT NULL
+                    AND resolved_at IS NULL
+                    """)
+                .fetchAll(db)
+            var byKind: [String: Int] = [:]
+            var oldest: Date?
+            let cutoff = today.adding(days: -30)
+            var olderThan30 = 0
+            for item in rows {
+                byKind[item.type, default: 0] += 1
+                guard let at = item.iceboxedAt else { continue }
+                if oldest == nil || at < oldest! { oldest = at }
+                if CivilDate(at) < cutoff { olderThan30 += 1 }
+            }
+            let oldestAgeDays = oldest.map {
+                Calendar.current.dateComponents([.day], from: $0, to: Date()).day ?? 0
+            }
+            return IceboxSummary(
+                total: rows.count, byKind: byKind,
+                oldestAgeDays: oldestAgeDays, olderThan30: olderThan30)
+        }
+    }
+
     func resolve(id: String) throws { try stampResolved(id: id, at: Date()) }
     func unresolve(id: String) throws { try stampResolved(id: id, at: nil) }
 
