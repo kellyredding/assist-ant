@@ -121,6 +121,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Observe the ones we care about and dispatch.
         observeMenuNotifications()
 
+        // Quick Capture: register the global hotkey (⌃⌥⌘P) that summons the
+        // capture popover from any app. Additive and independent of the main
+        // window and the embedded agent.
+        CapturePanelController.shared.installHotKey()
+
         // Auto-open the main window on launch. WindowStatePersistence
         // restores the previous frame/screen if one was saved.
         openMainWindow()
