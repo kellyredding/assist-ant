@@ -28,6 +28,82 @@ describe "assist-ant binary" do
       result[:stdout].should contain "Usage:"
       result[:stdout].should contain "ping"
     end
+
+    it "points at per-command help" do
+      result = run_binary([binary, "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "assist-ant <command> --help"
+    end
+  end
+
+  # Every command and subcommand surfaces a hand-written `--help` heredoc and
+  # exits 0 — the agent (and humans) introspect flags on the fly. The capture
+  # skill instructs the agent to run `actionable-item create --help`, so that
+  # path in particular must not error.
+  describe "per-command --help" do
+    it "ping --help prints usage and exits 0" do
+      result = run_binary([binary, "ping", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "USAGE:"
+      result[:stdout].should contain "assist-ant ping"
+    end
+
+    it "briefing --help prints usage and exits 0" do
+      result = run_binary([binary, "briefing", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "USAGE:"
+      result[:stdout].should contain "assist-ant briefing"
+    end
+
+    it "actionable-item with no subcommand prints group help" do
+      result = run_binary([binary, "actionable-item"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "SUBCOMMANDS:"
+    end
+
+    it "actionable-item --help prints group help" do
+      result = run_binary([binary, "actionable-item", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "SUBCOMMANDS:"
+    end
+
+    it "actionable-item create --help prints flag usage and exits 0" do
+      result = run_binary([binary, "actionable-item", "create", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "USAGE:"
+      result[:stdout].should contain "--icebox"
+      result[:stdout].should contain "--scheduled-on"
+    end
+
+    it "actionable-item sync --help prints flag usage and exits 0" do
+      result = run_binary([binary, "actionable-item", "sync", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "REQUIRED:"
+      result[:stdout].should contain "--no-reconcile"
+    end
+
+    it "calendar-item with no subcommand prints group help" do
+      result = run_binary([binary, "calendar-item"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "SUBCOMMANDS:"
+    end
+
+    it "calendar-item sync --help prints flag usage and exits 0" do
+      result = run_binary([binary, "calendar-item", "sync", "--help"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "USAGE:"
+      result[:stdout].should contain "--from"
+      result[:stdout].should contain "--to"
+    end
+  end
+
+  describe "unknown subcommand" do
+    it "errors and points at the group --help" do
+      result = run_binary([binary, "actionable-item", "frobnicate"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "unknown actionable-item subcommand"
+      result[:stderr].should contain "actionable-item --help"
+    end
   end
 
   describe "no args" do

@@ -21,7 +21,7 @@ module AssistAnt
       case command
       when "-h", "--help", "help"
         puts usage
-      when "-v", "--version"
+      when "-v", "--version", "version"
         puts "assist-ant #{VERSION}"
       when "ping"
         Commands::Ping.new.run(rest)
@@ -44,13 +44,15 @@ module AssistAnt
 
     private def usage : String
       <<-USAGE
+        assist-ant — companion CLI for the Assist Ant app
+
         Usage: assist-ant [options] <command> [args]
 
         Commands:
           ping [message]                Send a ping envelope to the running app.
-          calendar-item sync [flags]    Ingest a provider's calendar response and
+          calendar-item sync            Ingest a provider's calendar response and
                                         atomically upsert + prune the window.
-          actionable-item sync [flags]  Ingest a provider's issue list (Linear),
+          actionable-item sync          Ingest a provider's issue list (Linear),
                                         upsert as todos + resolve completed.
           actionable-item create        Create one manual to-do / reminder /
                                         explore item (unscheduled → Today).
@@ -59,8 +61,10 @@ module AssistAnt
                                         icebox).
 
         Options:
-          -h, --help       Show help
+          -h, --help       Show this help
           -v, --version    Show version
+
+        Run 'assist-ant <command> --help' for detailed command usage.
         USAGE
     end
   end

@@ -21,11 +21,28 @@ module AssistAnt
           sync(rest)
         when "create"
           create(rest)
+        when nil, "-h", "--help", "help"
+          puts group_help
         else
           STDERR.puts "Error: unknown actionable-item subcommand '#{sub}'"
-          STDERR.puts "Subcommands: sync, create"
+          STDERR.puts "Run 'assist-ant actionable-item --help' for usage"
           exit 1
         end
+      end
+
+      private def group_help : String
+        <<-HELP
+        assist-ant actionable-item — manage actionable items
+
+        USAGE:
+          assist-ant actionable-item <subcommand> [options]
+
+        SUBCOMMANDS:
+          sync      Ingest a provider's issue list (Linear) and reconcile.
+          create    Create one manual to-do / reminder / explore item.
+
+        Run 'assist-ant actionable-item <subcommand> --help' for details.
+        HELP
       end
 
       private def sync(args : Array(String))
@@ -35,11 +52,13 @@ module AssistAnt
         reconcile = true
 
         OptionParser.parse(args) do |p|
+          p.banner = "Usage: assist-ant actionable-item sync [options]"
+          p.on("-h", "--help", "Show this help") { puts sync_help; exit 0 }
           p.on("--provider=NAME", "Input format, e.g. linear (required)") { |v| provider = v }
           p.on("--source=SOURCE", "Item source id, e.g. linear (required)") { |v| source = v }
           p.on("--input=PATH", "Raw provider response file (default: stdin)") { |v| input_path = v }
           p.on("--no-reconcile", "Skip the orphan soft-delete (for a partial/manual fetch)") { reconcile = false }
-          p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item sync") }
         end
 
         require_flag("--provider", provider)
@@ -106,13 +125,15 @@ module AssistAnt
         icebox = false
 
         OptionParser.parse(args) do |p|
+          p.banner = "Usage: assist-ant actionable-item create [options]"
+          p.on("-h", "--help", "Show this help") { puts create_help; exit 0 }
           p.on("--kind=KIND", "todo | reminder | explore (required)") { |v| kind = v }
           p.on("--title=TITLE", "Item title (required)") { |v| title = v }
           p.on("--body-file=PATH", "File with the markdown body (optional)") { |v| body_path = v }
           p.on("--scheduled-on=YYYY-MM-DD", "Schedule day (default: unscheduled → Today)") { |v| scheduled_on = v }
           p.on("--url=URL", "Primary external URL (optional)") { |v| url = v }
           p.on("--icebox", "Capture straight to the Icebox instead of Today") { icebox = true }
-          p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item create") }
         end
 
         require_flag("--kind", kind)
@@ -197,14 +218,67 @@ module AssistAnt
         end
       end
 
+      private def sync_help : String
+        <<-HELP
+        assist-ant actionable-item sync — ingest a provider issue list
+
+        USAGE:
+          assist-ant actionable-item sync --provider NAME --source SOURCE [options]
+
+        REQUIRED:
+          --provider NAME        Input format, e.g. linear
+          --source SOURCE        Item source id, e.g. linear
+
+        OPTIONS:
+          --input PATH           Raw provider response file (default: stdin)
+          --no-reconcile         Skip the orphan soft-delete (partial/manual fetch)
+          -h, --help             Show this help
+
+        EXAMPLES:
+          assist-ant actionable-item sync --provider linear --source linear \\
+            --input /tmp/issues.json
+          linear-mcp list_issues | assist-ant actionable-item sync \\
+            --provider linear --source linear
+        HELP
+      end
+
+      private def create_help : String
+        <<-HELP
+        assist-ant actionable-item create — create one manual item
+
+        USAGE:
+          assist-ant actionable-item create --kind KIND --title TITLE [options]
+
+        REQUIRED:
+          --kind KIND            One of: todo, reminder, explore
+          --title TITLE          Item title
+
+        OPTIONS:
+          --body-file PATH       File with the markdown body (optional)
+          --scheduled-on DATE    Schedule day, YYYY-MM-DD (default: unscheduled → Today)
+          --url URL              Primary external URL (optional)
+          --icebox               Capture straight to the Icebox instead of Today
+          -h, --help             Show this help
+
+        EXAMPLES:
+          assist-ant actionable-item create --kind todo --title "Pick up milk"
+          assist-ant actionable-item create --kind reminder --title "Call dentist" \\
+            --scheduled-on 2026-06-20
+          assist-ant actionable-item create --kind explore --title "Read the RFC" \\
+            --url https://example.com/rfc --body-file /tmp/body.md
+          assist-ant actionable-item create --kind todo --title "Research later" --icebox
+        HELP
+      end
+
       private def require_flag(name : String, value : String)
         return unless value.empty?
         STDERR.puts "Error: #{name} is required"
         exit 1
       end
 
-      private def abort_flag(message : String)
+      private def abort_flag(message : String, command : String)
         STDERR.puts "Error: #{message}"
+        STDERR.puts "Run '#{command} --help' for usage"
         exit 1
       end
     end

@@ -18,11 +18,27 @@ module AssistAnt
         case sub
         when "sync"
           sync(rest)
+        when nil, "-h", "--help", "help"
+          puts group_help
         else
           STDERR.puts "Error: unknown calendar-item subcommand '#{sub}'"
-          STDERR.puts "Subcommands: sync"
+          STDERR.puts "Run 'assist-ant calendar-item --help' for usage"
           exit 1
         end
+      end
+
+      private def group_help : String
+        <<-HELP
+        assist-ant calendar-item — manage calendar items
+
+        USAGE:
+          assist-ant calendar-item <subcommand> [options]
+
+        SUBCOMMANDS:
+          sync      Ingest a provider's calendar response; upsert + prune the window.
+
+        Run 'assist-ant calendar-item <subcommand> --help' for details.
+        HELP
       end
 
       # The local civil date (YYYY-MM-DD) of an ISO-8601 instant. Dates are
@@ -40,12 +56,14 @@ module AssistAnt
         input_path : String? = nil
 
         OptionParser.parse(args) do |p|
+          p.banner = "Usage: assist-ant calendar-item sync [options]"
+          p.on("-h", "--help", "Show this help") { puts sync_help; exit 0 }
           p.on("--provider=NAME", "Input format, e.g. google-calendar (required)") { |v| provider = v }
           p.on("--source=SOURCE", "Item source id, e.g. gcal (required)") { |v| source = v }
           p.on("--from=YYYY-MM-DD", "Window start date (required)") { |v| from = v }
           p.on("--to=YYYY-MM-DD", "Window end date (required)") { |v| to = v }
           p.on("--input=PATH", "Raw provider response file (default: stdin)") { |v| input_path = v }
-          p.invalid_option { |f| abort_flag("unknown flag '#{f}'") }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant calendar-item sync") }
         end
 
         require_flag("--provider", provider)
@@ -143,14 +161,39 @@ module AssistAnt
         end
       end
 
+      private def sync_help : String
+        <<-HELP
+        assist-ant calendar-item sync — ingest a provider calendar response
+
+        USAGE:
+          assist-ant calendar-item sync --provider NAME --source SOURCE \\
+            --from YYYY-MM-DD --to YYYY-MM-DD [options]
+
+        REQUIRED:
+          --provider NAME        Input format, e.g. google-calendar
+          --source SOURCE        Item source id, e.g. gcal
+          --from YYYY-MM-DD      Window start date
+          --to YYYY-MM-DD        Window end date
+
+        OPTIONS:
+          --input PATH           Raw provider response file (default: stdin)
+          -h, --help             Show this help
+
+        EXAMPLES:
+          assist-ant calendar-item sync --provider google-calendar --source gcal \\
+            --from 2026-06-13 --to 2026-06-20 --input /tmp/events.json
+        HELP
+      end
+
       private def require_flag(name : String, value : String)
         return unless value.empty?
         STDERR.puts "Error: #{name} is required"
         exit 1
       end
 
-      private def abort_flag(message : String)
+      private def abort_flag(message : String, command : String)
         STDERR.puts "Error: #{message}"
+        STDERR.puts "Run '#{command} --help' for usage"
         exit 1
       end
     end
