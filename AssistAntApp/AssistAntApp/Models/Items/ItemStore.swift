@@ -68,6 +68,18 @@ protocol ItemStore {
     /// re-subscribing at the local midnight rollover is the caller's concern.
     func observeActionable(asOf today: CivilDate) -> AnyPublisher<[Item], Error>
 
+    /// Actionable items for the Today sidebar working set: not deleted/iceboxed,
+    /// not scheduled into the future, and either unresolved (unscheduled or
+    /// scheduled on/before today — overdue accumulates) or resolved *today*
+    /// (local civil date of `resolved_at`). Unlike `fetchActionable`, this keeps
+    /// items completed today visible (struck) so a Done/Dismiss in the sidebar
+    /// stays until the date rolls over. Sorted like `fetchActionable`.
+    func fetchTodaySidebar(asOf today: CivilDate) throws -> [Item]
+
+    /// Reactive form of `fetchTodaySidebar`. `today` is fixed at subscription;
+    /// re-subscribing at the local midnight rollover is the caller's concern.
+    func observeTodaySidebar(asOf today: CivilDate) -> AnyPublisher<[Item], Error>
+
     /// Mark an item resolved (`resolved_at = now`) or active again (clears it).
     func resolve(id: String) throws
     func unresolve(id: String) throws

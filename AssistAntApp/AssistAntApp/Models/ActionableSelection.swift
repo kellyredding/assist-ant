@@ -8,6 +8,11 @@ import Combine
 /// every snapshot change.
 @MainActor
 final class ActionableSelection: ObservableObject {
+    /// A shared, never-mutated selection for surfaces with no batch selection
+    /// (the Today sidebar): its rows read focus/selection as false and render no
+    /// gutter, so this instance only satisfies the row's `@ObservedObject`.
+    static let disabled = ActionableSelection()
+
     /// Rows selected for batch actions, by item id.
     @Published private(set) var selectedIDs: Set<String> = []
     /// The row receiving X / Enter (the focus bar), by item id. Distinct from

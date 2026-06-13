@@ -44,11 +44,11 @@ struct TodayItemsView: View {
         ItemListSection(
             title: "Calendar / Reminders",
             emoji: "📅",
-            isEmpty: model.calendarRows.isEmpty,
-            emptyText: "No events today",
+            isEmpty: model.calendarRows.isEmpty && model.reminderGroups.isEmpty,
+            emptyText: "Nothing today",
             headerAccessory: AnyView(syncButton)
         ) {
-            VStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(model.calendarRows) { row in
                     CalendarItemRow(row: row) {
                         // Open the event in the shared reader over the Schedule
@@ -56,15 +56,21 @@ struct TodayItemsView: View {
                         ItemViewerModel.shared.open(row.item, over: .schedule)
                     }
                 }
+                // Reminders live beneath the day's events, grouped into sublists.
+                if !model.reminderGroups.isEmpty {
+                    if !model.calendarRows.isEmpty { Divider().padding(.vertical, 2) }
+                    actionableGroups(model.reminderGroups)
+                }
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    /// Re-sync affordance in the Calendar header: asks the agent to run the
-    /// sync skill. A spinner shows while a sync is in flight; the list updates
-    /// itself when the new data lands (TodayItemsModel observes the store).
+    /// Re-sync affordance in the Calendar header: reconstitutes the list now
+    /// (releasing any held rows), then asks the agent to run the sync skill. A
+    /// spinner shows while the sync is in flight; items it commits arrive on
+    /// their own through the live feed.
     @ViewBuilder private var syncButton: some View {
         if sync.isSyncing {
             ProgressView().controlSize(.small)
@@ -73,30 +79,51 @@ struct TodayItemsView: View {
                 systemName: "arrow.clockwise",
                 help: "Re-sync calendar with the agent"
             ) {
+                model.refresh()
                 CalendarSyncCoordinator.shared.requestSync()
             }
         }
     }
 
-    /// The to-do column — a pinned header now; the list itself lands with the
-    /// to-do feature.
+    /// The to-do / explore column: the day's to-dos and explores, grouped into
+    /// named + unnamed sublists.
     private var todoColumn: some View {
         ItemListSection(
             title: "Todo / Explore",
             emoji: "✅",
-            isEmpty: true,
-            emptyText: "No to-dos",
+            isEmpty: model.todoExploreGroups.isEmpty,
+            emptyText: "Nothing for today",
             headerAccessory: AnyView(linearSyncButton)
         ) {
-            EmptyView()
+            VStack(alignment: .leading, spacing: 0) {
+                actionableGroups(model.todoExploreGroups)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    /// Re-sync affordance in the To-Do header: asks the agent to run the Linear
-    /// sync skill. A spinner shows while a sync is in flight; the list updates
-    /// itself when the new data lands (TodayItemsModel observes the store).
+    /// Render actionable groups as the shared list sections in the Today
+    /// context: no selection gutter and glyph hover actions, tapping a row opens
+    /// the reader over the Schedule tab. Sublists collapse via the model.
+    @ViewBuilder
+    private func actionableGroups(_ groups: [ActionableGroup]) -> some View {
+        ForEach(groups) { group in
+            ActionableListSection(
+                group: group,
+                isCollapsed: group.listName.map(model.isCollapsed) ?? false,
+                onToggle: { model.toggleCollapse($0) },
+                actions: model.actions,
+                onOpen: { ItemViewerModel.shared.open($0, over: .schedule) },
+                context: .today
+            )
+        }
+    }
+
+    /// Re-sync affordance in the To-Do header: reconstitutes the list now
+    /// (releasing any held rows), then asks the agent to run the Linear sync
+    /// skill. A spinner shows while the sync is in flight; items it commits
+    /// arrive on their own through the live feed.
     @ViewBuilder private var linearSyncButton: some View {
         if linearSync.isSyncing {
             ProgressView().controlSize(.small)
@@ -105,6 +132,7 @@ struct TodayItemsView: View {
                 systemName: "arrow.clockwise",
                 help: "Re-sync to-dos with the agent"
             ) {
+                model.refresh()
                 LinearSyncCoordinator.shared.requestSync()
             }
         }

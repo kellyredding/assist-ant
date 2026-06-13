@@ -22,6 +22,10 @@ struct CapsuleActionButton: View {
     /// Underlines the first (case-insensitive) occurrence of this character in
     /// the label — the mnemonic hint for a keyboard chord. nil = plain label.
     var mnemonic: Character? = nil
+    /// When set, the button renders this SF Symbol in place of the title text
+    /// (the glyph variant for narrow surfaces like the Today sidebar). `title`
+    /// still carries the action's name, surfaced as the hover tooltip.
+    var systemImage: String? = nil
     let action: () -> Void
 
     @State private var isHovering = false
@@ -34,12 +38,15 @@ struct CapsuleActionButton: View {
             .padding(.vertical, (compact ? 2 : (onAccent ? 5 : 3)) * scale)
             .background(fillStyle, in: Capsule())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .help(systemImage != nil ? title : "")
             .pointerButton(onHoverChange: { isHovering = $0 }, action: action)
     }
 
-    /// The label, underlining the first (case-insensitive) occurrence of the
-    /// mnemonic character when one is set.
+    /// The label: the SF Symbol when `systemImage` is set, else the title text —
+    /// underlining the first (case-insensitive) occurrence of the mnemonic
+    /// character when one is set.
     private var label: Text {
+        if let systemImage { return Text(Image(systemName: systemImage)) }
         guard let mnemonic,
               let i = title.firstIndex(where: {
                   $0.lowercased() == String(mnemonic).lowercased()

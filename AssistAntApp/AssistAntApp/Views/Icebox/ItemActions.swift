@@ -25,6 +25,10 @@ struct ItemActions: View {
     /// their chord letter. Default false (row hover, reader header) keeps plain
     /// labels, since the chords only fire on a batch selection.
     var showsMnemonics: Bool = false
+    /// The Today sidebar passes true → the Resolve and Icebox slots render SF
+    /// Symbols instead of text labels, to fit the narrow column. Default false
+    /// keeps the text labels everywhere else. The ⋮ kind menu is already a glyph.
+    var glyphs: Bool = false
 
     @State private var kindMenuHovering = false
 
@@ -61,11 +65,13 @@ struct ItemActions: View {
     @ViewBuilder
     private var resolveButton: some View {
         if state.allResolved {
-            CapsuleActionButton(title: "Restore", compact: true, mnemonic: mnem("R")) {
+            CapsuleActionButton(title: "Restore", compact: true, mnemonic: mnem("R"),
+                                systemImage: glyphs ? "arrow.uturn.backward" : nil) {
                 apply(items) { actions.reopen($0) }
             }
         } else {
-            CapsuleActionButton(title: state.resolveVerb, compact: true, mnemonic: mnem("D")) {
+            CapsuleActionButton(title: state.resolveVerb, compact: true, mnemonic: mnem("D"),
+                                systemImage: glyphs ? "checkmark" : nil) {
                 apply(activeItems) { actions.complete($0) }
             }
         }
@@ -76,7 +82,10 @@ struct ItemActions: View {
     @ViewBuilder
     private var iceboxButton: some View {
         CapsuleActionButton(title: iceboxTitle, compact: true,
-                            mnemonic: mnem(state.allIceboxed ? "v" : "i")) {
+                            mnemonic: mnem(state.allIceboxed ? "v" : "i"),
+                            systemImage: glyphs
+                                ? (state.allIceboxed ? "snowflake.slash" : "snowflake")
+                                : nil) {
             if state.allIceboxed {
                 apply(activeItems) { actions.removeFromIcebox($0) }
             } else {

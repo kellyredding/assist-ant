@@ -346,6 +346,17 @@ final class GRDBItemStore: ItemStore {
             .eraseToAnyPublisher()
     }
 
+    func fetchTodaySidebar(asOf today: CivilDate) throws -> [Item] {
+        try dbQueue.read { db in try Self.todaySidebarRequest(today).fetchAll(db) }
+    }
+
+    func observeTodaySidebar(asOf today: CivilDate) -> AnyPublisher<[Item], Error> {
+        ValueObservation
+            .tracking { db in try Self.todaySidebarRequest(today).fetchAll(db) }
+            .publisher(in: dbQueue)
+            .eraseToAnyPublisher()
+    }
+
     func fetchIceboxed() throws -> [Item] {
         try dbQueue.read { db in
             try Item
@@ -514,6 +525,31 @@ final class GRDBItemStore: ItemStore {
                 AND resolved_at IS NULL
                 AND (scheduled_on IS NULL OR scheduled_on <= ?)
                 """, arguments: [today.iso])
+            .order(sql: """
+                position IS NULL, position,
+                scheduled_on IS NULL, scheduled_on,
+                id
+                """)
+    }
+
+    // The Today-sidebar working set. Same base as `actionableRequest` (active
+    // actionables, not scheduled into the future — overdue accumulates), but it
+    // KEEPS items resolved today instead of excluding all resolved ones, so a
+    // Done/Dismiss in the sidebar stays struck until the day rolls over. The
+    // resolved-today test reads the LOCAL civil date of `resolved_at`:
+    // `resolved_at` is a UTC datetime ("YYYY-MM-DD HH:MM:SS.SSS"), and
+    // SQLite's `date(_, 'localtime')` converts it to the local day before the
+    // compare — matching `CivilDate(_, in: .current)` used elsewhere. The
+    // not-future guard (`scheduled_on <= today`) still drops reschedule-to-
+    // future. Same sort as actionableRequest.
+    private static func todaySidebarRequest(_ today: CivilDate) -> QueryInterfaceRequest<Item> {
+        Item
+            .filter(sql: """
+                type IN ('todo', 'reminder', 'explore')
+                AND deleted_at IS NULL AND iceboxed_at IS NULL
+                AND (scheduled_on IS NULL OR scheduled_on <= ?)
+                AND (resolved_at IS NULL OR date(resolved_at, 'localtime') = ?)
+                """, arguments: [today.iso, today.iso])
             .order(sql: """
                 position IS NULL, position,
                 scheduled_on IS NULL, scheduled_on,

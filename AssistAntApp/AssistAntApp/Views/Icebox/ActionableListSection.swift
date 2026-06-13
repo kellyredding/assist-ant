@@ -8,7 +8,9 @@ struct ActionableListSection: View {
     let group: ActionableGroup
     let isCollapsed: Bool
     let onToggle: (String) -> Void
-    let selection: ActionableSelection
+    /// The selectable surfaces pass their selection; the Today sidebar omits it
+    /// (defaulting to the shared disabled selection) — its rows render no gutter.
+    var selection: ActionableSelection = .disabled
     let actions: ActionableActions
     let onOpen: (Item) -> Void
     /// Forwarded to each row to pick its surface-specific dimming + status.

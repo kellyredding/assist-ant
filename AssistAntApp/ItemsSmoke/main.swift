@@ -36,13 +36,14 @@ func newItem(
     externalID: String? = nil,
     title: String = "t",
     scheduledOn: CivilDate? = nil,
-    iceboxedAt: Date? = nil
+    iceboxedAt: Date? = nil,
+    resolvedAt: Date? = nil
 ) -> Item {
     Item(
         id: UUIDv7.generate(), workspaceID: "local", type: type.rawValue,
         title: title, body: nil, source: source, externalID: externalID,
         typeData: typeData, iceboxedAt: iceboxedAt, deletedAt: nil,
-        scheduledOn: scheduledOn,
+        scheduledOn: scheduledOn, resolvedAt: resolvedAt,
         createdAt: Date(), updatedAt: Date(), serverUpdatedAt: nil, pending: false
     )
 }
@@ -377,6 +378,46 @@ check("reschedule moves an item off and back onto today") {
     try store.reschedule(id: item.id, to: CivilDate(year: 2026, month: 6, day: 1))
     let backOnToday = try store.fetchActionable(asOf: today).contains { $0.id == item.id }
     return goneFromToday && backOnToday
+}
+
+// 18b. fetchTodaySidebar keeps the Today working set: unresolved (unscheduled +
+//      overdue + today) PLUS items resolved TODAY — including an overdue item
+//      completed today, whose scheduled_on stays in the past — while dropping
+//      future-scheduled, prior-day completions, and iceboxed rows. Uses the real
+//      local today so the `date(resolved_at,'localtime')` compare lines up with
+//      the stamped instants.
+check("fetchTodaySidebar: keeps resolved-today (incl. overdue completion), drops prior-day/future/iceboxed") {
+    let (store, _) = try makeStore()
+    let today = CivilDate(Date())
+    let yesterday = today.adding(days: -1)
+    let tomorrow = today.adding(days: 1)
+    let now = Date()
+    let longAgo = Date(timeIntervalSinceNow: -3 * 86_400)   // ~3 days back
+
+    // Unresolved members of today's set.
+    let unscheduled = newItem(type: .todo, typeData: .todo(ActionableData()),
+                              title: "unscheduled")
+    let overdueOpen = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                              title: "overdueOpen", scheduledOn: yesterday)
+    // Resolved members: completed today stay (even when the day is in the past,
+    // as an overdue completion keeps its original scheduled_on).
+    let doneToday = newItem(type: .todo, typeData: .todo(ActionableData()),
+                            title: "doneToday", scheduledOn: today, resolvedAt: now)
+    let doneOverdue = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                              title: "doneOverdue", scheduledOn: yesterday, resolvedAt: now)
+    // Dropped: scheduled into the future, completed on a prior day, iceboxed.
+    let future = newItem(type: .todo, typeData: .todo(ActionableData()),
+                         title: "future", scheduledOn: tomorrow)
+    let donePriorDay = newItem(type: .todo, typeData: .todo(ActionableData()),
+                               title: "donePriorDay", scheduledOn: yesterday, resolvedAt: longAgo)
+    let iceboxed = newItem(type: .explore, typeData: .explore(ActionableData()),
+                           title: "iceboxed", iceboxedAt: now)
+
+    for i in [unscheduled, overdueOpen, doneToday, doneOverdue, future, donePriorDay, iceboxed] {
+        try store.create(i)
+    }
+    let ids = Set(try store.fetchTodaySidebar(asOf: today).map { $0.id })
+    return ids == Set([unscheduled.id, overdueOpen.id, doneToday.id, doneOverdue.id])
 }
 
 // 19. Reclassify swaps the kind losslessly (payload, identity, schedule,
