@@ -236,9 +236,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch e.event {
         case "briefing.query":
             return BriefingSnapshot.replyData()
+        case "actionable_item.list_names":
+            return listNamesReplyData()
         default:
             return nil
         }
+    }
+
+    /// Reply to `actionable_item.list_names`: the existing list names as JSON
+    /// (`{"lists":[...]}`) for the capture skill to fuzzy/semantic-match a named
+    /// list against. Store reads are thread-safe, so this is fine on the
+    /// listener queue.
+    private func listNamesReplyData() -> Data? {
+        let names = (try? GRDBItemStore.shared.knownListNames()) ?? []
+        return try? JSONSerialization.data(
+            withJSONObject: ["lists": names], options: [.sortedKeys])
     }
 
     /// Apply a `calendar_item.sync` envelope: read the batch file the CLI
@@ -392,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             body: e.detailValue("body", as: String.self),
             scheduledOnISO: e.detailValue("scheduled_on", as: String.self),
             externalURL: e.detailValue("external_url", as: String.self),
+            listName: e.detailValue("list_name", as: String.self),
             icebox: e.detailValue("icebox", as: Bool.self) ?? false,
             workspaceID: workspaceID
         ) else {

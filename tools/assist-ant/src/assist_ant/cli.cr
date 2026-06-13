@@ -56,6 +56,7 @@ module AssistAnt
                                         upsert as todos + resolve completed.
           actionable-item create        Create one manual to-do / reminder /
                                         explore item (unscheduled → Today).
+          actionable-item list-names    List existing list names (JSON).
           briefing                      Ask the running app for the startup
                                         briefing snapshot (JSON: today, upcoming,
                                         icebox).

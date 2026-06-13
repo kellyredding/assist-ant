@@ -43,7 +43,17 @@ Icebox, following a URL, and composing a clean title + markdown body.
    enrichment section(s). Write it to a temp file with the Write tool (e.g.
    `/tmp/aa-capture-<something>.md`); note the path.
 
-6. **Create.** One command:
+6. **List.** If the capture directs the item to a list ("add to my Errands
+   list", "put this on Reading"), run `assist-ant actionable-item list-names`
+   to get the existing lists (JSON `{"lists":[...]}`). Best-guess match the
+   named list against them — **fuzzy and fully semantic** (e.g. "groceries" →
+   an existing "Errands" when that's clearly the intent). If nothing is
+   reasonably close, use a **new** list name as close to what the prompt said
+   as possible, then pass `--list "<name>"`. **If no list is mentioned, skip
+   this step entirely** — no lookup, no `--list`. Don't confirm; your best
+   guess is fine, and the user re-lists it later if it's wrong.
+
+7. **Create.** One command:
 
    ```bash
    assist-ant actionable-item create \
@@ -51,11 +61,12 @@ Icebox, following a URL, and composing a clean title + markdown body.
      --title '<title>' \
      [--scheduled-on YYYY-MM-DD] \
      [--icebox] \
+     [--list '<list name>'] \
      [--url '<primary url>'] \
      --body-file '<path to the body file>'
    ```
 
-7. **Report.** Relay the CLI's one-line summary. Keep it terse.
+8. **Report.** Relay the CLI's one-line summary. Keep it terse.
 
 ## Notes
 
@@ -66,5 +77,9 @@ Icebox, following a URL, and composing a clean title + markdown body.
 - Do not invent a schedule or icebox a thing on your own. Only set
   `--scheduled-on` when the text names a day, and only set `--icebox` when the
   text asks to stash it.
+- Only set `--list` when the text names a list; never invent one otherwise.
+  When it does name one, the match is fuzzy/semantic — a close miss is fine, a
+  new list is created if nothing fits, and the user can re-list later. List
+  assignment is independent of schedule and icebox.
 - The payload file is a transient handoff — you don't need to delete it.
 - Run `assist-ant actionable-item create --help` if you need the flag list.

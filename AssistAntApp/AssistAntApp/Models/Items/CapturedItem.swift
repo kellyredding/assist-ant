@@ -18,6 +18,7 @@ enum CapturedItem {
         body: String?,
         scheduledOnISO: String?,
         externalURL: String?,
+        listName: String? = nil,
         icebox: Bool = false,
         workspaceID: String,
         now: Date = Date()
@@ -29,7 +30,7 @@ enum CapturedItem {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return nil }
 
-        let data = ActionableData(listName: nil, externalURL: externalURL)
+        let data = ActionableData(listName: listName, externalURL: externalURL)
         let typeData: ItemTypeData
         switch type {
         case .todo: typeData = .todo(data)

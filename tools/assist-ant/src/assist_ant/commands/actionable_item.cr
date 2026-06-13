@@ -21,6 +21,8 @@ module AssistAnt
           sync(rest)
         when "create"
           create(rest)
+        when "list-names"
+          list_names(rest)
         when nil, "-h", "--help", "help"
           puts group_help
         else
@@ -38,8 +40,9 @@ module AssistAnt
           assist-ant actionable-item <subcommand> [options]
 
         SUBCOMMANDS:
-          sync      Ingest a provider's issue list (Linear) and reconcile.
-          create    Create one manual to-do / reminder / explore item.
+          sync         Ingest a provider's issue list (Linear) and reconcile.
+          create       Create one manual to-do / reminder / explore item.
+          list-names   List the existing list names (JSON).
 
         Run 'assist-ant actionable-item <subcommand> --help' for details.
         HELP
@@ -122,6 +125,7 @@ module AssistAnt
         body_path : String? = nil
         scheduled_on : String? = nil
         url : String? = nil
+        list_name : String? = nil
         icebox = false
 
         OptionParser.parse(args) do |p|
@@ -132,6 +136,7 @@ module AssistAnt
           p.on("--body-file=PATH", "File with the markdown body (optional)") { |v| body_path = v }
           p.on("--scheduled-on=YYYY-MM-DD", "Schedule day (default: unscheduled → Today)") { |v| scheduled_on = v }
           p.on("--url=URL", "Primary external URL (optional)") { |v| url = v }
+          p.on("--list=NAME", "Assign to a list (optional)") { |v| list_name = v }
           p.on("--icebox", "Capture straight to the Icebox instead of Today") { icebox = true }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item create") }
         end
@@ -166,6 +171,9 @@ module AssistAnt
         if u = url
           detail["external_url"] = JSON::Any.new(u)
         end
+        if l = list_name
+          detail["list_name"] = JSON::Any.new(l)
+        end
         detail["icebox"] = JSON::Any.new(true) if icebox
 
         AssistAnt::EventPublisher.publish(
@@ -182,6 +190,26 @@ module AssistAnt
             "unscheduled → Today"
           end
         puts "Created #{kind} item: #{title} (#{where})."
+      end
+
+      # Read: ask the running app for the existing list names and print its JSON
+      # reply (`{"lists":[...]}`) for the agent to parse. Mirrors `briefing` — a
+      # request/reply over the socket, not fire-and-forget — so it needs the app
+      # running. The fuzzy/semantic matching lives in the capture skill; the CLI
+      # only surfaces the names.
+      private def list_names(args : Array(String))
+        if args.first? == "-h" || args.first? == "--help"
+          puts list_names_help
+          return
+        end
+
+        reply = AssistAnt::EventPublisher.request(event: "actionable_item.list_names")
+        if reply.nil? || reply.empty?
+          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
+          exit 1
+        end
+
+        puts reply
       end
 
       # Serialize the batch the app applies in one transaction: every issue as a
@@ -257,6 +285,7 @@ module AssistAnt
           --body-file PATH       File with the markdown body (optional)
           --scheduled-on DATE    Schedule day, YYYY-MM-DD (default: unscheduled → Today)
           --url URL              Primary external URL (optional)
+          --list LIST            Assign to a list (optional)
           --icebox               Capture straight to the Icebox instead of Today
           -h, --help             Show this help
 
@@ -267,6 +296,27 @@ module AssistAnt
           assist-ant actionable-item create --kind explore --title "Read the RFC" \\
             --url https://example.com/rfc --body-file /tmp/body.md
           assist-ant actionable-item create --kind todo --title "Research later" --icebox
+          assist-ant actionable-item create --kind todo --title "Buy milk" --list Errands
+        HELP
+      end
+
+      private def list_names_help : String
+        <<-HELP
+        assist-ant actionable-item list-names — list existing list names
+
+        USAGE:
+          assist-ant actionable-item list-names
+
+        OPTIONS:
+          -h, --help             Show this help
+
+        DESCRIPTION:
+          Prints the existing list names as JSON (`{"lists":[...]}`) so a capture
+          can be matched to a list. A read, not a write: requires the app to be
+          running.
+
+        EXAMPLES:
+          assist-ant actionable-item list-names
         HELP
       end
 

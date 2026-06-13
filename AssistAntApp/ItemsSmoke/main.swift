@@ -939,6 +939,23 @@ check("CapturedItem.make: icebox flag routes to the Icebox") {
     return boxed.iceboxedAt != nil && !onToday && inIcebox
 }
 
+// 43c. CapturedItem.make(listName:) threads the list onto the actionable
+//      payload, round-trips through the store, and surfaces in knownListNames —
+//      the same names the list_names read command returns.
+check("CapturedItem.make: listName threads onto the actionable + round-trips") {
+    let (store, _) = try makeStore()
+    guard let item = CapturedItem.make(
+        kind: "todo", title: "buy milk", body: nil,
+        scheduledOnISO: nil, externalURL: nil, listName: "Errands",
+        workspaceID: "local") else { return false }
+    guard case .todo(let d) = item.typeData, d.listName == "Errands" else { return false }
+    try store.create(item)
+    guard let fetched = try store.fetch(id: item.id),
+          case .todo(let fd) = fetched.typeData else { return false }
+    let known = try store.knownListNames()
+    return fd.listName == "Errands" && known.contains("Errands")
+}
+
 // 44. iceboxSummary: counts the iceboxed set by kind with aging; excludes
 //     resolved / deleted / non-iceboxed.
 check("iceboxSummary: counts by kind + aging") {

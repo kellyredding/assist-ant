@@ -104,4 +104,19 @@ describe "assist-ant actionable-item create" do
       [binary, "actionable-item", "create", "--kind", "todo"])
     result[:status].success?.should be_false
   end
+
+  it "passes --list through as the list_name detail field" do
+    with_socket_server do |sock_path, channel|
+      result = run_binary(
+        [binary, "actionable-item", "create",
+         "--kind", "todo", "--title", "Buy milk", "--list", "Errands"],
+        env: {"ASSIST_ANT_SOCKET" => sock_path},
+      )
+      result[:status].success?.should be_true
+
+      parsed = JSON.parse(channel.receive)
+      parsed["event"].should eq "actionable_item.create"
+      parsed["detail_data"]["list_name"].should eq "Errands"
+    end
+  end
 end
