@@ -103,6 +103,7 @@ final class ActionableListChords {
         case ("a", "i"): _ = ctx.actions.moveToIcebox(active)
         case ("a", "v"): _ = ctx.actions.removeFromIcebox(active)
         case ("a", "c"): ItemClipboard.copy(selected)   // copy includes resolved
+        case ("a", "l"): ItemLinks.urls(for: selected).forEach { NSWorkspace.shared.open($0) }
         case ("l", "t"): _ = ctx.actions.reclassify(selected, .todo)
         case ("l", "r"): _ = ctx.actions.reclassify(selected, .reminder)
         case ("l", "e"): _ = ctx.actions.reclassify(selected, .explore)

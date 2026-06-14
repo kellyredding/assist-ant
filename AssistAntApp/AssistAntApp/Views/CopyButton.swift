@@ -18,18 +18,24 @@ struct CopyButton: View {
     var iconSize: CGFloat = 13
 
     @State private var showCopied = false
+    @State private var isHovering = false
 
     var body: some View {
-        Button(action: copyText) {
-            Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: iconSize))
-                .foregroundColor(showCopied ? .green : .secondary)
-        }
-        .buttonStyle(.plain)
-        .help("Copy for agent")
-        .onReceive(NotificationCenter.default.publisher(for: .itemsCopiedToClipboard)) { _ in
-            flashCopied()
-        }
+        // Same glyph shape as PointerIconButton / the ⋮ menu so the whole
+        // cluster shares the pointing-hand cursor + hover highlight (a plain
+        // Button gave the default arrow). No tooltip, matching the other glyphs.
+        Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+            .font(.system(size: iconSize))
+            .foregroundColor(showCopied ? .green : .secondary)
+            .frame(width: 24, height: 24)
+            .background(
+                Circle().fill(Color.primary.opacity(isHovering ? 0.12 : 0))
+            )
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .pointerButton(onHoverChange: { isHovering = $0 }, action: copyText)
+            .onReceive(NotificationCenter.default.publisher(for: .itemsCopiedToClipboard)) { _ in
+                flashCopied()
+            }
     }
 
     private func copyText() {

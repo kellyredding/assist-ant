@@ -136,8 +136,6 @@ struct ActionableItemViewer: View {
                     .strikethrough(isResolved)
                     .foregroundStyle(isResolved ? .secondary : .primary)
                 Spacer(minLength: 12)
-                ItemActions(items: [item], onChange: onItemChange,
-                            actions: actions, showsMnemonics: true)
                 PointerIconButton(
                     systemName: "square.and.pencil", help: "Edit (⌘↵)",
                     action: onBeginEdit
@@ -166,13 +164,13 @@ struct ActionableItemViewer: View {
             } else {
                 ScheduledBadge(date: item.scheduledOn ?? .today)
             }
-            Spacer(minLength: 0)
-            if let url = item.actionableExternalURL, let u = URL(string: url) {
-                PointerIconButton(
-                    systemName: "arrow.up.right.square",
-                    help: "Open link in browser",
-                    action: { NSWorkspace.shared.open(u) }
-                )
+            Spacer(minLength: 12)
+            // The actions cluster moved here from the title row so long titles
+            // get the full width. Hidden while editing, matching the title row's
+            // editor mode. The cluster carries the external-link glyph.
+            if !edit.isEditing {
+                ItemActions(items: [item], onChange: onItemChange,
+                            actions: actions, showsMnemonics: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

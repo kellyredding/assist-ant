@@ -55,6 +55,7 @@ struct ItemActions: View {
             resolveButton
             iceboxButton
             CopyButton(text: ItemClipboard.serialize(items))
+            linkButton
             kindMenu
                 .disabled(state.allResolved)
                 .opacity(state.allResolved ? 0.4 : 1)
@@ -99,6 +100,19 @@ struct ItemActions: View {
 
     private var iceboxTitle: String {
         state.allIceboxed ? "Remove from Icebox" : "Move to Icebox"
+    }
+
+    // External link: open every linked item's URL in the browser. Always shown
+    // (disabled + dimmed when nothing in the set is linked) so the control bar's
+    // button positions stay fixed from one item to the next. For a batch this
+    // opens each linked member; link-less members are skipped.
+    private var linkButton: some View {
+        let urls = ItemLinks.urls(for: items)
+        return PointerIconButton(systemName: "arrow.up.right") {
+            urls.forEach { NSWorkspace.shared.open($0) }
+        }
+        .disabled(urls.isEmpty)
+        .opacity(urls.isEmpty ? 0.4 : 1)
     }
 
     // A real pointer-button (hover highlight + hand cursor, like the close /

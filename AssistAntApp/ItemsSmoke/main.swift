@@ -1130,6 +1130,23 @@ check("ActionableListSort: digits are kept in the key") {
     ActionableListSort.key(for: "1Password").text == "1Password"
 }
 
+// ItemLinks: collect valid externalURLs, dedupe, drop missing/invalid.
+check("ItemLinks: collects valid links, dedupes, drops missing/invalid") {
+    let a = newItem(type: .explore, typeData: .explore(ActionableData(externalURL: "https://a.test/x")))
+    let dup = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "https://a.test/x")))
+    let b = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "https://b.test/y")))
+    let none = newItem(type: .todo, typeData: .todo(ActionableData()))
+    let blank = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "   ")))
+    let urls = ItemLinks.urls(for: [a, dup, b, none, blank])
+    return urls.map(\.absoluteString) == ["https://a.test/x", "https://b.test/y"]
+}
+
+// ItemLinks: empty for a link-less set (drives the disabled glyph).
+check("ItemLinks: empty for a link-less set") {
+    let x = newItem(type: .todo, typeData: .todo(ActionableData()))
+    return ItemLinks.urls(for: [x]).isEmpty
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

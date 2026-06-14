@@ -261,6 +261,7 @@ final class ItemViewerModel: ObservableObject {
         case ("a", "i"): updated = a.moveToIcebox(active)
         case ("a", "v"): updated = a.removeFromIcebox(active)
         case ("a", "c"): ItemClipboard.copy(one); return true   // read-only; nothing to reflect
+        case ("a", "l"): ItemLinks.urls(for: one).forEach { NSWorkspace.shared.open($0) }; return true
         case ("l", "t"): updated = a.reclassify(one, .todo)
         case ("l", "r"): updated = a.reclassify(one, .reminder)
         case ("l", "e"): updated = a.reclassify(one, .explore)
