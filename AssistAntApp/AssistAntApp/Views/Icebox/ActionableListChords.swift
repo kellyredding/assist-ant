@@ -34,7 +34,12 @@ final class ActionableListChords {
     func install(_ ctx: Context) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handle(event, ctx) ?? event
+            // `handle` returns nil to CONSUME a key. Do NOT fall back to `event`
+            // on a nil return — that revived every consumed keystroke (j/k beeped
+            // on the lists and bled into the agent PTY). Only a deallocated self
+            // passes the event through.
+            guard let self else { return event }
+            return self.handle(event, ctx)
         }
     }
 

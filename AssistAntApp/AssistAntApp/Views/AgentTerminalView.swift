@@ -104,6 +104,11 @@ final class AgentTerminalHostView: NSView {
     }
 
     func requestFocus() {
+        // Only the active Agent tab may take terminal focus. Without this guard
+        // an early-lifecycle focus grab (viewDidMoveToWindow, scrollback dismiss)
+        // could seize first responder while another tab is showing, so that
+        // tab's unhandled keystrokes would bleed into the live PTY.
+        guard MainTabNavigator.shared.selectedTab == .agent else { return }
         guard let window = window else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
