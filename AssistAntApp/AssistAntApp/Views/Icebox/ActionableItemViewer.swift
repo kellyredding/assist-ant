@@ -166,11 +166,10 @@ struct ActionableItemViewer: View {
 
     private var metaBar: some View {
         HStack(spacing: 8) {
-            KindBadge(item: item)
             if let list = item.actionableListName, !list.isEmpty {
-                Text(list)
-                    .font(.callout).foregroundStyle(.secondary)
+                ListNameBadge(name: list)
             }
+            KindBadge(item: item)
             if isDeleted {
                 DeletedBadge(date: item.deletedAt ?? Date())
             } else if let at = item.iceboxedAt {

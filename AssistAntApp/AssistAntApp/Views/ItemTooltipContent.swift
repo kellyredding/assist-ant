@@ -54,12 +54,10 @@ struct ItemTooltipContent: View {
     @ViewBuilder private var metaLine: some View {
         HStack(spacing: 8) {
             if ActionableKindLabel.badge(for: item) != nil {
-                KindBadge(item: item)
                 if let list = item.actionableListName, !list.isEmpty {
-                    Text(list)
-                        .font(.callout).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.tail)
+                    ListNameBadge(name: list)
                 }
+                KindBadge(item: item)
                 if let at = item.deletedAt {
                     DeletedBadge(date: at)
                 } else if let at = item.iceboxedAt {

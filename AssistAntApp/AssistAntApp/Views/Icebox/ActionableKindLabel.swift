@@ -111,6 +111,24 @@ struct StatusPill: View {
     }
 }
 
+/// The list-name pill: the actionable's list wrapped in an outline-only
+/// capsule — the same shape/metrics as `StatusPill`, but with NO fill, so the
+/// view's background shows through (dark in dark mode, light in light mode). A
+/// neutral `.secondary` border + text, since the list name carries no status
+/// accent. Long names truncate to one line. Render only when a list is set.
+struct ListNameBadge: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.caption).fontWeight(.medium)
+            .foregroundStyle(.secondary)
+            .lineLimit(1).truncationMode(.tail)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .overlay(Capsule().strokeBorder(Color.secondary, lineWidth: 1))
+    }
+}
+
 /// Iceboxed status pill: a snowflake + "Iceboxed on {date}" in the ice accent —
 /// the special set-aside state, so it stands out. The snowflake mirrors the
 /// Icebox tab glyph. Shown only for an item that's iceboxed.
