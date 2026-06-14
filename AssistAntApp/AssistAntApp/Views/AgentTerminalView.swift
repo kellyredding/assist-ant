@@ -8,18 +8,27 @@ import Galactic
 /// overlay lifecycle, so it takes the whole backend (not just its view).
 struct AgentTerminalView: NSViewRepresentable {
     let backend: TerminalBackend
+    /// Whether the Agent tab is the active tab. The terminal only holds first
+    /// responder while active — otherwise keys pressed on another tab (e.g.
+    /// j/k list navigation) bubble into the live PTY.
+    var isActive: Bool = true
 
     func makeNSView(context: Context) -> AgentTerminalHostView {
         AgentTerminalHostView(backend: backend)
     }
 
     func updateNSView(_ nsView: AgentTerminalHostView, context: Context) {
-        // The backend's view is stable for the life of a session, so there
-        // is nothing to reconcile on re-render. Re-assert focus in case the
-        // view was just (re)mounted after a window reopen, and refresh drag
-        // registration so the terminal is a drop target only while running
-        // (mirrors Galaxy calling refreshDragRegistration from updateNSView).
-        nsView.requestFocus()
+        // The backend's view is stable for the life of a session, so there is
+        // nothing to reconcile on re-render. Re-assert focus only while the
+        // Agent tab is active (in case the view was just (re)mounted after a
+        // window reopen); when it isn't, give up first responder so other tabs'
+        // keystrokes can't bleed into the PTY. Refresh drag registration so the
+        // terminal is a drop target only while running (mirrors Galaxy).
+        if isActive {
+            nsView.requestFocus()
+        } else {
+            nsView.resignFocusIfHeld()
+        }
         nsView.refreshDragRegistration()
     }
 }
@@ -100,6 +109,15 @@ final class AgentTerminalHostView: NSView {
             guard let self = self else { return }
             _ = window.makeFirstResponder(self.terminalView)
         }
+    }
+
+    /// Give up first responder when the Agent tab goes inactive, but only when
+    /// the terminal is the one holding it — so keystrokes on another tab (e.g.
+    /// j/k list navigation) fall to the responder chain instead of bleeding into
+    /// the live PTY. Leaves other responders (a focused field elsewhere) alone.
+    func resignFocusIfHeld() {
+        guard let window, window.firstResponder === terminalView else { return }
+        window.makeFirstResponder(nil)
     }
 
     // Let the terminal own first responder; clicks focus it.

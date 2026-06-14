@@ -6,6 +6,7 @@ import SwiftUI
 /// Fills the space the resizable sidebar leaves.
 struct AgentPaneView: View {
     @ObservedObject private var controller = AgentSessionController.shared
+    @ObservedObject private var navigator = MainTabNavigator.shared
 
     var body: some View {
         ZStack {
@@ -14,7 +15,11 @@ struct AgentPaneView: View {
             switch controller.state {
             case .running:
                 if let backend = controller.backend {
-                    AgentTerminalView(backend: backend)
+                    // Only hold keyboard focus while the Agent tab is active, so
+                    // other tabs' keystrokes can't bleed into the PTY.
+                    AgentTerminalView(
+                        backend: backend,
+                        isActive: navigator.selectedTab == .agent)
                 } else {
                     // Defensive: running with no backend should not happen,
                     // but never show an empty pane.

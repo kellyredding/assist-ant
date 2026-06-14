@@ -59,6 +59,9 @@ final class ActionableEditSession: ObservableObject {
 struct ActionableItemViewer: View {
     let item: Item
     @ObservedObject var edit: ActionableEditSession
+    /// The mutations the header cluster invokes, routed by the host to the
+    /// surface the reader floats over (Icebox / Schedule).
+    let actions: ActionableActions
     let onClose: () -> Void
     var onItemChange: (Item) -> Void = { _ in }
     var onBeginEdit: () -> Void = {}
@@ -134,7 +137,7 @@ struct ActionableItemViewer: View {
                     .foregroundStyle(isResolved ? .secondary : .primary)
                 Spacer(minLength: 12)
                 ItemActions(items: [item], onChange: onItemChange,
-                            actions: IceboxModel.shared.actions)
+                            actions: actions, showsMnemonics: true)
                 PointerIconButton(
                     systemName: "square.and.pencil", help: "Edit (⌘↵)",
                     action: onBeginEdit

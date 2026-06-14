@@ -17,6 +17,7 @@ struct SchedulePaneView: View {
     @ObservedObject private var navigator = MainTabNavigator.shared
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
+    @ObservedObject private var viewer = ItemViewerModel.shared
 
     @State private var chords = ActionableListChords()
 
@@ -28,19 +29,34 @@ struct SchedulePaneView: View {
             .background(Color(NSColor.textBackgroundColor))
             .onAppear {
                 if navigator.selectedTab == .schedule { model.activate() }
-                chords.install(.init(
-                    tab: .schedule,
-                    selection: selection,
-                    groups: { model.allGroups },
-                    collapsed: { model.collapsedLists },
-                    actions: model.actions,
-                    open: { ItemViewerModel.shared.open($0, over: .schedule) }
-                ))
+                syncChords()
             }
             .onChange(of: navigator.selectedTab) { _, tab in
                 if tab == .schedule { model.activate() }
+                syncChords()
             }
+            .onChange(of: viewer.openItem) { _, _ in syncChords() }
             .onDisappear { chords.remove() }
+    }
+
+    /// Install the list key monitor only while this pane is the active surface —
+    /// the Schedule tab selected and no reader open. Otherwise remove it. Only
+    /// one actionable key monitor should be live at a time: a second
+    /// (inactive-tab or behind-the-reader) monitor returns the event unhandled,
+    /// which revives keystrokes the active surface already consumed — the no-op
+    /// beep (and, when the agent terminal held focus, the bleed into the PTY).
+    private func syncChords() {
+        guard navigator.selectedTab == .schedule, viewer.openItem == nil else {
+            chords.remove(); return
+        }
+        chords.install(.init(
+            tab: .schedule,
+            selection: selection,
+            groups: { model.allGroups },
+            collapsed: { model.collapsedLists },
+            actions: model.actions,
+            open: { ItemViewerModel.shared.open($0, over: .schedule) }
+        ))
     }
 
     private var agendaPane: some View {

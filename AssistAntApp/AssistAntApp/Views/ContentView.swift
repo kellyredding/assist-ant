@@ -150,6 +150,7 @@ struct ContentView: View {
             ActionableItemViewer(
                 item: item,
                 edit: viewer.edit,
+                actions: viewer.actions,
                 onClose: { viewer.close() },
                 onItemChange: { viewer.updateOpenItem($0) },
                 onBeginEdit: { viewer.beginEdit() },

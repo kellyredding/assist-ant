@@ -41,6 +41,8 @@ final class ItemViewerModel: ObservableObject {
     /// navigator's selected tab — a switch away closes the reader.
     private var openedOverTab: MainTab = .agent
     private var keyMonitor: Any?
+    /// The `a` / `l` leader sequence for the reader's keyboard chords.
+    private let leader = LeaderChord()
 
     private init() {}
 
@@ -62,6 +64,13 @@ final class ItemViewerModel: ObservableObject {
     /// Close the reader, abandoning any in-progress edit.
     func close() {
         edit.cancel()
+        // Drop first responder off the reader's selectable (read-only) body
+        // before SwiftUI tears it down — otherwise it can linger as the window's
+        // first responder, and a stale text-view responder makes the list chord
+        // monitor bail on every key (→ the no-op beep on the lists).
+        if let window = NSApp.keyWindow, window.firstResponder is NSTextView {
+            window.makeFirstResponder(nil)
+        }
         openItem = nil
     }
 
@@ -69,6 +78,17 @@ final class ItemViewerModel: ObservableObject {
     /// open reader without re-launching it.
     func updateOpenItem(_ item: Item) {
         openItem = item
+    }
+
+    /// The action-cluster mutations, routed to the model for the tab the reader
+    /// floats over — mirroring `saveEdit`. The cluster buttons and the reader
+    /// chords both go through this, so a Schedule-hosted reader updates the
+    /// agenda snapshot and an Icebox-hosted one the icebox.
+    var actions: ActionableActions {
+        switch openedOverTab {
+        case .schedule: return ScheduleAgendaModel.shared.actions
+        default: return IceboxModel.shared.actions
+        }
     }
 
     /// Close the reader when the user leaves the tab it sits over. The
@@ -182,6 +202,10 @@ final class ItemViewerModel: ObservableObject {
                     self.beginEdit()
                     return nil
                 }
+                // a / l leaders + j/k navigation on the open item (the "batch"
+                // is this single item). Plain letters only — never while a
+                // modifier is down, so ⌘-shortcuts pass through.
+                if !cmd, self.handleNavOrChord(event) { return nil }
                 return event
             }
         }
@@ -191,6 +215,104 @@ final class ItemViewerModel: ObservableObject {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+        leader.clear()
+    }
+
+    // MARK: - Keyboard chords + navigation (single open item)
+
+    /// Arm/apply the a/l leader chords, or step j/k through the source list,
+    /// against the open reader. Returns true when the key was consumed; false to
+    /// let it fall through. The pending leader is checked first (its second key,
+    /// or a cancel), then arming, then j/k. Unlike `ActionableListChords` this
+    /// does NOT bail when a text view holds first responder — the reader's
+    /// read-only body is a selectable NSTextView that is legitimately focused;
+    /// `edit.isEditing` (checked by the caller) is the real gate.
+    private func handleNavOrChord(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        if let armed = leader.take() {
+            return applyChord(leader: armed, key: chars)
+        }
+        if chars == "a" { leader.arm("a"); return true }
+        if chars == "l" { leader.arm("l"); return true }
+        switch chars {
+        case "j": stepOpenItem(by: 1); return true
+        case "k": stepOpenItem(by: -1); return true
+        default: return false
+        }
+    }
+
+    /// Apply a leader+key chord to the open item, reflecting the result back into
+    /// the reader. Returns true when it matched, false for an unknown second key
+    /// (cancel: the leader is already cleared, the key falls through). Complete /
+    /// icebox skip a resolved item, mirroring the cluster + list chords.
+    private func applyChord(leader leaderKey: Character, key: String?) -> Bool {
+        guard let item = openItem else { return false }
+        let one = [item]
+        let active = item.resolvedAt == nil ? one : []
+        let a = actions
+        let updated: [Item]
+        switch (leaderKey, key) {
+        case ("a", "d"): updated = a.complete(active)
+        case ("a", "r"): updated = a.reopen(one)
+        case ("a", "i"): updated = a.moveToIcebox(active)
+        case ("a", "v"): updated = a.removeFromIcebox(active)
+        case ("l", "t"): updated = a.reclassify(one, .todo)
+        case ("l", "r"): updated = a.reclassify(one, .reminder)
+        case ("l", "e"): updated = a.reclassify(one, .explore)
+        case ("l", "l"): presentListEditor(for: item); return true
+        default: return false
+        }
+        if let u = updated.first { updateOpenItem(u) }
+        return true
+    }
+
+    /// `ll`: open the add/change-list editor seeded with the item's list name,
+    /// then apply — the same flow as the cluster's kind-menu list item and the
+    /// list controller's `ll`. Reflects the result back into the reader.
+    private func presentListEditor(for item: Item) {
+        switch ListEditorWindowController.present(currentName: item.actionableListName) {
+        case .cancel: break
+        case .save(let name):
+            if let u = actions.setListName([item], name).first { updateOpenItem(u) }
+        case .remove:
+            if let u = actions.setListName([item], nil).first { updateOpenItem(u) }
+        }
+    }
+
+    /// j/k: step to the previous/next item in the list the reader was opened over
+    /// (Icebox or Schedule) and re-open it in place, so the reader walks the
+    /// source list. Also moves that list's keyboard focus, so closing the reader
+    /// leaves it on the last-viewed row. No-op at the ends (step clamps), when the
+    /// open item isn't in the source list (e.g. an unscheduled item opened over
+    /// the Schedule, which lists only scheduled items), or when the neighbor
+    /// can't be fetched.
+    private func stepOpenItem(by delta: Int) {
+        guard let item = openItem else { return }
+        let source = sourceList()
+        let order = ActionableListNavigation.visibleIDs(
+            source.groups, collapsed: source.collapsed)
+        guard order.contains(item.id),
+              let nextID = ActionableListNavigation.step(from: item.id, by: delta, in: order),
+              nextID != item.id,
+              let next = try? GRDBItemStore.shared.fetch(id: nextID)
+        else { return }
+        source.selection.focus(nextID)
+        updateOpenItem(next)
+    }
+
+    /// The list the reader floats over, for j/k navigation — same routing as
+    /// `actions` / `saveEdit`. Schedule navigates its actionables across all
+    /// loaded days (`allGroups`); the Icebox its grouped iceboxed items.
+    private func sourceList()
+        -> (groups: [ActionableGroup], selection: ActionableSelection, collapsed: Set<String>) {
+        switch openedOverTab {
+        case .schedule:
+            let m = ScheduleAgendaModel.shared
+            return (m.allGroups, m.selection, m.collapsedLists)
+        default:
+            let m = IceboxModel.shared
+            return (m.groups, m.selection, m.collapsedLists)
         }
     }
 

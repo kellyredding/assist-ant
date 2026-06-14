@@ -29,9 +29,7 @@ final class ActionableListChords {
     }
 
     private var monitor: Any?
-    private var pendingLeader: Character?            // '*', 'a', or 'l'
-    private var leaderTimer: DispatchWorkItem?
-    private static let timeout: TimeInterval = 1.0
+    private let leader = LeaderChord()               // '*', 'a', or 'l'
 
     func install(_ ctx: Context) {
         guard monitor == nil else { return }
@@ -43,28 +41,31 @@ final class ActionableListChords {
     func remove() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        clearLeader()
+        leader.clear()
     }
 
     private func handle(_ event: NSEvent, _ ctx: Context) -> NSEvent? {
+        // Bail only for an EDITABLE text view (a focused field), not any text
+        // view: a read-only selectable body — e.g. the reader's, which can stay
+        // the window's first responder after the reader closes — must not block
+        // the list chords, or every key (j/k included) bubbles to the no-op beep.
         guard MainTabNavigator.shared.selectedTab == ctx.tab,
               ItemViewerModel.shared.openItem == nil,
-              !(NSApp.keyWindow?.firstResponder is NSTextView)
+              (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 
         let chars = event.charactersIgnoringModifiers?.lowercased()
 
         // A leader is armed → the second key applies the chord, or cancels and
         // falls through to normal single-key handling.
-        if let leader = pendingLeader {
-            clearLeader()
-            if applyChord(leader: leader, key: chars, ctx) { return nil }
+        if let armed = leader.take() {
+            if applyChord(leader: armed, key: chars, ctx) { return nil }
         }
 
         // Arm a leader. `*` is always available; `a` / `l` need a selection.
-        if event.characters == "*" { arm("*"); return nil }
-        if ctx.selection.hasSelection, chars == "a" { arm("a"); return nil }
-        if ctx.selection.hasSelection, chars == "l" { arm("l"); return nil }
+        if event.characters == "*" { leader.arm("*"); return nil }
+        if ctx.selection.hasSelection, chars == "a" { leader.arm("a"); return nil }
+        if ctx.selection.hasSelection, chars == "l" { leader.arm("l"); return nil }
 
         // Single-key navigation / selection (unchanged from the old monitor).
         switch chars {
@@ -103,20 +104,6 @@ final class ActionableListChords {
         default: return false
         }
         return true
-    }
-
-    private func arm(_ leader: Character) {
-        pendingLeader = leader
-        leaderTimer?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.pendingLeader = nil }
-        leaderTimer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeout, execute: work)
-    }
-
-    private func clearLeader() {
-        pendingLeader = nil
-        leaderTimer?.cancel()
-        leaderTimer = nil
     }
 
     private func order(_ ctx: Context) -> [String] {

@@ -17,6 +17,7 @@ struct IceboxPaneView: View {
     @ObservedObject private var model = IceboxModel.shared
     @ObservedObject private var selection = IceboxModel.shared.selection
     @ObservedObject private var navigator = MainTabNavigator.shared
+    @ObservedObject private var viewer = ItemViewerModel.shared
 
     @State private var chords = ActionableListChords()
 
@@ -26,19 +27,34 @@ struct IceboxPaneView: View {
             .background(Color(NSColor.textBackgroundColor))
             .onAppear {
                 if navigator.selectedTab == .icebox { model.activate() }
-                chords.install(.init(
-                    tab: .icebox,
-                    selection: selection,
-                    groups: { model.groups },
-                    collapsed: { model.collapsedLists },
-                    actions: model.actions,
-                    open: { ItemViewerModel.shared.open($0, over: .icebox) }
-                ))
+                syncChords()
             }
             .onChange(of: navigator.selectedTab) { _, tab in
                 if tab == .icebox { model.activate() }
+                syncChords()
             }
+            .onChange(of: viewer.openItem) { _, _ in syncChords() }
             .onDisappear { chords.remove() }
+    }
+
+    /// Install the list key monitor only while this pane is the active surface —
+    /// the Icebox tab selected and no reader open. Otherwise remove it. Only one
+    /// actionable key monitor should be live at a time: a second (inactive-tab
+    /// or behind-the-reader) monitor returns the event unhandled, which revives
+    /// keystrokes the active surface already consumed — the no-op beep (and,
+    /// when the agent terminal held focus, the keystrokes bleeding into the PTY).
+    private func syncChords() {
+        guard navigator.selectedTab == .icebox, viewer.openItem == nil else {
+            chords.remove(); return
+        }
+        chords.install(.init(
+            tab: .icebox,
+            selection: selection,
+            groups: { model.groups },
+            collapsed: { model.collapsedLists },
+            actions: model.actions,
+            open: { ItemViewerModel.shared.open($0, over: .icebox) }
+        ))
     }
 
     private var listPane: some View {
