@@ -16,6 +16,11 @@ final class CapturePanelController {
     private var pinnedTop: NSPoint?
     private var resizeObserver: Any?
     private var becomeKeyObserver: Any?
+    private var moveObserver: Any?
+
+    /// Top-center default: the panel's top edge sits this fraction of the visible
+    /// screen height below the top — upper-area, not glued to the menu bar.
+    private static let topMarginFraction: CGFloat = 0.15
 
     /// Register the per-kind global capture shortcuts. Called once at launch.
     /// Each shortcut summons the popover preset to its kind. KeyboardShortcuts
@@ -83,7 +88,7 @@ final class CapturePanelController {
         panel.contentViewController = hosting
         self.panel = panel
 
-        centerOnActiveScreen(panel)
+        positionTopCenter(panel)
 
         // Pin the top edge so the window grows downward as the field grows,
         // instead of drifting up from a fixed bottom-left origin.
@@ -97,6 +102,18 @@ final class CapturePanelController {
                 || abs(panel.frame.minY - origin.y) > 0.5 {
                 panel.setFrameOrigin(origin)
             }
+        }
+
+        // Keep the grow-downward anchor in sync with user drags: refresh the
+        // pinned top whenever the panel moves, so text growth grows down from
+        // the dragged position instead of snapping back to the launch point. The
+        // resize observer's own setFrameOrigin also fires didMove, but it
+        // preserves the top, so that refresh is a no-op (no feedback loop).
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { [weak self, weak panel] _ in
+            guard let self, let panel else { return }
+            self.pinnedTop = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
         }
 
         // Focus the capture field deterministically rather than via fixed
@@ -169,15 +186,20 @@ final class CapturePanelController {
         }
     }
 
-    private func centerOnActiveScreen(_ panel: NSWindow) {
+    /// Place the panel horizontally centered and near the top of the active
+    /// screen (the one under the pointer). Top-anchored: the top edge sits a
+    /// fixed fraction below the top of the visible frame, so the deterministic
+    /// top doesn't shift with the panel's (variable) content height.
+    private func positionTopCenter(_ panel: NSWindow) {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
             ?? NSScreen.main ?? NSScreen.screens.first
         guard let visible = screen?.visibleFrame else { panel.center(); return }
         let size = panel.frame.size
+        let originY = visible.maxY - visible.height * Self.topMarginFraction - size.height
         panel.setFrameOrigin(NSPoint(
             x: visible.midX - size.width / 2,
-            y: visible.midY - size.height / 2))
+            y: originY))
     }
 
     /// Tear down the panel + observers without touching app activation. Both
@@ -193,6 +215,10 @@ final class CapturePanelController {
             NotificationCenter.default.removeObserver(becomeKeyObserver)
         }
         becomeKeyObserver = nil
+        if let moveObserver {
+            NotificationCenter.default.removeObserver(moveObserver)
+        }
+        moveObserver = nil
         pinnedTop = nil
         panel?.orderOut(nil)
         panel = nil
