@@ -176,6 +176,11 @@ final class ItemViewerModel: ObservableObject {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard let item = self.openItem else { return event }
+            // The monitor is app-wide; only act while the reader's own window
+            // (the main window) is key. When another window is key — the capture
+            // popover, Preferences, the list editor — it owns the keystroke
+            // (typing, its own Esc), so pass the event through untouched.
+            guard NSApp.keyWindow is AssistAntWindow else { return event }
             let cmd = event.modifierFlags.contains(.command)
             let key = event.keyCode
 

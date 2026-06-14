@@ -308,6 +308,10 @@ final class CapturePanel: NSPanel {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard mods.contains(.command) else { return false }  // plain keys → the field
 
+        // Delete-to-start-of-line (⌘⌫) is standard text editing — let the field
+        // handle it. (⌘⇧⌫ / ⌃⌘⌫ are app menu items and keep their own paths.)
+        if mods == [.command], event.keyCode == 51 { return false }
+
         if mods == [.command] || mods == [.command, .shift] {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "x", "c", "v", "a", "z":
