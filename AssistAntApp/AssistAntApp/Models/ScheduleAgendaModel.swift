@@ -146,7 +146,11 @@ final class ScheduleAgendaModel: ObservableObject {
     func setTitleAndBody(_ item: Item, title: String, body: String?) -> Item? {
         do {
             try store.setTitleAndBody(id: item.id, title: title, body: body)
-            if let u = try store.fetch(id: item.id) { replaceInPlace(u); return u }
+            if let u = try store.fetch(id: item.id) {
+                replaceInPlace(u)
+                ActionableSnapshots.refresh(except: .schedule)
+                return u
+            }
         } catch {
             NSLog("ScheduleAgendaModel: setTitleAndBody failed: \(error)")
         }
@@ -167,6 +171,7 @@ final class ScheduleAgendaModel: ObservableObject {
             }
         }
         regroupInPlace()
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .schedule) }
         return updated
     }
 
@@ -187,6 +192,7 @@ final class ScheduleAgendaModel: ObservableObject {
                 NSLog("ScheduleAgendaModel: action failed for \(item.id): \(error)")
             }
         }
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .schedule) }
         return updated
     }
 

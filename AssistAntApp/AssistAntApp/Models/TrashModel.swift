@@ -143,6 +143,7 @@ final class TrashModel: ObservableObject {
             }
         }
         regroupInPlace()
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .trash) }
         return updated
     }
 
@@ -152,6 +153,7 @@ final class TrashModel: ObservableObject {
             try op(item.id)
             if let updated = try store.fetch(id: item.id) {
                 replaceInPlace(updated)
+                ActionableSnapshots.refresh(except: .trash)
                 return updated
             }
         } catch {
@@ -174,6 +176,7 @@ final class TrashModel: ObservableObject {
                 NSLog("TrashModel: batch action failed for \(item.id): \(error)")
             }
         }
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .trash) }
         return updated
     }
 

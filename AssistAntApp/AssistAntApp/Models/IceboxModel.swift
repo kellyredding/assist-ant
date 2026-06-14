@@ -150,6 +150,7 @@ final class IceboxModel: ObservableObject {
             }
         }
         regroupInPlace()
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .icebox) }
         return updated
     }
 
@@ -163,6 +164,7 @@ final class IceboxModel: ObservableObject {
             try op(item.id)
             if let updated = try store.fetch(id: item.id) {
                 replaceInPlace(updated)
+                ActionableSnapshots.refresh(except: .icebox)
                 return updated
             }
         } catch {
@@ -187,6 +189,7 @@ final class IceboxModel: ObservableObject {
                 NSLog("IceboxModel: batch action failed for \(item.id): \(error)")
             }
         }
+        if !updated.isEmpty { ActionableSnapshots.refresh(except: .icebox) }
         return updated
     }
 
