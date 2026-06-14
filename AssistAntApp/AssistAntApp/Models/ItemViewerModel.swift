@@ -52,6 +52,9 @@ final class ItemViewerModel: ObservableObject {
     /// by every launch site: the Icebox list and Schedule agenda open over their
     /// own tab; the Today sidebar always opens over Schedule.
     func open(_ item: Item, over tab: MainTab) {
+        // The reader covers the rows it floats over — dismiss any hover tooltip
+        // so it can't strand on top of the reader.
+        ItemTooltipController.shared.hideNow()
         // Record the over-tab before flipping the selection so the tab-change
         // observer recognizes this as the open's own switch and doesn't close.
         openedOverTab = tab

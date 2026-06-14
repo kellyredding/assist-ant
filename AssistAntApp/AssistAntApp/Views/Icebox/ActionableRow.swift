@@ -22,6 +22,8 @@ struct ActionableRow: View {
     enum Context { case icebox, schedule, today }
 
     @State private var isHovering = false
+    /// Anchors the hover tooltip to this row's live screen frame.
+    @State private var tipAnchor = RowFrameAnchor()
 
     private var isResolved: Bool { item.resolvedAt != nil }
     private var isIceboxed: Bool { item.iceboxedAt != nil }
@@ -73,9 +75,25 @@ struct ActionableRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
         )
+        .background(FrameAnchorView(anchor: tipAnchor))
         .padding(.horizontal, 8)
         .animation(.easeInOut(duration: 0.12), value: isHovering)
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                ItemTooltipController.shared.requestShow(
+                    item, anchor: tipAnchor, side: tooltipSide)
+            } else {
+                ItemTooltipController.shared.requestHide(tipAnchor)
+            }
+        }
+        .onDisappear { ItemTooltipController.shared.hideNow() }
+    }
+
+    /// Today rows hang the tooltip to the right, into the main pane; the
+    /// selectable surfaces (icebox, schedule) hang it left, over the sidebar.
+    private var tooltipSide: ItemTooltipController.Side {
+        context == .today ? .right : .left
     }
 
     /// Focus bar + checkbox. Kept OUTSIDE rowContent's `.opacity(resolved/moved)`

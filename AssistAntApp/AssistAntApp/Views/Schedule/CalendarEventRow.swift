@@ -9,6 +9,8 @@ struct CalendarEventRow: View {
     let onTap: () -> Void
     @ObservedObject private var settings = SettingsManager.shared
     @State private var isHovering = false
+    /// Anchors the hover tooltip to this row's live screen frame.
+    @State private var tipAnchor = RowFrameAnchor()
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -26,10 +28,24 @@ struct CalendarEventRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
         )
+        .background(FrameAnchorView(anchor: tipAnchor))
         .animation(.easeInOut(duration: 0.12), value: isHovering)
         // Outermost: the pointerButton overlay owns the click and the
         // pointing-hand cursor, so it must stay topmost (see PointerButton).
-        .pointerButton(onHoverChange: { isHovering = $0 }, action: onTap)
+        .pointerButton(
+            onHoverChange: { hovering in
+                isHovering = hovering
+                if hovering {
+                    // Schedule rows hang the tooltip to the left, over the sidebar.
+                    ItemTooltipController.shared.requestShow(
+                        item, anchor: tipAnchor, side: .left)
+                } else {
+                    ItemTooltipController.shared.requestHide(tipAnchor)
+                }
+            },
+            action: onTap
+        )
+        .onDisappear { ItemTooltipController.shared.hideNow() }
     }
 
     /// Start and end in separate right-aligned columns with the dash between,
