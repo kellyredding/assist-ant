@@ -38,6 +38,11 @@ protocol ItemStore {
 
     func softDelete(id: String) throws
 
+    /// Clear an item's soft-delete tombstone (`deletedAt = nil`), stamping it
+    /// updated + pending. The user-facing "Put back" — the inverse of
+    /// `softDelete`, mirroring `setIceboxed(id:, false)`.
+    func undelete(id: String) throws
+
     /// Toggle icebox membership: stamp or clear `iceboxed_at`. Preserves
     /// `scheduled_on` — the icebox flag supersedes the schedule for display, so
     /// removing from the icebox restores the item to its day (or Today when it
@@ -115,6 +120,12 @@ protocol ItemStore {
     /// NULL. Ordered newest-iceboxed first, then id. The Icebox view groups
     /// these by list name.
     func fetchIceboxed() throws -> [Item]
+
+    /// Soft-deleted actionable items (todo/reminder/explore): deleted_at IS NOT
+    /// NULL, regardless of icebox/resolved state. Ordered newest-deleted first,
+    /// then id. The Trash view groups these by list name. Includes Linear orphans
+    /// retired by reconcile — their Put back is disabled (sync owns them).
+    func fetchTrashed() throws -> [Item]
 
     /// Trend summary over the same set as `fetchIceboxed` — total, per-kind
     /// counts, and aging — without materializing the items. For the briefing.

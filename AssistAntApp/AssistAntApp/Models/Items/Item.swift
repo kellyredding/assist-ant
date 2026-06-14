@@ -32,6 +32,13 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
     var serverUpdatedAt: Date?     // server's updated_at for the reconciled version
     var pending: Bool              // has un-pushed local changes
 
+    /// True when the item originates from an external sync source (Linear, gcal,
+    /// …) rather than a manual capture — it carries a source key. Gates the
+    /// user-facing Delete / Put back affordances: a synced item's lifecycle is
+    /// owned upstream (the next sync would resurrect a local delete or re-retire
+    /// a local put-back), so those actions are disabled for it.
+    var isSynced: Bool { externalID != nil }
+
     static let databaseTableName = "items"
 
     enum CodingKeys: String, CodingKey {

@@ -58,6 +58,9 @@ final class ActionableEditSession: ObservableObject {
 /// post-action item back so a Done / Move / reclassify reflects in place.
 struct ActionableItemViewer: View {
     let item: Item
+    /// True when the reader is presented over the Trash tab — keeps the trash
+    /// controls (Put back ⇄ Delete) and read-only mode even after a put-back.
+    var isTrash: Bool = false
     @ObservedObject var edit: ActionableEditSession
     /// The mutations the header cluster invokes, routed by the host to the
     /// surface the reader floats over (Icebox / Schedule).
@@ -74,6 +77,13 @@ struct ActionableItemViewer: View {
     /// the reader, mirroring the list row — a settled item still opens, it just
     /// shows as complete.
     private var isResolved: Bool { item.resolvedAt != nil }
+    private var isDeleted: Bool { item.deletedAt != nil }
+    /// Read-only when the item is deleted, or whenever it's opened from the Trash
+    /// tab (a put-back item still reads in the trash context until refresh).
+    private var isReadOnly: Bool { isTrash || isDeleted }
+    /// Show the scaled-back trash controls (Put back ⇄ Delete) for a deleted item
+    /// anywhere, or any item opened from the Trash tab.
+    private var showsTrashControls: Bool { isTrash || isDeleted }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -136,10 +146,12 @@ struct ActionableItemViewer: View {
                     .strikethrough(isResolved)
                     .foregroundStyle(isResolved ? .secondary : .primary)
                 Spacer(minLength: 12)
-                PointerIconButton(
-                    systemName: "square.and.pencil", help: "Edit (⌘↵)",
-                    action: onBeginEdit
-                )
+                if !isReadOnly {
+                    PointerIconButton(
+                        systemName: "square.and.pencil", help: "Edit (⌘↵)",
+                        action: onBeginEdit
+                    )
+                }
             }
             PointerIconButton(
                 systemName: "xmark", help: "Close (Esc)", action: onClose
@@ -159,7 +171,9 @@ struct ActionableItemViewer: View {
                 Text(list)
                     .font(.callout).foregroundStyle(.secondary)
             }
-            if let at = item.iceboxedAt {
+            if isDeleted {
+                DeletedBadge(date: item.deletedAt ?? Date())
+            } else if let at = item.iceboxedAt {
                 IceboxedBadge(date: at)
             } else {
                 ScheduledBadge(date: item.scheduledOn ?? .today)
@@ -167,10 +181,18 @@ struct ActionableItemViewer: View {
             Spacer(minLength: 12)
             // The actions cluster moved here from the title row so long titles
             // get the full width. Hidden while editing, matching the title row's
-            // editor mode. The cluster carries the external-link glyph.
+            // editor mode. A trashed item (or any item opened from the Trash tab)
+            // gets the scaled-back TrashActions cluster (Put back ⇄ Delete);
+            // everything else the full ItemActions cluster (which carries the
+            // external-link glyph).
             if !edit.isEditing {
-                ItemActions(items: [item], onChange: onItemChange,
-                            actions: actions, showsMnemonics: true)
+                if showsTrashControls {
+                    TrashActions(items: [item], onChange: onItemChange,
+                                 actions: actions, showsMnemonics: true)
+                } else {
+                    ItemActions(items: [item], onChange: onItemChange,
+                                actions: actions, showsMnemonics: true)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -1147,6 +1147,57 @@ check("ItemLinks: empty for a link-less set") {
     return ItemLinks.urls(for: [x]).isEmpty
 }
 
+// undelete clears the tombstone; the row returns to the active set.
+check("undelete: clears deletedAt, returns to active") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()), title: "back")
+    try store.create(item)
+    try store.softDelete(id: item.id)
+    guard try store.fetch(id: item.id)?.deletedAt != nil else { return false }
+    try store.undelete(id: item.id)
+    guard let after = try store.fetch(id: item.id) else { return false }
+    let active = try store.fetchActive(type: .todo).contains { $0.id == item.id }
+    return after.deletedAt == nil && active
+}
+
+// fetchTrashed: soft-deleted actionables only, newest-deleted first; excludes
+// active rows and calendar; includes iceboxed/resolved deletions.
+check("fetchTrashed: deleted actionables only, newest first") {
+    let (store, _) = try makeStore()
+    let active = newItem(type: .todo, typeData: .todo(ActionableData()), title: "active")
+    let a = newItem(type: .todo, typeData: .todo(ActionableData()), title: "a")
+    let b = newItem(type: .reminder, typeData: .reminder(ActionableData()), title: "b")
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "c")
+    for i in [active, a, b, cal] { try store.create(i) }
+    try store.softDelete(id: a.id)
+    Thread.sleep(forTimeInterval: 0.005)   // ensure b's deleted_at sorts strictly newer
+    try store.softDelete(id: b.id)
+    try store.softDelete(id: cal.id)       // calendar deletion must NOT appear
+    let ids = try store.fetchTrashed().map { $0.id }
+    return ids == [b.id, a.id]
+}
+
+// ItemActionState.allSynced: true only when every item carries an externalID.
+check("ItemActionState: allSynced across a set") {
+    let synced = newItem(type: .todo, typeData: .todo(ActionableData()),
+                         source: "linear", externalID: "FLEX-1")
+    let local = newItem(type: .todo, typeData: .todo(ActionableData()))
+    return ItemActionState([synced]).allSynced
+        && !ItemActionState([synced, local]).allSynced
+        && !ItemActionState([local]).allSynced
+}
+
+// ItemActionState.allDeleted: true only when every item is soft-deleted.
+check("ItemActionState: allDeleted across a set") {
+    var del = newItem(type: .todo, typeData: .todo(ActionableData()))
+    del.deletedAt = Date()
+    let active = newItem(type: .todo, typeData: .todo(ActionableData()))
+    return ItemActionState([del]).allDeleted
+        && !ItemActionState([del, active]).allDeleted
+        && !ItemActionState([active]).allDeleted
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

@@ -90,9 +90,15 @@ final class ItemViewerModel: ObservableObject {
     var actions: ActionableActions {
         switch openedOverTab {
         case .schedule: return ScheduleAgendaModel.shared.actions
+        case .trash:    return TrashModel.shared.actions
         default: return IceboxModel.shared.actions
         }
     }
+
+    /// True while the reader is presented over the Trash tab — the cluster stays
+    /// the trash controls (Put back ⇄ Delete) even after a put-back clears the
+    /// tombstone, so the action can be undone.
+    var isTrashReader: Bool { openedOverTab == .trash }
 
     /// Close the reader when the user leaves the tab it sits over. The
     /// over-tab guard lets `open(_:over:)` flip the selection without
@@ -105,7 +111,8 @@ final class ItemViewerModel: ObservableObject {
     // MARK: - Edit session (actionable items)
 
     func beginEdit() {
-        guard let item = openItem else { return }
+        // Read-only in the Trash tab (even a put-back item) and for any deleted item.
+        guard let item = openItem, item.deletedAt == nil, openedOverTab != .trash else { return }
         edit.begin(title: item.title, body: item.body ?? "")
     }
 
@@ -124,6 +131,9 @@ final class ItemViewerModel: ObservableObject {
             switch openedOverTab {
             case .schedule:
                 updated = ScheduleAgendaModel.shared.setTitleAndBody(
+                    item, title: title, body: body)
+            case .trash:
+                updated = TrashModel.shared.setTitleAndBody(
                     item, title: title, body: body)
             default:
                 updated = IceboxModel.shared.setTitleAndBody(
@@ -202,7 +212,7 @@ final class ItemViewerModel: ObservableObject {
                 return event
             } else {
                 if cmd, key == 36 || key == 76 {            // ⌘↵ → enter edit
-                    self.beginEdit()
+                    if item.deletedAt == nil, self.openedOverTab != .trash { self.beginEdit() }
                     return nil
                 }
                 // a / l leaders + j/k navigation on the open item (the "batch"
@@ -256,16 +266,24 @@ final class ItemViewerModel: ObservableObject {
         let a = actions
         let updated: [Item]
         switch (leaderKey, key) {
+        case ("a", "d") where openedOverTab == .trash:
+            updated = a.delete(item.isSynced ? [] : one)   // trash re-delete
         case ("a", "d"): updated = a.complete(active)
         case ("a", "r"): updated = a.reopen(one)
         case ("a", "i"): updated = a.moveToIcebox(active)
         case ("a", "v"): updated = a.removeFromIcebox(active)
         case ("a", "c"): ItemClipboard.copy(one); return true   // read-only; nothing to reflect
         case ("a", "l"): ItemLinks.urls(for: one).forEach { NSWorkspace.shared.open($0) }; return true
+        case ("a", "p") where openedOverTab == .trash:
+            updated = a.putBack(item.isSynced ? [] : one)   // synced: sync owns it (no-op)
         case ("l", "t"): updated = a.reclassify(one, .todo)
         case ("l", "r"): updated = a.reclassify(one, .reminder)
         case ("l", "e"): updated = a.reclassify(one, .explore)
         case ("l", "l"): presentListEditor(for: item); return true
+        case ("l", "d") where openedOverTab != .trash:
+            updated = a.delete(item.isSynced ? [] : one)   // synced: sync owns it (no-op)
+        case ("l", "p") where openedOverTab != .trash:
+            updated = a.putBack(item.isSynced ? [] : one)
         default: return false
         }
         if let u = updated.first { updateOpenItem(u) }
@@ -315,6 +333,9 @@ final class ItemViewerModel: ObservableObject {
         case .schedule:
             let m = ScheduleAgendaModel.shared
             return (m.allGroups, m.selection, m.collapsedLists)
+        case .trash:
+            let m = TrashModel.shared
+            return (m.groups, m.selection, m.collapsedLists)
         default:
             let m = IceboxModel.shared
             return (m.groups, m.selection, m.collapsedLists)

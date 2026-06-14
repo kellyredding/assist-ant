@@ -36,7 +36,7 @@ struct ItemActions: View {
     private func mnem(_ c: Character) -> Character? { showsMnemonics ? c : nil }
 
     /// Kind-menu mnemonic: To-do → T, Reminder → R, Explore → E.
-    private static func kindMnemonic(_ kind: ItemType) -> Character {
+    static func kindMnemonic(_ kind: ItemType) -> Character {
         switch kind {
         case .todo: return "T"
         case .reminder: return "R"
@@ -133,35 +133,43 @@ struct ItemActions: View {
 
     private func presentKindMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false   // we manage isEnabled explicitly (Delete)
 
-        let header = NSMenuItem(title: "Change kind", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
-        for kind in [ItemType.todo, .reminder, .explore] {
-            // Checkmark only when every item already is this kind.
-            let allThisKind = items.allSatisfy { $0.typeData.kind == kind.rawValue }
-            menu.addItem(ClosureMenuItem(
-                title: ActionableKindLabel.menuTitle(kind),
-                mnemonic: showsMnemonics ? Self.kindMnemonic(kind) : nil,
-                state: allThisKind ? .on : .off
-            ) { apply(items) { actions.reclassify($0, kind) } })
-        }
+        ActionableKindMenu.populate(
+            into: menu, items: items, showsMnemonics: showsMnemonics,
+            reclassify: { its, kind in apply(its) { actions.reclassify($0, kind) } },
+            setListName: { its, name in apply(its) { actions.setListName($0, name) } })
 
+        // Delete: bottom item, divider above, trash glyph, underline D. Targets
+        // the local members; synced items are skipped and the item is disabled
+        // (with a tooltip) when every target is synced — sync owns their delete.
         menu.addItem(.separator())
-        // The editor prefills the shared list name (nil when the set spans
-        // multiple lists) and applies the choice to every item. The menu's
-        // tracking loop has ended by the time this fires, so spinning the
-        // editor's modal run loop here is safe.
-        menu.addItem(ClosureMenuItem(
-            title: listMenuTitle,
-            mnemonic: showsMnemonics ? "l" : nil
+        // Bottom item flips Delete ⇄ Put back by the selection's deleted state
+        // (mirroring the icebox label flip): an active row offers Delete — the
+        // dangerous action, tinted red; a soft-deleted row held in place offers
+        // Put back. No glyph (the other items carry none). Disabled + tooltipped
+        // (and greyed) when every target is synced; the action skips synced
+        // members either way.
+        let nonSynced = items.filter { !$0.isSynced }
+        let allDeleted = state.allDeleted
+        let enabled = !state.allSynced
+        let bottomTint: NSColor? = !enabled ? .disabledControlTextColor
+            : (allDeleted ? nil : .systemRed)
+        let bottomItem = ClosureMenuItem(
+            title: allDeleted ? "Put back" : "Delete",
+            mnemonic: showsMnemonics ? (allDeleted ? "P" : "D") : nil,
+            tint: bottomTint
         ) {
-            switch ListEditorWindowController.present(currentName: sharedListName) {
-            case .cancel: break
-            case .save(let name): apply(items) { actions.setListName($0, name) }
-            case .remove: apply(items) { actions.setListName($0, nil) }
-            }
-        })
+            if allDeleted { apply(nonSynced) { actions.putBack($0) } }
+            else { apply(nonSynced) { actions.delete($0) } }
+        }
+        bottomItem.isEnabled = enabled
+        if !enabled {
+            bottomItem.toolTip = allDeleted
+                ? "Synced from Linear — put it back in Linear."
+                : "Synced from Linear — delete it in Linear."
+        }
+        menu.addItem(bottomItem)
 
         // Match the window's light/dark appearance — a detached NSMenu otherwise
         // defaults to the system appearance — and clamp the origin so the whole
@@ -179,17 +187,6 @@ struct ItemActions: View {
         menu.popUp(positioning: nil, at: origin, in: nil)
     }
 
-    /// "Add to list" when no item has a list, else "Change list".
-    private var listMenuTitle: String {
-        items.allSatisfy { $0.actionableListName == nil } ? "Add to list" : "Change list"
-    }
-
-    /// The shared list name when every item agrees, else nil (mixed selection).
-    private var sharedListName: String? {
-        let names = Set(items.map { $0.actionableListName })
-        return names.count == 1 ? names.first! : nil
-    }
-
     /// Dispatch an op over `targets`; report the single updated item to a reader
     /// caller (a batch omits onChange).
     private func apply(_ targets: [Item], _ op: ([Item]) -> [Item]) {
@@ -198,23 +195,74 @@ struct ItemActions: View {
     }
 }
 
+/// Builds the shared actionable kind + change-list menu items — the portion
+/// common to the full cluster (`ItemActions`) and the trash cluster
+/// (`TrashActions`). Callers add their own surface-specific items (e.g. Delete)
+/// around it. `reclassify` / `setListName` run the chosen action over the items.
+enum ActionableKindMenu {
+    static func populate(
+        into menu: NSMenu, items: [Item], showsMnemonics: Bool,
+        reclassify: @escaping ([Item], ItemType) -> Void,
+        setListName: @escaping ([Item], String?) -> Void
+    ) {
+        let header = NSMenuItem(title: "Change kind", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        for kind in [ItemType.todo, .reminder, .explore] {
+            // Checkmark only when every item already is this kind.
+            let allThisKind = items.allSatisfy { $0.typeData.kind == kind.rawValue }
+            menu.addItem(ClosureMenuItem(
+                title: ActionableKindLabel.menuTitle(kind),
+                mnemonic: showsMnemonics ? ItemActions.kindMnemonic(kind) : nil,
+                state: allThisKind ? .on : .off
+            ) { reclassify(items, kind) })
+        }
+        menu.addItem(.separator())
+        // The editor prefills the shared list name (nil when the set spans
+        // multiple lists) and applies the choice to every item. The menu's
+        // tracking loop has ended by the time this fires, so spinning the
+        // editor's modal run loop here is safe.
+        let listTitle = items.allSatisfy { $0.actionableListName == nil }
+            ? "Add to list" : "Change list"
+        menu.addItem(ClosureMenuItem(
+            title: listTitle, mnemonic: showsMnemonics ? "l" : nil
+        ) {
+            let names = Set(items.map { $0.actionableListName })
+            let shared = names.count == 1 ? names.first! : nil
+            switch ListEditorWindowController.present(currentName: shared) {
+            case .cancel: break
+            case .save(let name): setListName(items, name)
+            case .remove: setListName(items, nil)
+            }
+        })
+    }
+}
+
 /// An NSMenuItem that runs a closure when chosen (it is its own target/action),
 /// so a SwiftUI-built popup menu needs no separate @objc coordinator.
 private final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void
 
-    init(title: String, mnemonic: Character? = nil,
+    init(title: String, mnemonic: Character? = nil, tint: NSColor? = nil,
          state: NSControl.StateValue = .off, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(title: title, action: #selector(invoke), keyEquivalent: "")
         target = self
         self.state = state
-        if let mnemonic,
-           let r = title.range(of: String(mnemonic), options: .caseInsensitive) {
+        // An attributed title carries the optional color (e.g. red for the
+        // dangerous Delete, grey when disabled) and underlines the mnemonic char.
+        if mnemonic != nil || tint != nil {
             let attr = NSMutableAttributedString(string: title)
-            attr.addAttribute(.underlineStyle,
-                              value: NSUnderlineStyle.single.rawValue,
-                              range: NSRange(r, in: title))
+            if let tint {
+                attr.addAttribute(.foregroundColor, value: tint,
+                                  range: NSRange(location: 0, length: (title as NSString).length))
+            }
+            if let mnemonic,
+               let r = title.range(of: String(mnemonic), options: .caseInsensitive) {
+                attr.addAttribute(.underlineStyle,
+                                  value: NSUnderlineStyle.single.rawValue,
+                                  range: NSRange(r, in: title))
+            }
             attributedTitle = attr
         }
     }

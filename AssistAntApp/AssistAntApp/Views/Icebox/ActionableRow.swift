@@ -19,7 +19,7 @@ struct ActionableRow: View {
     /// state dims the row, and what the trailing status reads.
     var context: Context = .icebox
 
-    enum Context { case icebox, schedule, today }
+    enum Context { case icebox, schedule, today, trash }
 
     @State private var isHovering = false
     /// Anchors the hover tooltip to this row's live screen frame.
@@ -27,6 +27,7 @@ struct ActionableRow: View {
 
     private var isResolved: Bool { item.resolvedAt != nil }
     private var isIceboxed: Bool { item.iceboxedAt != nil }
+    private var isDeleted: Bool { item.deletedAt != nil }
     private var isFocused: Bool { selection.focusedItemID == item.id }
     private var isSelected: Bool { selection.selectedIDs.contains(item.id) }
     /// Whether this surface shows the selection gutter (focus bar + checkbox).
@@ -44,11 +45,11 @@ struct ActionableRow: View {
     /// schedule a row just put into the box; in Today a row that has left today
     /// (iceboxed or rescheduled into the future). All drop on the next refresh.
     private var isDimmed: Bool {
-        if isResolved { return true }
         switch context {
-        case .icebox:   return !isIceboxed
-        case .schedule: return isIceboxed
-        case .today:    return isIceboxed || isScheduledFuture
+        case .icebox:   return isResolved || isDeleted || !isIceboxed
+        case .schedule: return isResolved || isDeleted || isIceboxed
+        case .today:    return isResolved || isDeleted || isScheduledFuture || isIceboxed
+        case .trash:    return !isDeleted   // only a held (put-back) row dims
         }
     }
 
@@ -153,28 +154,42 @@ struct ActionableRow: View {
     private var statusText: String {
         switch context {
         case .icebox:
+            if isDeleted { return "Moved to Trash" }
             if !isResolved && !isIceboxed { return "Moved to Today" }
             guard let at = item.iceboxedAt else { return "" }
             return Self.dateFormatter.string(from: at)
         case .schedule:
+            if isDeleted { return "Moved to Trash" }
             return isIceboxed ? "Moved to Icebox" : ""
         case .today:
+            if isDeleted { return "Moved to Trash" }
             if isIceboxed { return "Moved to Icebox" }
             if isScheduledFuture { return "Rescheduled" }
             return ""
+        case .trash:
+            if !isDeleted { return "Put back" }   // held until refresh
+            guard let at = item.deletedAt else { return "" }
+            return Self.dateFormatter.string(from: at)
         }
     }
 
     private var hoverCluster: some View {
         // Shared with the reader's control bar. The list row needs no onChange
         // callback — it re-renders from the model's regrouped snapshot. Today
-        // renders the slots as glyphs (`glyphs:`) to fit the narrow column.
-        ItemActions(items: [item], actions: actions, glyphs: context == .today)
-            // Scrim so the floating buttons stay legible over the title/date.
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)
-            )
+        // renders the slots as glyphs (`glyphs:`) to fit the narrow column. The
+        // Trash surface swaps in the scaled-back TrashActions cluster.
+        Group {
+            if context == .trash {
+                TrashActions(items: [item], actions: actions)
+            } else {
+                ItemActions(items: [item], actions: actions, glyphs: context == .today)
+            }
+        }
+        // Scrim so the floating buttons stay legible over the title/date.
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 8).fill(.regularMaterial)
+        )
     }
 
     /// Friendly iceboxed date, e.g. "Jun 9".

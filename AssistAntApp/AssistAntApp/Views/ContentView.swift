@@ -123,6 +123,12 @@ struct ContentView: View {
                 .zIndex(tabs.selectedTab == .icebox ? 1 : 0)
                 .disabled(viewer.openItem != nil)
 
+            TrashPaneView()
+                .opacity(tabs.selectedTab == .trash ? 1 : 0)
+                .allowsHitTesting(tabs.selectedTab == .trash)
+                .zIndex(tabs.selectedTab == .trash ? 1 : 0)
+                .disabled(viewer.openItem != nil)
+
             // The item reader is presented once here, above whichever tab is
             // selected, so it can be launched from any tab and float over it.
             // The panes stay mounted but disabled beneath (preserving scroll
@@ -149,6 +155,7 @@ struct ContentView: View {
         } else {
             ActionableItemViewer(
                 item: item,
+                isTrash: viewer.isTrashReader,
                 edit: viewer.edit,
                 actions: viewer.actions,
                 onClose: { viewer.close() },

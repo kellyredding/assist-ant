@@ -8,12 +8,14 @@ enum MainTab: String, CaseIterable {
     case agent
     case schedule
     case icebox
+    case trash
 
     var title: String {
         switch self {
         case .agent: return "Agent"
         case .schedule: return "Schedule"
         case .icebox: return "Icebox"
+        case .trash: return "Trash"
         }
     }
 
@@ -22,6 +24,7 @@ enum MainTab: String, CaseIterable {
         case .agent: return "apple.terminal"
         case .schedule: return "calendar"
         case .icebox: return "snowflake"
+        case .trash: return "trash"
         }
     }
 }

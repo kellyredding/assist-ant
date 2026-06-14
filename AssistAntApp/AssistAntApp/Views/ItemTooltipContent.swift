@@ -60,7 +60,9 @@ struct ItemTooltipContent: View {
                         .font(.callout).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.tail)
                 }
-                if let at = item.iceboxedAt {
+                if let at = item.deletedAt {
+                    DeletedBadge(date: at)
+                } else if let at = item.iceboxedAt {
                     IceboxedBadge(date: at)
                 } else {
                     ScheduledBadge(date: item.scheduledOn ?? .today)

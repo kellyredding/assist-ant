@@ -102,7 +102,10 @@ final class TodayItemsModel: ObservableObject {
     private func regroup(live: [Item], held: Set<String>) {
         var byID = Dictionary(live.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for id in held where byID[id] == nil {
-            if let item = try? store.fetch(id: id), item.deletedAt == nil {
+            // A held row absent from the live set is re-fetched for its dimmed
+            // state — including a soft-deleted row (delete holds it in place so it
+            // can be put back from here); only a truly-missing row drops.
+            if let item = try? store.fetch(id: id) {
                 byID[id] = item
             }
         }
@@ -129,7 +132,9 @@ final class TodayItemsModel: ObservableObject {
             moveToIcebox: { self.apply($0, hold: true) { try self.store.setIceboxed(id: $0, true) } },
             removeFromIcebox: { self.apply($0, hold: false) { try self.store.setIceboxed(id: $0, false) } },
             reclassify: { items, type in self.apply(items, hold: nil) { try self.store.reclassify(id: $0, to: type) } },
-            setListName: { items, name in self.apply(items, hold: nil) { try self.store.setListName(id: $0, to: name) } })
+            setListName: { items, name in self.apply(items, hold: nil) { try self.store.setListName(id: $0, to: name) } },
+            delete: { self.apply($0, hold: true) { try self.store.softDelete(id: $0) } },
+            putBack: { self.apply($0, hold: false) { try self.store.undelete(id: $0) } })
     }
 
     /// Run `op` per item; adjust the held set (`true` = hold the row dimmed in
@@ -166,5 +171,6 @@ final class TodayItemsModel: ObservableObject {
     private func refreshSnapshotSurfaces() {
         IceboxModel.shared.refresh()
         ScheduleAgendaModel.shared.refresh()
+        TrashModel.shared.refresh()
     }
 }

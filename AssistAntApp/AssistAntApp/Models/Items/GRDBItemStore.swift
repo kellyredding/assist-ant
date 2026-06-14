@@ -89,6 +89,18 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    func undelete(id: String) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let now = Date()
+            item.deletedAt = nil
+            item.updatedAt = now
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
     func setIceboxed(id: String, _ iceboxed: Bool) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
@@ -369,6 +381,20 @@ final class GRDBItemStore: ItemStore {
                 // iceboxed_at is a GRDB Date → TEXT "YYYY-MM-DD HH:MM:SS.SSS",
                 // so DESC sorts newest-first chronologically.
                 .order(sql: "iceboxed_at DESC, id")
+                .fetchAll(db)
+        }
+    }
+
+    func fetchTrashed() throws -> [Item] {
+        try dbQueue.read { db in
+            try Item
+                .filter(sql: """
+                    type IN ('todo', 'reminder', 'explore')
+                    AND deleted_at IS NOT NULL
+                    """)
+                // deleted_at is a GRDB Date → TEXT "YYYY-MM-DD HH:MM:SS.SSS",
+                // so DESC sorts newest-first chronologically.
+                .order(sql: "deleted_at DESC, id")
                 .fetchAll(db)
         }
     }

@@ -135,7 +135,9 @@ final class ScheduleAgendaModel: ObservableObject {
             moveToIcebox: { items in self.mutateMany(items) { try self.store.setIceboxed(id: $0, true) } },
             removeFromIcebox: { items in self.mutateMany(items) { try self.store.setIceboxed(id: $0, false) } },
             reclassify: { items, type in self.mutateMany(items) { try self.store.reclassify(id: $0, to: type) } },
-            setListName: { items, name in self.setListName(items, to: name) })
+            setListName: { items, name in self.setListName(items, to: name) },
+            delete: { items in self.mutateMany(items) { try self.store.softDelete(id: $0) } },
+            putBack: { items in self.mutateMany(items) { try self.store.undelete(id: $0) } })
     }
 
     /// Save an edited title + body for one item (the reader's edit, when it

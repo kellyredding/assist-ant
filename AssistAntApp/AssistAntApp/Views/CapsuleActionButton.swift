@@ -26,6 +26,9 @@ struct CapsuleActionButton: View {
     /// (the glyph variant for narrow surfaces like the Today sidebar). `title`
     /// still carries the action's name, surfaced as the hover tooltip.
     var systemImage: String? = nil
+    /// Overrides the hover tooltip. Defaults to the title (in glyph mode) or
+    /// none — set it to explain a disabled state (e.g. a synced item).
+    var help: String? = nil
     let action: () -> Void
 
     @State private var isHovering = false
@@ -38,7 +41,7 @@ struct CapsuleActionButton: View {
             .padding(.vertical, (compact ? 2 : (onAccent ? 5 : 3)) * scale)
             .background(fillStyle, in: Capsule())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
-            .help(systemImage != nil ? title : "")
+            .help(help ?? (systemImage != nil ? title : ""))
             .pointerButton(onHoverChange: { isHovering = $0 }, action: action)
     }
 

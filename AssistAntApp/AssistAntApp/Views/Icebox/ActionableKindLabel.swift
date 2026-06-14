@@ -53,6 +53,15 @@ enum ActionableKindLabel {
             ? Color(red: 0.56, green: 0.80, blue: 0.98)
             : Color(red: 0.13, green: 0.42, blue: 0.70)
     }
+
+    /// Danger-red accent for the deleted status pill — pale in dark mode so it
+    /// reads on the dark window, deeper in light mode to hold contrast on white.
+    /// Mirrors `iceColor`'s per-appearance treatment, in red (delete is danger).
+    static func deleteColor(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 1.00, green: 0.58, blue: 0.55)
+            : Color(red: 0.75, green: 0.16, blue: 0.16)
+    }
 }
 
 /// The colored kind pill (white text) shown in the icebox list and the item
@@ -115,6 +124,29 @@ struct IceboxedBadge: View {
             systemImage: "snowflake",
             text: "Iceboxed on \(Self.dateFormatter.string(from: date))",
             color: ActionableKindLabel.iceColor(scheme)
+        )
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMd")
+        return f
+    }()
+}
+
+/// Deleted status pill: a trash glyph + "Deleted on {date}", shown in the Trash
+/// reader. The trash glyph mirrors the Trash tab, as the iceboxed pill's
+/// snowflake mirrors the Icebox tab. Shown only for a soft-deleted item.
+struct DeletedBadge: View {
+    let date: Date
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        StatusPill(
+            systemImage: "trash",
+            text: "Deleted on \(Self.dateFormatter.string(from: date))",
+            color: ActionableKindLabel.deleteColor(scheme)
         )
     }
 
