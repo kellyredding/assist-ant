@@ -54,6 +54,7 @@ struct ItemActions: View {
         HStack(spacing: 6) {
             resolveButton
             iceboxButton
+            CopyButton(text: ItemClipboard.serialize(items))
             kindMenu
                 .disabled(state.allResolved)
                 .opacity(state.allResolved ? 0.4 : 1)

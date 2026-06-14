@@ -37,11 +37,12 @@ func newItem(
     title: String = "t",
     scheduledOn: CivilDate? = nil,
     iceboxedAt: Date? = nil,
-    resolvedAt: Date? = nil
+    resolvedAt: Date? = nil,
+    body: String? = nil
 ) -> Item {
     Item(
         id: UUIDv7.generate(), workspaceID: "local", type: type.rawValue,
-        title: title, body: nil, source: source, externalID: externalID,
+        title: title, body: body, source: source, externalID: externalID,
         typeData: typeData, iceboxedAt: iceboxedAt, deletedAt: nil,
         scheduledOn: scheduledOn, resolvedAt: resolvedAt,
         createdAt: Date(), updatedAt: Date(), serverUpdatedAt: nil, pending: false
@@ -954,6 +955,44 @@ check("CapturedItem.make: listName threads onto the actionable + round-trips") {
           case .todo(let fd) = fetched.typeData else { return false }
     let known = try store.knownListNames()
     return fd.listName == "Errands" && known.contains("Errands")
+}
+
+// 43d. clipboardMarkdown: a `---`-fenced block — heading, present-only metadata,
+//      then body; omits status/source/ids.
+check("clipboardMarkdown: fenced block + present-only metadata + body") {
+    let data = ActionableData(listName: "Dev", externalURL: "https://x.test/1")
+    let item = newItem(
+        type: .explore, typeData: .explore(data),
+        title: "Eval v4", scheduledOn: CivilDate(year: 2026, month: 6, day: 20),
+        body: "Check the upgrade guide.")
+    let md = item.clipboardMarkdown()
+    return md.hasPrefix("---\n# Eval v4") && md.hasSuffix("---")
+        && md.contains("- Kind: Explore")
+        && md.contains("- List: Dev")
+        && md.contains("- Scheduled: 2026-06-20")
+        && md.contains("- Link: https://x.test/1")
+        && md.contains("Check the upgrade guide.")
+        && !md.contains("source") && !md.contains("resolved")
+}
+
+// 43e. A bare item → fence + heading + Kind only (no list/schedule/link/body).
+check("clipboardMarkdown: bare item is fence + heading + kind") {
+    let item = newItem(type: .todo, typeData: .todo(ActionableData()), title: "ping bob")
+    let md = item.clipboardMarkdown()
+    return md.hasPrefix("---\n# ping bob") && md.hasSuffix("---")
+        && md.contains("- Kind: To-do")
+        && !md.contains("- List:") && !md.contains("- Scheduled:") && !md.contains("- Link:")
+}
+
+// 43f. Batch framing: each item keeps its own fences, joined by a blank line.
+check("ItemClipboard.serialize: each item self-fenced, joined by blank line") {
+    let a = newItem(type: .todo, typeData: .todo(ActionableData()), title: "one")
+    let b = newItem(type: .reminder, typeData: .reminder(ActionableData()), title: "two")
+    let out = ItemClipboard.serialize([a, b])
+    return out.components(separatedBy: "# one").count == 2
+        && out.components(separatedBy: "# two").count == 2
+        && out.contains("---\n\n---")
+        && out.hasPrefix("---") && out.hasSuffix("---")
 }
 
 // 44. iceboxSummary: counts the iceboxed set by kind with aging; excludes
