@@ -40,7 +40,7 @@ struct ScheduleDaySection: View {
                     ForEach(day.actionableGroups) { group in
                         ActionableListSection(
                             group: group,
-                            isCollapsed: group.listName.map(isCollapsed) ?? false,
+                            isCollapsed: isCollapsed(group.id),
                             onToggle: onToggle,
                             selection: selection,
                             actions: actions,

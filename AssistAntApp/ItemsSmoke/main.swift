@@ -776,8 +776,8 @@ check("ItemActionState: allIceboxed across a set") {
         && !ItemActionState([iceboxed, onToday]).allIceboxed
 }
 
-// 37. ActionableListNavigation.visibleIDs: top→bottom across groups, skipping the items
-//     inside collapsed named groups.
+// 37. ActionableListNavigation.visibleIDs: top→bottom across groups, skipping the
+//     items inside any collapsed group — named OR the no-list group (keyed by id).
 check("ActionableListNavigation.visibleIDs: order, skips collapsed") {
     func ice(_ list: String?, _ title: String, _ at: Int) -> Item {
         newItem(type: .todo, typeData: .todo(ActionableData(listName: list)),
@@ -789,10 +789,13 @@ check("ActionableListNavigation.visibleIDs: order, skips collapsed") {
     let groups = ActionableGrouping.groups(items: items)
     let id = Dictionary(uniqueKeysWithValues:
         groups.flatMap(\.items).map { ($0.title, $0.id) })
+    let noListId = groups.first { $0.listName == nil }!.id
     let all = ActionableListNavigation.visibleIDs(groups, collapsed: [])
     let collapsed = ActionableListNavigation.visibleIDs(groups, collapsed: ["Zeta"])
+    let noList = ActionableListNavigation.visibleIDs(groups, collapsed: [noListId])
     return all == ["free1", "free2", "a1", "z1"].compactMap { id[$0] }
         && collapsed == ["free1", "free2", "a1"].compactMap { id[$0] }
+        && noList == ["a1", "z1"].compactMap { id[$0] }
 }
 
 // 38. ActionableListNavigation.step: +1/-1 clamps at the ends (no wrap); nil/unknown

@@ -87,7 +87,7 @@ struct TrashPaneView: View {
                         ForEach(model.groups) { group in
                             ActionableListSection(
                                 group: group,
-                                isCollapsed: group.listName.map(model.isCollapsed) ?? false,
+                                isCollapsed: model.isCollapsed(group.id),
                                 onToggle: { name in model.toggleCollapse(name) },
                                 selection: selection,
                                 actions: model.actions,

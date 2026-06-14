@@ -111,7 +111,7 @@ struct TodayItemsView: View {
         ForEach(groups) { group in
             ActionableListSection(
                 group: group,
-                isCollapsed: group.listName.map(model.isCollapsed) ?? false,
+                isCollapsed: model.isCollapsed(group.id),
                 onToggle: { model.toggleCollapse($0) },
                 actions: model.actions,
                 onOpen: { ItemViewerModel.shared.open($0, over: .schedule) },

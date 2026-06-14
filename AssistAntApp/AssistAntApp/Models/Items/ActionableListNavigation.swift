@@ -5,11 +5,12 @@ import Foundation
 /// set so ItemsSmoke can exercise them.
 enum ActionableListNavigation {
     /// The visible item ids top→bottom: every group's items in order, skipping
-    /// the items inside collapsed named groups (the no-list group is never
-    /// collapsible). This is the J/K traversal order.
+    /// the items inside any collapsed group — named OR the no-list group, keyed
+    /// by the group's id (the name for a named list, a reserved sentinel for the
+    /// no-list group). This is the J/K traversal order.
     static func visibleIDs(_ groups: [ActionableGroup], collapsed: Set<String>) -> [String] {
         groups.flatMap { group -> [String] in
-            if let name = group.listName, collapsed.contains(name) { return [] }
+            if collapsed.contains(group.id) { return [] }
             return group.items.map { $0.id }
         }
     }
