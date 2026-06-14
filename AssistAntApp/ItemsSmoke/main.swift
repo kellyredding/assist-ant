@@ -696,10 +696,13 @@ check("knownListNames: distinct, non-empty, excludes deleted") {
         newItem(type: .todo, typeData: .todo(ActionableData(listName: list)))
     }
     let a = mk("Ideas"); let b = mk("Ideas"); let c = mk("Backlog")
+    let emoji = mk("🐜 AAA")
     let blank = mk("   "); let none = mk(nil); let gone = mk("Archive")
-    for i in [a, b, c, blank, none, gone] { try store.create(i) }
+    for i in [a, b, c, emoji, blank, none, gone] { try store.create(i) }
     try store.softDelete(id: gone.id)
-    return try store.knownListNames() == ["Backlog", "Ideas"]
+    // Text-keyed order (ActionableListSort): "🐜 AAA" sorts by "AAA", ahead of
+    // "Backlog".
+    return try store.knownListNames() == ["🐜 AAA", "Backlog", "Ideas"]
 }
 
 // 32. setListName sets a name (preserving the external URL), surfaces it in
@@ -1077,6 +1080,54 @@ check("SessionReconciler: compact with same id → no adopt") {
 check("SessionReconciler: unknown source ignored") {
     SessionReconciler.decide(
         source: "weird", reportedId: "A", spawnedId: "A", awaitingResumeReady: false).ignored
+}
+
+// ActionableListSort: sort by text, ignoring a leading emoji (the reported bug).
+check("ActionableListSort: emoji-prefixed AA sorts before star-prefixed Galaxy") {
+    ActionableListSort.less("🐜 AA", "★ Galaxy")
+        && !ActionableListSort.less("★ Galaxy", "🐜 AA")
+}
+
+// ActionableListSort: plain text names sort normally.
+check("ActionableListSort: no-emoji names sort by text") {
+    ActionableListSort.less("AA", "Galaxy")
+}
+
+// ActionableListSort: a non-emoji symbol prefix (★ = U+2605, So) is ignored too.
+check("ActionableListSort: symbol prefix is stripped to its text") {
+    ActionableListSort.key(for: "★ Galaxy").text == "Galaxy"
+        && ActionableListSort.key(for: "🐜 AA").text == "AA"
+}
+
+// ActionableListSort: interior emoji are ignored, not just leading ones.
+check("ActionableListSort: interior emoji ignored") {
+    ActionableListSort.key(for: "Launch 🚀").text == "Launch"
+}
+
+// ActionableListSort: glyph-only names are flagged and sort AFTER text names.
+check("ActionableListSort: glyph-only sorts after text") {
+    let k = ActionableListSort.key(for: "🔥")
+    return k.glyphOnly && ActionableListSort.less("Galaxy", "🔥")
+        && !ActionableListSort.less("🔥", "Galaxy")
+}
+
+// ActionableListSort: same text + different glyph → deterministic, stable order.
+check("ActionableListSort: same text tiebreaks on the original name") {
+    let a = ActionableListSort.less("🐜 AA", "★ AA")
+    let b = ActionableListSort.less("★ AA", "🐜 AA")
+    return a != b
+}
+
+// ActionableListSort: full ordering of a mixed set (text first, glyph-only last).
+check("ActionableListSort: mixed set orders text first, glyph-only last") {
+    let sorted = ["★ Galaxy", "🐜 AA", "Zebra", "🔥"]
+        .sorted(by: ActionableListSort.less)
+    return sorted == ["🐜 AA", "★ Galaxy", "Zebra", "🔥"]
+}
+
+// ActionableListSort: digits/letters in the name are kept (not stripped).
+check("ActionableListSort: digits are kept in the key") {
+    ActionableListSort.key(for: "1Password").text == "1Password"
 }
 
 print(failures == 0

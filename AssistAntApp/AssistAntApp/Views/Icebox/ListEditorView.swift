@@ -209,7 +209,7 @@ enum ListFuzzy {
             .sorted {
                 $0.1 != $1.1
                     ? $0.1 < $1.1
-                    : $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending
+                    : ActionableListSort.less($0.0, $1.0)
             }
             .map(\.0)
     }

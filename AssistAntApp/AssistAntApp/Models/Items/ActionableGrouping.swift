@@ -37,7 +37,7 @@ enum ActionableGrouping {
         }
         let named = grouped
             .compactMap { key, value in key.map { ($0, value) } }
-            .sorted { $0.0.localizedCaseInsensitiveCompare($1.0) == .orderedAscending }
+            .sorted { ActionableListSort.less($0.0, $1.0) }
         for (name, items) in named {
             out.append(ActionableGroup(listName: name, items: sortedItems(items)))
         }

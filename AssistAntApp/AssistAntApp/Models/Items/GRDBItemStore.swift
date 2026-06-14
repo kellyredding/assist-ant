@@ -505,16 +505,17 @@ final class GRDBItemStore: ItemStore {
         try dbQueue.read { db in
             // listName lives inside the type_data JSON, so pull it with
             // json_extract; DISTINCT + the NULL/blank filter keep the list to
-            // names actually in use. NOCASE only orders — exact-case variants
-            // remain distinct values, which is correct (they are stored that way).
-            try String.fetchAll(db, sql: """
+            // names actually in use. Order in Swift via ActionableListSort so a
+            // leading emoji/symbol is ignored, matching the list views; exact-case
+            // variants remain distinct values (they are stored that way).
+            let names = try String.fetchAll(db, sql: """
                 SELECT DISTINCT json_extract(type_data, '$.data.listName') AS list
                 FROM items
                 WHERE type IN ('todo', 'reminder', 'explore')
                   AND deleted_at IS NULL
                   AND list IS NOT NULL AND TRIM(list) <> ''
-                ORDER BY list COLLATE NOCASE
                 """)
+            return names.sorted(by: ActionableListSort.less)
         }
     }
 
