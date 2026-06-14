@@ -90,14 +90,16 @@ final class CapturePanelController {
 
         positionTopCenter(panel)
 
-        // Pin the top edge so the window grows downward as the field grows,
-        // instead of drifting up from a fixed bottom-left origin.
-        pinnedTop = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        // Pin the top-CENTER point: the window stays horizontally centered on
+        // that x (so it can't drift off-center if its width settles after
+        // creation) and grows downward from that top as the field grows.
+        pinnedTop = NSPoint(x: panel.frame.midX, y: panel.frame.maxY)
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
             guard let self, let panel, let top = self.pinnedTop else { return }
-            let origin = NSPoint(x: top.x, y: top.y - panel.frame.height)
+            let origin = NSPoint(
+                x: top.x - panel.frame.width / 2, y: top.y - panel.frame.height)
             if abs(panel.frame.minX - origin.x) > 0.5
                 || abs(panel.frame.minY - origin.y) > 0.5 {
                 panel.setFrameOrigin(origin)
@@ -113,7 +115,7 @@ final class CapturePanelController {
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
             guard let self, let panel else { return }
-            self.pinnedTop = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+            self.pinnedTop = NSPoint(x: panel.frame.midX, y: panel.frame.maxY)
         }
 
         // Focus the capture field deterministically rather than via fixed
