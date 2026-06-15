@@ -42,7 +42,7 @@ struct ScheduleControlBar: View {
             // independent of sync state, so it stays put while a sync swaps the
             // refresh glyph for a spinner.
             PointerIconButton(
-                systemName: "arrow.up.right.square",
+                systemName: "arrow.up.right",
                 help: "Open Google Calendar in browser",
                 action: onOpenGoogleCalendar
             )
