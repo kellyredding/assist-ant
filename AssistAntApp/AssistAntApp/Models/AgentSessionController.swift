@@ -492,12 +492,22 @@ final class AgentSessionController: ObservableObject {
         //   blocks the child from starting (nested-session guard).
         // - CLAUDE_CLI_SESSION_ID: set by a parent persona session;
         //   inherited it would mis-resolve hooks to the parent.
+        // - CLAUDE_CODE_*: when the app is launched from inside a Claude Code
+        //   session (an agent restarting it via `open`), CLAUDE_CODE_SESSION_ID
+        //   and CLAUDE_CODE_CHILD_SESSION leak in. The embedded Claude then
+        //   treats itself as a nested child and writes its transcript under a
+        //   freshly minted id instead of the --session-id we pass, so the
+        //   persisted resume target has no transcript and the next --resume
+        //   exits with "No conversation found" (the agent dies on restart).
+        //   Drop the whole family so the child always runs as a clean
+        //   top-level session no matter how the app was launched.
         env = env.filter {
             !$0.hasPrefix("TERM=") &&
             !$0.hasPrefix("COLORTERM=") &&
             !$0.hasPrefix("LANG=") &&
             !$0.hasPrefix("CLAUDECODE=") &&
-            !$0.hasPrefix("CLAUDE_CLI_SESSION_ID=")
+            !$0.hasPrefix("CLAUDE_CLI_SESSION_ID=") &&
+            !$0.hasPrefix("CLAUDE_CODE_")
         }
         env.append("TERM=xterm-256color")
         // Deliberately NOT COLORTERM=truecolor: without it Claude Code uses
