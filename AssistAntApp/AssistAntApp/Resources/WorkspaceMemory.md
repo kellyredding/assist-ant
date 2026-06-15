@@ -52,6 +52,16 @@ the note names, routing to the Icebox when asked, and enriching a public URL.
 Quick Capture invokes it for you; reach for it when the user hands you something
 to jot down.
 
+## Managing tasks
+
+The `/assist-ant-manage-tasks` skill creates, changes, lists, and removes tasks
+through the `assist-ant task` CLI. A task is a named prompt plus a trigger
+(recurring on an interval or daily time, a one-shot, or a manual trigger). Reach
+for it when the user asks to schedule, automate, recur, or stop something. The
+Tasks tab only displays tasks — there's no form, so authoring runs through this
+skill. Tasks don't fire yet; a new task sits enabled but idle until the runner
+ships.
+
 ## Maintaining this file
 
 Assist Ant owns this file. It ships inside the app and is rewritten on launch

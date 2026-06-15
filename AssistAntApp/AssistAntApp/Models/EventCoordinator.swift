@@ -13,6 +13,10 @@ final class EventCoordinator {
         "calendar_item.sync",
         "actionable_item.sync",
         "actionable_item.create",
+        "task.create",
+        "task.update",
+        "task.delete",
+        "task.list",
         "session:ready",
     ]
 

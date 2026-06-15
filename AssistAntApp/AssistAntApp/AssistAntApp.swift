@@ -252,6 +252,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return BriefingSnapshot.replyData()
         case "actionable_item.list_names":
             return listNamesReplyData()
+        case "task.create":
+            return createTaskReplyData(e)
+        case "task.update":
+            return updateTaskReplyData(e)
+        case "task.delete":
+            return deleteTaskReplyData(e)
+        case "task.list":
+            return tasksListReplyData()
         default:
             return nil
         }
@@ -265,6 +273,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let names = (try? GRDBItemStore.shared.knownListNames()) ?? []
         return try? JSONSerialization.data(
             withJSONObject: ["lists": names], options: [.sortedKeys])
+    }
+
+    // MARK: - Task authoring (request/reply)
+    //
+    // The `assist-ant task` CLI authors tasks agentically: each write is
+    // request/reply (not fire-and-forget) because management always happens with
+    // the app up. Writes go through TasksStore on this listener queue (GRDB
+    // serializes writes); the read-only Tasks tab is refreshed on the main queue
+    // after each write. Every write replies with a small ack the CLI relays.
+
+    /// `task.create`: build a task from the envelope (validates trigger/cadence),
+    /// persist it, ack with the new id + name.
+    private func createTaskReplyData(_ e: EventEnvelope) -> Data? {
+        guard let task = AgentTask(creationEnvelope: e) else {
+            return ackData(ok: false, error: "invalid task payload")
+        }
+        do {
+            try TasksStore.shared.create(task)
+            DispatchQueue.main.async { TasksModel.shared.refresh() }
+            return ackData(ok: true, id: task.id, name: task.name)
+        } catch {
+            NSLog("AssistAnt: task.create failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `task.update`: overlay the envelope's present fields onto the stored task
+    /// (enable/disable arrives here too — `enabled` is just a field), persist,
+    /// ack. Errors if the id is unknown or the result is an invalid trigger.
+    private func updateTaskReplyData(_ e: EventEnvelope) -> Data? {
+        guard let id = e.detailValue("id", as: String.self) else {
+            return ackData(ok: false, error: "missing task id")
+        }
+        do {
+            guard let existing = try TasksStore.shared.task(id: id) else {
+                return ackData(ok: false, error: "no task with id \(id)")
+            }
+            guard let updated = existing.applyingUpdate(from: e) else {
+                return ackData(ok: false, error: "invalid task payload")
+            }
+            try TasksStore.shared.update(updated)
+            DispatchQueue.main.async { TasksModel.shared.refresh() }
+            return ackData(ok: true, id: updated.id, name: updated.name)
+        } catch {
+            NSLog("AssistAnt: task.update failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `task.delete`: remove the task by id, ack. The run history (task_runs)
+    /// is independent and survives.
+    private func deleteTaskReplyData(_ e: EventEnvelope) -> Data? {
+        guard let id = e.detailValue("id", as: String.self) else {
+            return ackData(ok: false, error: "missing task id")
+        }
+        do {
+            try TasksStore.shared.delete(id: id)
+            DispatchQueue.main.async { TasksModel.shared.refresh() }
+            return ackData(ok: true, id: id)
+        } catch {
+            NSLog("AssistAnt: task.delete failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `task.list`: every task as JSON (`{"tasks":[…]}`) for the agent to parse
+    /// and fuzzy-match against — the `listNamesReplyData()` shape.
+    private func tasksListReplyData() -> Data? {
+        let tasks = (try? TasksStore.shared.allTasks()) ?? []
+        let payload = tasks.map { $0.replyDictionary() }
+        return try? JSONSerialization.data(
+            withJSONObject: ["tasks": payload], options: [.sortedKeys])
+    }
+
+    /// One consistent ack shape for every task write: `{"ok":…}` plus the id /
+    /// name on success or an `error` string on failure.
+    private func ackData(
+        ok: Bool, id: String? = nil, name: String? = nil, error: String? = nil
+    ) -> Data? {
+        var obj: [String: Any] = ["ok": ok]
+        if let id { obj["id"] = id }
+        if let name { obj["name"] = name }
+        if let error { obj["error"] = error }
+        return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     }
 
     /// Apply a `calendar_item.sync` envelope: read the batch file the CLI

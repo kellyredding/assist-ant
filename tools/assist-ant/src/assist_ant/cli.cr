@@ -29,6 +29,8 @@ module AssistAnt
         Commands::CalendarItem.new.run(rest)
       when "actionable-item"
         Commands::ActionableItem.new.run(rest)
+      when "task"
+        Commands::Task.new.run(rest)
       when "briefing"
         Commands::Briefing.new.run(rest)
       when "session-event"
@@ -61,6 +63,8 @@ module AssistAnt
           actionable-item create        Create one manual to-do / reminder /
                                         explore item (unscheduled → Today).
           actionable-item list-names    List existing list names (JSON).
+          task add|list|update|remove   Manage tasks (named prompt + trigger):
+          task enable|disable           create, list, edit, remove, toggle.
           briefing                      Ask the running app for the startup
                                         briefing snapshot (JSON: today, upcoming,
                                         icebox).
