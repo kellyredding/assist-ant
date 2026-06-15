@@ -61,3 +61,16 @@ struct Item: Codable, Equatable, FetchableRecord, PersistableRecord {
         case pending
     }
 }
+
+extension Item {
+    /// The calendar event's external URL (meeting/join link), if any.
+    var calendarExternalURL: String? {
+        if case .calendar(let d) = typeData { return d.externalURL }
+        return nil
+    }
+
+    /// The openable external URL for any kind — the actionable link (Linear,
+    /// etc.) or the calendar meeting link. The single accessor the link
+    /// affordances read, so every kind that carries a URL lights up the button.
+    var externalURL: String? { actionableExternalURL ?? calendarExternalURL }
+}

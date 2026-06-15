@@ -6,6 +6,7 @@ struct CalendarData: Codable, Equatable, Sendable {
     var endAt: Date?          // UTC instant
     var allDay: Bool = false
     var timeZoneID: String?   // IANA id (e.g. "America/Los_Angeles") for timed events
+    var externalURL: String?  // meeting/join link (join → URL location → htmlLink)
 }
 
 /// Shared payload for the actionable kinds (todo, reminder, explore). They are

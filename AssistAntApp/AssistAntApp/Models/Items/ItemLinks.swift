@@ -10,7 +10,7 @@ enum ItemLinks {
         var seen = Set<String>()
         var out: [URL] = []
         for item in items {
-            guard let raw = item.actionableExternalURL,
+            guard let raw = item.externalURL,
                   let url = URL(string: raw),
                   url.scheme != nil,                 // a real absolute URL
                   seen.insert(raw).inserted else { continue }

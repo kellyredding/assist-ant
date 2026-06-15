@@ -13,6 +13,7 @@ struct CalendarSyncBatch: Codable {
         let endAt: String?
         let timeZone: String?
         let body: String
+        let externalURL: String?
 
         enum CodingKeys: String, CodingKey {
             case externalID = "external_id"
@@ -22,6 +23,7 @@ struct CalendarSyncBatch: Codable {
             case endAt = "end_at"
             case timeZone = "time_zone"
             case body
+            case externalURL = "external_url"
         }
     }
 

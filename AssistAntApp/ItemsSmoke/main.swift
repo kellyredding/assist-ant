@@ -990,6 +990,16 @@ check("clipboardMarkdown: bare item is fence + heading + kind") {
         && !md.contains("- List:") && !md.contains("- Scheduled:") && !md.contains("- Link:")
 }
 
+// 43e2. A calendar item carries its meeting link in the metadata line.
+check("clipboardMarkdown: calendar item includes its meeting link") {
+    let item = newItem(
+        type: .calendar,
+        typeData: .calendar(CalendarData(externalURL: "https://meet.test/xyz")),
+        title: "Standup")
+    let md = item.clipboardMarkdown()
+    return md.contains("- Kind: Calendar") && md.contains("- Link: https://meet.test/xyz")
+}
+
 // 43f. Batch framing: each item keeps its own fences, joined by a blank line.
 check("ItemClipboard.serialize: each item self-fenced, joined by blank line") {
     let a = newItem(type: .todo, typeData: .todo(ActionableData()), title: "one")
@@ -1138,10 +1148,11 @@ check("ItemLinks: collects valid links, dedupes, drops missing/invalid") {
     let a = newItem(type: .explore, typeData: .explore(ActionableData(externalURL: "https://a.test/x")))
     let dup = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "https://a.test/x")))
     let b = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "https://b.test/y")))
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData(externalURL: "https://c.test/z")))
     let none = newItem(type: .todo, typeData: .todo(ActionableData()))
     let blank = newItem(type: .todo, typeData: .todo(ActionableData(externalURL: "   ")))
-    let urls = ItemLinks.urls(for: [a, dup, b, none, blank])
-    return urls.map(\.absoluteString) == ["https://a.test/x", "https://b.test/y"]
+    let urls = ItemLinks.urls(for: [a, dup, b, cal, none, blank])
+    return urls.map(\.absoluteString) == ["https://a.test/x", "https://b.test/y", "https://c.test/z"]
 }
 
 // ItemLinks: empty for a link-less set (drives the disabled glyph).

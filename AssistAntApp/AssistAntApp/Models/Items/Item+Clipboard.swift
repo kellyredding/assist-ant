@@ -16,7 +16,7 @@ extension Item {
         lines.append("- Kind: \(clipboardKindLabel)")
         if let list = actionableListName { lines.append("- List: \(list)") }
         if let on = scheduledOn { lines.append("- Scheduled: \(on.iso)") }
-        if let url = actionableExternalURL { lines.append("- Link: \(url)") }
+        if let url = externalURL { lines.append("- Link: \(url)") }
 
         if let body = body?.trimmingCharacters(in: .whitespacesAndNewlines),
            !body.isEmpty {
