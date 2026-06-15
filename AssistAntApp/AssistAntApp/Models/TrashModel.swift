@@ -180,6 +180,7 @@ final class TrashModel: ObservableObject {
             }
         }
         regroupInPlace()
+        selection.deselect(updated.map(\.id))
         if !updated.isEmpty { ActionableSnapshots.refresh(except: .trash) }
         return updated
     }

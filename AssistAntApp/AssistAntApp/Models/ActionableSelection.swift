@@ -39,6 +39,7 @@ final class ActionableSelection: ObservableObject {
         if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
     }
     func clearSelection() { selectedIDs.removeAll() }            // *n
+    func deselect(_ ids: [String]) { selectedIDs.subtract(ids) } // after a batch list move
     func selectAll(in ids: [String]) { selectedIDs.formUnion(ids) }   // *a (host scopes)
     func focus(_ id: String?) { focusedItemID = id }
     func toggleSelectedFocused() { if let id = focusedItemID { toggleSelected(id) } }   // X

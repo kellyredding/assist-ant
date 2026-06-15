@@ -204,7 +204,8 @@ final class ScheduleAgendaModel: ObservableObject {
     }
 
     /// Set/clear the list name for a set, then regroup each day in place — the
-    /// rows move between sublists within their day and stay selected/undoable.
+    /// rows move between sublists within their day and are de-selected (a list
+    /// move ends the batch).
     @discardableResult
     private func setListName(_ items: [Item], to listName: String?) -> [Item] {
         var updated: [Item] = []
@@ -217,6 +218,7 @@ final class ScheduleAgendaModel: ObservableObject {
             }
         }
         regroupInPlace()
+        selection.deselect(updated.map(\.id))
         if !updated.isEmpty { ActionableSnapshots.refresh(except: .schedule) }
         return updated
     }

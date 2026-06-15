@@ -175,8 +175,8 @@ final class IceboxModel: ObservableObject {
     /// structural — items move to a different group — so it re-buckets the
     /// snapshot in place rather than re-fetching: update each item's list in
     /// the store, re-read it, swap it into the snapshot, then regroup locally.
-    /// Selection (by id) persists and the moved rows reappear in their new
-    /// group still checked, so a chained batch action stays undoable. Only the
+    /// The moved rows re-bucket into their new group and are de-selected, so a
+    /// list move ends the batch with a clean, non-selected list. Only the
     /// control-bar refresh re-fetches (and drops acted-on rows).
     @discardableResult
     func setListName(_ items: [Item], to listName: String?) -> [Item] {
@@ -190,6 +190,7 @@ final class IceboxModel: ObservableObject {
             }
         }
         regroupInPlace()
+        selection.deselect(updated.map(\.id))
         if !updated.isEmpty { ActionableSnapshots.refresh(except: .icebox) }
         return updated
     }
