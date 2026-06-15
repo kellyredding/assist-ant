@@ -7,6 +7,7 @@ import Foundation
 enum MainTab: String, CaseIterable {
     case agent
     case schedule
+    case tasks
     case icebox
     case trash
 
@@ -14,6 +15,7 @@ enum MainTab: String, CaseIterable {
         switch self {
         case .agent: return "Agent"
         case .schedule: return "Schedule"
+        case .tasks: return "Tasks"
         case .icebox: return "Icebox"
         case .trash: return "Trash"
         }
@@ -23,6 +25,7 @@ enum MainTab: String, CaseIterable {
         switch self {
         case .agent: return "apple.terminal"
         case .schedule: return "calendar"
+        case .tasks: return "clock.arrow.circlepath"
         case .icebox: return "snowflake"
         case .trash: return "trash"
         }

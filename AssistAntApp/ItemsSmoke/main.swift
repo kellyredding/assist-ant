@@ -1233,6 +1233,128 @@ check("ItemActionState: allDeleted across a set") {
         && !ItemActionState([active]).allDeleted
 }
 
+// MARK: - Task system (tasks + task_runs)
+
+/// A fresh in-memory tasks store, migrated through the real migrator.
+func makeTasksStore() throws -> (TasksStore, DatabaseQueue) {
+    let queue = try DatabaseQueue()  // in-memory
+    try ItemsDatabase.migrator.migrate(queue)
+    return (TasksStore(dbQueue: queue), queue)
+}
+
+func newTask(
+    name: String = "t",
+    triggerType: String = "recurring",
+    cadenceKind: String? = "interval",
+    intervalSeconds: Int? = 900,
+    dailyTime: String? = nil,
+    runAt: Date? = nil,
+    manualKey: String? = nil,
+    prompt: String = "do the thing",
+    enabled: Bool = true,
+    lastRunAt: Date? = nil
+) -> AgentTask {
+    AgentTask(
+        id: UUIDv7.generate(), name: name, triggerType: triggerType,
+        cadenceKind: cadenceKind, intervalSeconds: intervalSeconds,
+        dailyTime: dailyTime, runAt: runAt, manualKey: manualKey,
+        prompt: prompt, enabled: enabled, lastRunAt: lastRunAt,
+        createdAt: Date(), updatedAt: Date())
+}
+
+func newRun(
+    taskID: String? = nil, taskName: String = "t", trigger: String = "manual",
+    firedAt: Date = Date(), status: String = "sent", detail: String? = nil
+) -> TaskRun {
+    TaskRun(
+        id: UUIDv7.generate(), taskID: taskID, taskName: taskName,
+        trigger: trigger, firedAt: firedAt, status: status, detail: detail)
+}
+
+// T1. The migration applies clean on a fresh in-memory DB: both tables exist
+//     and start empty.
+check("tasks: migration applies clean on a fresh DB") {
+    let (store, _) = try makeTasksStore()
+    return try store.allTasks().isEmpty && (try store.recentRuns()).isEmpty
+}
+
+// T2. Every trigger type round-trips through the store, preserving its cadence
+//     fields (interval vs daily), the one-shot fire instant, and the manual key.
+check("tasks: round-trip every trigger type + cadence fields") {
+    let (store, _) = try makeTasksStore()
+    let interval = newTask(name: "sync", triggerType: "recurring",
+                           cadenceKind: "interval", intervalSeconds: 900)
+    let daily = newTask(name: "briefing", triggerType: "recurring",
+                        cadenceKind: "daily", intervalSeconds: nil, dailyTime: "07:00")
+    let oneShot = newTask(name: "ping", triggerType: "one_shot",
+                          cadenceKind: nil, intervalSeconds: nil,
+                          runAt: Date(timeIntervalSince1970: 1_800_000_000))
+    let manual = newTask(name: "refresh", triggerType: "manual",
+                         cadenceKind: nil, intervalSeconds: nil,
+                         manualKey: "today_todo_refresh")
+    for t in [interval, daily, oneShot, manual] { try store.create(t) }
+    guard try store.allTasks().count == 4 else { return false }
+    guard let i = try store.task(id: interval.id),
+          let d = try store.task(id: daily.id),
+          let o = try store.task(id: oneShot.id),
+          let m = try store.task(id: manual.id) else { return false }
+    return i.cadenceKind == "interval" && i.intervalSeconds == 900
+        && d.cadenceKind == "daily" && d.dailyTime == "07:00" && d.intervalSeconds == nil
+        && o.triggerType == "one_shot" && o.runAt == oneShot.runAt
+        && m.triggerType == "manual" && m.manualKey == "today_todo_refresh"
+}
+
+// T3. The write surface Phase 5 drives: update replaces fields in place, and
+//     setEnabled flips the flag.
+check("tasks: update + setEnabled write through") {
+    let (store, _) = try makeTasksStore()
+    var t = newTask(name: "v1", intervalSeconds: 900, enabled: true)
+    try store.create(t)
+    t.name = "v2"
+    t.intervalSeconds = 3600
+    try store.update(t)
+    try store.setEnabled(id: t.id, false)
+    guard let after = try store.task(id: t.id) else { return false }
+    return after.name == "v2" && after.intervalSeconds == 3600 && !after.enabled
+}
+
+// T4. delete removes the task row entirely.
+check("tasks: delete removes the row") {
+    let (store, _) = try makeTasksStore()
+    let t = newTask()
+    try store.create(t)
+    try store.delete(id: t.id)
+    return try store.allTasks().isEmpty && (try store.task(id: t.id)) == nil
+}
+
+// T5. markRan stamps last_run_at — the field the recurring due-eval reads.
+check("tasks: markRan stamps last_run_at") {
+    let (store, _) = try makeTasksStore()
+    let t = newTask(lastRunAt: nil)
+    try store.create(t)
+    let when = Date(timeIntervalSince1970: 1_700_000_000)
+    try store.markRan(id: t.id, at: when)
+    return try store.task(id: t.id)?.lastRunAt == when
+}
+
+// T6. The run log: recordRun inserts, recentRuns returns reverse-chronological
+//     by fired_at, and the detail snapshot round-trips.
+check("task_runs: recordRun + recentRuns newest-first") {
+    let (store, _) = try makeTasksStore()
+    func at(_ t: Int) -> Date { Date(timeIntervalSince1970: TimeInterval(t)) }
+    let old = newRun(taskName: "old", trigger: "recurring", firedAt: at(100))
+    let mid = newRun(taskName: "mid", trigger: "manual", firedAt: at(200),
+                     status: "skipped", detail: "agent not running")
+    let new = newRun(taskName: "new", trigger: "run_now", firedAt: at(300))
+    for r in [old, mid, new] { try store.recordRun(r) }
+    let runs = try store.recentRuns(limit: 10)
+    let names = runs.map { $0.taskName }
+    let midDetail = runs.first { $0.taskName == "mid" }?.detail
+    return names == ["new", "mid", "old"]
+        && midDetail == "agent not running"
+        && runs.first?.status == "sent"
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

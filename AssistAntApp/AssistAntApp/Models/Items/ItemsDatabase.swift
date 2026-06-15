@@ -137,6 +137,46 @@ final class ItemsDatabase {
             }
         }
 
+        // The task system (see the AgentTask / TaskRun records). `tasks` holds a
+        // named prompt + a trigger the heartbeat/runner read; `task_runs` is the
+        // fire-and-forget log. Both live in this DB so the Tasks tab can surface
+        // them and a later phase can sync them. Datetime columns are GRDB Date
+        // (TEXT "YYYY-MM-DD HH:MM:SS.SSS"), same as the items table; `last_run_at`
+        // is what the recurring due-eval reads for dedup/coalescing.
+        migrator.registerMigration("createTasks") { db in
+            try db.create(table: "tasks") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("trigger_type", .text).notNull()
+                t.column("cadence_kind", .text)
+                t.column("interval_seconds", .integer)
+                t.column("daily_time", .text)
+                t.column("run_at", .datetime)
+                t.column("manual_key", .text)
+                t.column("prompt", .text).notNull()
+                t.column("enabled", .boolean).notNull().defaults(to: true)
+                t.column("last_run_at", .datetime)
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+
+            try db.create(table: "task_runs") { t in
+                // No FK to tasks: a run row outlives its task (task_id is a
+                // nullable snapshot reference), so deleting a task leaves its
+                // history intact in the log.
+                t.primaryKey("id", .text)
+                t.column("task_id", .text)
+                t.column("task_name", .text).notNull()
+                t.column("trigger", .text).notNull()
+                t.column("fired_at", .datetime).notNull()
+                t.column("status", .text).notNull()
+                t.column("detail", .text)
+            }
+            // The log renders reverse-chronological by fired_at.
+            try db.execute(
+                sql: "CREATE INDEX idx_task_runs_fired ON task_runs (fired_at)")
+        }
+
         return migrator
     }
 }

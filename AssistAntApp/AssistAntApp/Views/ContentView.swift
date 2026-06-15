@@ -120,6 +120,15 @@ struct ContentView: View {
                 // the pane on top; still disabled under the reader as before.
                 .disabled(viewer.openItem != nil || tabs.selectedTab != .schedule)
 
+            TasksPaneView()
+                .opacity(tabs.selectedTab == .tasks ? 1 : 0)
+                .allowsHitTesting(tabs.selectedTab == .tasks)
+                .zIndex(tabs.selectedTab == .tasks ? 1 : 0)
+                // Disable while hidden so its controls' pointer-cursor tracking
+                // can't bleed through the pane on top; still disabled under the
+                // reader, matching the other panes.
+                .disabled(viewer.openItem != nil || tabs.selectedTab != .tasks)
+
             IceboxPaneView()
                 .opacity(tabs.selectedTab == .icebox ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .icebox)
