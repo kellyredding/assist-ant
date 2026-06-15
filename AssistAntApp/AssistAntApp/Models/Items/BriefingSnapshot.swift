@@ -18,6 +18,9 @@ struct BriefingSnapshot: Codable, Equatable {
         let externalID: String?     // e.g. FLEX-3304 — Linear cross-ref
         let externalURL: String?
         let listName: String?
+        /// Manual drag-reorder rank within the list (lower = higher in the
+        /// list). nil when unranked. Comparable within a `listName`, not across.
+        let position: Double?
 
         /// Map an actionable item to a row; calendar items return nil — the
         /// briefing's calendar comes from the live MCP pull, not the store.
@@ -34,6 +37,7 @@ struct BriefingSnapshot: Codable, Equatable {
             externalID = item.externalID
             externalURL = item.actionableExternalURL
             listName = item.actionableListName
+            position = item.position
         }
     }
 

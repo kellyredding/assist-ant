@@ -1061,6 +1061,27 @@ check("BriefingSnapshot.current: today / upcoming / icebox slices") {
         && snap.icebox.total == 1                          // the one boxed todo
 }
 
+// 45b. The briefing surfaces each row's manual list position (drag-reorder
+//      rank) so the persona can factor it into prioritization; unranked → nil.
+check("BriefingSnapshot: rows carry the manual list position") {
+    let (store, _) = try makeStore()
+    let today = CivilDate.today
+    var top = newItem(type: .todo, typeData: .todo(ActionableData(listName: "Work")),
+                      title: "top", scheduledOn: today)
+    top.position = 0
+    var low = newItem(type: .todo, typeData: .todo(ActionableData(listName: "Work")),
+                      title: "low", scheduledOn: today)
+    low.position = 1024
+    let unranked = newItem(type: .todo, typeData: .todo(ActionableData()), title: "unranked")
+    for i in [top, low, unranked] { try store.create(i) }
+
+    let rows = try BriefingSnapshot.current(store: store, asOf: today).today
+    func position(_ id: String) -> Double? { rows.first { $0.id == id }?.position ?? nil }
+    return position(top.id) == 0
+        && position(low.id) == 1024
+        && rows.first { $0.id == unranked.id }?.position == nil
+}
+
 // SessionReconciler: resume of the tracked agent gates the post-resume reflow.
 check("SessionReconciler: resume matching spawned id → reflow, no adopt") {
     let d = SessionReconciler.decide(
