@@ -336,6 +336,16 @@ final class CapturePanel: NSPanel {
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard mods.contains(.command) else { return false }  // plain keys → the field
 
+        // ⌘-arrow navigation + selection: line ends (← →), document ends (↑ ↓),
+        // and their ⌘⇧ selection variants. No menu item claims these, so the
+        // field handles them in keyDown — they only need to not be swallowed.
+        // Keyed off keyCode because arrows report function-key unicode, not a
+        // letter, so the charactersIgnoringModifiers switch below can't catch them.
+        switch event.keyCode {
+        case 123, 124, 125, 126: return false  // ← → ↓ ↑
+        default: break
+        }
+
         // Delete-to-start-of-line (⌘⌫) is standard text editing — let the field
         // handle it. (⌘⇧⌫ / ⌃⌘⌫ are app menu items and keep their own paths.)
         if mods == [.command], event.keyCode == 51 { return false }
