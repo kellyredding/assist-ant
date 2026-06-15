@@ -67,16 +67,20 @@ struct CalendarEventViewer: View {
     // Sticky between the header and the scrolling body — not inside the
     // ScrollView — so the when-and-where stays visible while the body scrolls.
     private var timeBar: some View {
-        Text(timeLineText)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color(.textBackgroundColor))
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
-            }
+        HStack(spacing: 8) {
+            Text(timeLineText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            CalendarActions(item: event)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(.textBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
+        }
     }
 
     // MARK: - Derived content
