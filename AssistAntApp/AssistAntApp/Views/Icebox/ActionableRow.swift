@@ -62,10 +62,21 @@ struct ActionableRow: View {
             if showsGutter { gutter }
             rowContent
         }
+        // Keyboard-focus bar: a row-height leading overlay rather than a flexible
+        // sibling Rectangle. An overlay is handed the row's already-resolved
+        // height, so the bar spans the full row identically on every surface —
+        // the flexible sibling collapsed progressively in the Schedule's nested
+        // day layout. Outside rowContent's dim opacity, so it stays full-strength
+        // on a greyed row; gated to gutter surfaces (the Today sidebar has none).
+        .overlay(alignment: .leading) {
+            if showsGutter {
+                Rectangle()
+                    .fill(isFocused ? Color.accentColor : Color.clear)
+                    .frame(width: 3)
+            }
+        }
         // Overlay (not a ZStack child) so the floating buttons never add to the
-        // row's height — a hovered row stays the same size. Flush to the row's
-        // trailing content edge: the outer .padding(.horizontal, 8) is the only
-        // right inset, so the floating card sits 8pt from the list edge.
+        // row's height — a hovered row stays the same size.
         .overlay(alignment: .trailing) { if isHovering { hoverCluster } }
         // Persistent selected shading, with the transient hover tint layered on.
         .background(
@@ -77,7 +88,11 @@ struct ActionableRow: View {
                 .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
         )
         .background(FrameAnchorView(anchor: tipAnchor))
-        .padding(.horizontal, 8)
+        // A small trailing inset gives the hover cluster + trailing status a
+        // little breathing room from the list's right edge (matching the refresh
+        // glyph above). The leading edge stays flush, so the focus bar runs to
+        // the very edge and the title fills out to where the hover anchors.
+        .padding(.trailing, 8)
         .animation(.easeInOut(duration: 0.12), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
@@ -97,39 +112,45 @@ struct ActionableRow: View {
         context == .today ? .right : .left
     }
 
-    /// Focus bar + checkbox. Kept OUTSIDE rowContent's `.opacity(resolved/moved)`
-    /// so the selection affordance stays full-strength on a greyed row. The
-    /// checkbox owns its own tap (toggle), distinct from the row body's open.
+    /// Selection checkbox. The keyboard-focus bar is drawn as a separate
+    /// row-height overlay (see `body`), so its height is the row's resolved
+    /// height on every surface rather than a flexible fill that collapsed in the
+    /// Schedule's nested day layout. The checkbox owns its own tap (toggle),
+    /// distinct from the row body's open.
     private var gutter: some View {
-        HStack(spacing: 8) {
-            Rectangle()
-                .fill(isFocused ? Color.accentColor : Color.clear)
-                .frame(width: 3)
-            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-                .pointerButton(onHoverChange: { _ in }, action: { selection.toggleSelected(item.id) })
-        }
-        .padding(.leading, 6)
+        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
+            .pointerButton(onHoverChange: { _ in }, action: { selection.toggleSelected(item.id) })
+            .padding(.leading, 8)
     }
 
     private var rowContent: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Fixed-width leading column so the kind pills share a column and
-            // every title starts at the same x, lining up vertically.
+            // every title starts at the same x, lining up vertically — sized to
+            // just fit the widest pill so the title sits close to the badge.
             KindBadge(item: item)
-                .frame(width: 76, alignment: .leading)
+                .frame(width: 68, alignment: .leading)
+            // The title fills the remaining width so it runs out to the same
+            // right edge the hover cluster anchors to; the trailing status (only
+            // when present) sits flush right after it.
             titleLine
                 .font(.callout)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer(minLength: 12)
-            Text(statusText)
-                .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if !statusText.isEmpty {
+                Text(statusText)
+                    .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            }
         }
         .opacity(isDimmed ? 0.5 : 1)
-        .padding(.vertical, 6).padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        // No leading inset where the gutter already offsets the content (icebox /
+        // schedule / trash); the gutter-less Today sidebar gets the list margin.
+        .padding(.leading, showsGutter ? 0 : 8)
         .contentShape(Rectangle())
         // Row body opens the reader; the action overlay sits above it.
         .pointerButton(onHoverChange: { _ in }, action: onOpen)

@@ -17,19 +17,11 @@ struct ActionableListSection: View {
     /// Forwarded to each row to pick its surface-specific dimming + status.
     var context: ActionableRow.Context = .icebox
 
-    /// Indent for items under a named list, so a row's checkbox column lines up
-    /// under the list-name text in the header (the disclosure caret hangs in the
-    /// left margin) and the rows read as a sub-list. Every row leads with the
-    /// selection gutter (focus bar + checkbox), so this is the header name's
-    /// offset (pad 12 + caret 14 + spacing 6 = 32) minus the checkbox's offset
-    /// within a row (outer pad 8 + gutter lead 6 + bar 3 + spacing 8 = 25).
-    private static let nestedIndent: CGFloat = 7
-
     var body: some View {
         VStack(spacing: 0) {
             header
             if !isCollapsed {
-                rows.padding(.leading, Self.nestedIndent)
+                rows
             }
         }
         // Breathing room beneath each group so the no-list items and every
@@ -55,7 +47,7 @@ struct ActionableListSection: View {
                 .font(.caption).foregroundStyle(.tertiary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 8).padding(.vertical, 8)
         .contentShape(Rectangle())
         // Collapse is keyed by the group's id (== the name for a named list, a
         // reserved sentinel for the no-list group), so both collapse with one

@@ -39,7 +39,7 @@ struct TrashControlBar: View {
                 )
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
         .frame(height: 38)
     }
 }

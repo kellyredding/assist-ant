@@ -63,7 +63,7 @@ struct TodayItemsView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -99,7 +99,7 @@ struct TodayItemsView: View {
                 actionableGroups(model.todoExploreGroups)
             }
         }
-        .padding(16)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 

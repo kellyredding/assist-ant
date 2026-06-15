@@ -18,13 +18,15 @@ struct ScheduleDaySection: View {
     private var isEmpty: Bool { day.events.isEmpty && day.actionableGroups.isEmpty }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            gutter.frame(width: 64, alignment: .leading)
+        HStack(alignment: .top, spacing: 4) {
+            gutter.frame(width: 44, alignment: .center)
             VStack(alignment: .leading, spacing: 6) {
                 if isEmpty {
                     Text("Nothing scheduled")
                         .font(.callout)
                         .foregroundStyle(.tertiary)
+                        // Align with the rows' content margin (caret / checkbox).
+                        .padding(.leading, 8)
                 } else {
                     ForEach(day.events, id: \.id) { item in
                         CalendarEventRow(
@@ -57,7 +59,7 @@ struct ScheduleDaySection: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 8)
         .padding(.vertical, 10)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
@@ -68,10 +70,14 @@ struct ScheduleDaySection: View {
         // Centered so the weekday + month sit horizontally centered under the
         // day number (whose 30pt frame leaves room for the today circle).
         VStack(alignment: .center, spacing: 2) {
+            // Proportional digits (not monospaced) so the number centers by its
+            // real width — a monospaced "1" sits in a full-width cell, which made
+            // "14" read right-heavy and cramped in the circle. A slightly larger
+            // circle gives the number a touch more breathing room all around.
             Text(dayNumber)
-                .font(.title2).monospacedDigit()
+                .font(.title2)
                 .foregroundStyle(isToday ? Color.white : .primary)
-                .frame(width: 30, height: 30)
+                .frame(width: 32, height: 32)
                 .background(isToday ? Circle().fill(Color.accentColor) : nil)
             Text(weekday).font(.caption).foregroundStyle(.secondary)
             Text(month).font(.caption2).foregroundStyle(.secondary)

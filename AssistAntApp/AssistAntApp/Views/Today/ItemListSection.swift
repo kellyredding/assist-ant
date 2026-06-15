@@ -27,11 +27,16 @@ struct ItemListSection<Row: View>: View {
                     headerAccessory
                 }
             }
+            // The list margin: the title emoji aligns with the group carets and
+            // row badges below, and the trailing glyph with the rows' right edge.
+            .padding(.horizontal, 8)
 
             if isEmpty {
                 Text(emptyText)
                     .font(.callout)
                     .foregroundStyle(.tertiary)
+                    // Align with the header title emoji + the rows' content margin.
+                    .padding(.horizontal, 8)
                 Spacer(minLength: 0)
             } else {
                 ScrollView {
