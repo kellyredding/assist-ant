@@ -30,15 +30,16 @@ final class CalendarSyncCoordinator: ObservableObject {
         }
     }
 
-    /// Ask the embedded agent to re-sync the calendar by invoking the sync
-    /// skill. No-ops (and shows no spinner) when the agent isn't running, since
-    /// the command would go nowhere.
+    /// Ask the embedded agent to re-sync the calendar by sending it a sync prompt
+    /// the persona interprets (the Calendar sync direction). No-ops (and shows no
+    /// spinner) when the agent isn't running, since the prompt would go nowhere.
     func requestSync() {
         guard AgentSessionController.shared.state == .running else {
             NSLog("CalendarSyncCoordinator: agent not running — sync request ignored")
             return
         }
-        AgentSessionController.shared.sendCommand("/assist-ant-sync-calendar-items")
+        AgentSessionController.shared.send(text: "Sync my calendar", asPaste: true)
+        AgentSessionController.shared.submit()
         isSyncing = true
         timeoutWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.finish() }

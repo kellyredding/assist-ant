@@ -83,8 +83,9 @@ final class AgentSessionController: ObservableObject {
     static let shared = AgentSessionController()
 
     /// The persona this controller runs. Matches the persona TOML filename
-    /// under ~/.claude-persona/personas/.
-    private static let personaName = "assist-ant"
+    /// under ~/.claude-persona/personas/. Hardcoded for now; per-machine persona
+    /// selection is deferred until a personal (non-work) persona exists.
+    private static let personaName = "assist-ant-work"
 
     @Published private(set) var state: AgentSessionState = .stopped
 

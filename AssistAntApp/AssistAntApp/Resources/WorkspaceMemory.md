@@ -32,16 +32,17 @@ assuming what exists.
 ## Syncing items
 
 Two one-way mirrors pull the outside world into the app's local item store.
-Each is a skill that fetches the data and hands the raw payload to the CLI,
-which parses, composes bodies, upserts, and reconciles deterministically. Both
-run on startup and can be re-run any time you're asked.
+Each fetches the data and hands the raw payload to the CLI, which parses,
+composes bodies, upserts, and reconciles deterministically. Both run on startup
+and can be re-run any time you're asked — they live in your persona's playbooks,
+not as separate skills, so just ask in plain language.
 
-- **Calendar** — the `/assist-ant-sync-calendar-items` skill mirrors qualifying
-  Google Calendar events for the next 30 days through `calendar-item sync`. Use
-  it whenever you're asked to sync or refresh the calendar.
-- **Action items** — the `/assist-ant-sync-linear-items` skill mirrors the
+- **Calendar** — "sync my calendar" / "refresh the calendar" mirrors qualifying
+  Google Calendar events for the next 30 days through `calendar-item sync`.
+- **Action items** — "sync my Linear issues" / "refresh Linear" mirrors the
   Linear issues assigned to the user, as to-dos, through `actionable-item sync`.
-  Use it whenever you're asked to sync, refresh, or update Linear.
+
+Your persona's Calendar and Linear playbooks carry the exact sync procedure.
 
 ## Capturing items
 
