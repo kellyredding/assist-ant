@@ -124,6 +124,39 @@ describe AssistAnt::CalendarSync do
     end
   end
 
+  describe ".external_url" do
+    it "prefers the join link over location and the html link" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"hangoutLink":"https://meet.google.com/abc","location":"https://zoom.us/j/1","htmlLink":"https://www.google.com/calendar/event?eid=z","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      AssistAnt::CalendarSync.external_url(google.parse(raw).first)
+        .should eq "https://meet.google.com/abc"
+    end
+
+    it "falls back to a URL location when there is no join link" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"location":"https://zoom.us/j/1","htmlLink":"https://www.google.com/calendar/event?eid=z","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      AssistAnt::CalendarSync.external_url(google.parse(raw).first)
+        .should eq "https://zoom.us/j/1"
+    end
+
+    it "ignores a non-URL location and falls back to the html link" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"location":"Room 4","htmlLink":"https://www.google.com/calendar/event?eid=z","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      AssistAnt::CalendarSync.external_url(google.parse(raw).first)
+        .should eq "https://www.google.com/calendar/event?eid=z"
+    end
+
+    it "is nil when the event carries no openable URL" do
+      raw = %({"events":[
+        {"id":"a","summary":"X","start":{"dateTime":"2026-06-10T15:00:00Z"},"location":"Room 4","organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}
+      ]})
+      AssistAnt::CalendarSync.external_url(google.parse(raw).first).should be_nil
+    end
+  end
+
   describe ".clean_description" do
     it "strips tags, converts breaks, and decodes entities" do
       AssistAnt::CalendarSync

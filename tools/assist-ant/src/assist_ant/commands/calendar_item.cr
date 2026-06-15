@@ -153,6 +153,9 @@ module AssistAnt
                       j.field "time_zone", tz
                     end
                     j.field "body", CalendarSync.compose_body(e)
+                    if url = CalendarSync.external_url(e)
+                      j.field "external_url", url
+                    end
                   end
                 end
               end
@@ -216,6 +219,7 @@ module AssistAnt
       is_owner : Bool,
       location : String?,
       meet_link : String?,
+      html_link : String?,
       attendees : Array(String),
       description : String?,
       time_zone : String?
@@ -288,6 +292,7 @@ module AssistAnt
           is_owner: is_owner,
           location: ev["location"]?.try(&.as_s?),
           meet_link: ev["hangoutLink"]?.try(&.as_s?) || conference_link(ev),
+          html_link: ev["htmlLink"]?.try(&.as_s?),
           attendees: attendees,
           description: ev["description"]?.try(&.as_s?),
           time_zone: tz,
@@ -349,6 +354,23 @@ module AssistAnt
           io << "\n\n#{cleaned}" unless cleaned.empty?
         end
       end
+    end
+
+    # The single openable URL for the event, most-specific first: the live join
+    # link, else a location that is itself a URL (Tuple/Zoom often arrive there),
+    # else the Google Calendar event page. nil when none apply.
+    def self.external_url(e : NormalizedEvent) : String?
+      if (link = e.meet_link) && !link.empty?
+        link
+      elsif (loc = e.location) && url?(loc)
+        loc
+      elsif (html = e.html_link) && !html.empty?
+        html
+      end
+    end
+
+    def self.url?(str : String) : Bool
+      str.starts_with?("http://") || str.starts_with?("https://")
     end
 
     def self.rsvp_label(e : NormalizedEvent) : String

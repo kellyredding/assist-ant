@@ -16,7 +16,7 @@ describe "assist-ant calendar-item sync" do
   # event (skipped).
   fixture = <<-JSON
     {"events":[
-      {"id":"evt-1","summary":"Standup","start":{"dateTime":"2026-06-10T15:00:00Z","timeZone":"America/Chicago"},"end":{"dateTime":"2026-06-10T15:30:00Z"},"organizer":{"email":"kelly.redding@kajabi.com","self":true},"attendees":[{"email":"kelly.redding@kajabi.com","self":true,"responseStatus":"accepted"}],"location":"Room 1","description":"<p>Daily standup</p>","calendarId":"kelly.redding@kajabi.com"},
+      {"id":"evt-1","summary":"Standup","start":{"dateTime":"2026-06-10T15:00:00Z","timeZone":"America/Chicago"},"end":{"dateTime":"2026-06-10T15:30:00Z"},"organizer":{"email":"kelly.redding@kajabi.com","self":true},"attendees":[{"email":"kelly.redding@kajabi.com","self":true,"responseStatus":"accepted"}],"location":"Room 1","hangoutLink":"https://meet.google.com/evt-1","description":"<p>Daily standup</p>","calendarId":"kelly.redding@kajabi.com"},
       {"id":"evt-allday","summary":"Holiday","start":{"date":"2026-07-04"},"calendarId":"en.usa#holiday@group.v.calendar.google.com"},
       {"id":"evt-declined","summary":"Optional","start":{"dateTime":"2026-06-11T16:00:00Z"},"attendees":[{"email":"kelly.redding@kajabi.com","self":true,"responseStatus":"declined"}],"calendarId":"kelly.redding@kajabi.com"}
     ],"totalCount":3,"calendars":["kelly.redding@kajabi.com"]}
@@ -65,6 +65,7 @@ describe "assist-ant calendar-item sync" do
           AssistAnt::Commands::CalendarItem.scheduled_on("2026-06-10T15:00:00Z")
         )
         item["body"].as_s.should contain "Daily standup"
+        item["external_url"].should eq "https://meet.google.com/evt-1"
       ensure
         File.delete(input.path) if File.exists?(input.path)
       end
