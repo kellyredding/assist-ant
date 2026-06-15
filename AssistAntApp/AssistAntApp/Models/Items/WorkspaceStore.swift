@@ -41,6 +41,17 @@ final class WorkspaceStore {
         }
     }
 
+    /// Set the persona the embedded agent loads on its next fresh session.
+    /// No-op if the row is somehow absent. Stamps `updatedAt`.
+    func setPersonaName(_ name: String) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.personaName = name
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
     /// Live workspace updates for the settings field and the title-bar pill.
     func observe() -> AnyPublisher<Workspace?, Error> {
         ValueObservation

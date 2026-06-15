@@ -260,6 +260,25 @@ check("workspace store renames in place") {
     return after.name == "Renamed" && after.id == before.id
 }
 
+// 13b. The persona-name migration backfills the seated row to the default.
+check("workspace seats with the default persona") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue)
+    let ws = try WorkspaceStore(dbQueue: queue).current()
+    return ws.personaName == Workspace.defaultPersonaName
+}
+
+// 13c. WorkspaceStore.setPersonaName round-trips, preserving the id.
+check("workspace store sets persona in place") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue)
+    let store = WorkspaceStore(dbQueue: queue)
+    let before = try store.current()
+    try store.setPersonaName("assist-ant-personal")
+    let after = try store.current()
+    return after.personaName == "assist-ant-personal" && after.id == before.id
+}
+
 // 14. A window prune with an empty keep set is refused by default — the guard
 //     against a degraded/empty upstream fetch wiping the window — and proceeds
 //     only with the explicit opt-in.

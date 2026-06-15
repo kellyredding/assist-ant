@@ -177,6 +177,19 @@ final class ItemsDatabase {
                 sql: "CREATE INDEX idx_task_runs_fired ON task_runs (fired_at)")
         }
 
+        // Per-machine persona selection. The persona the embedded agent loads is
+        // install identity, so it lives on the workspace record (it travels with
+        // the consistent backup snapshot), not in prefs.json. NOT NULL with a
+        // constant default backfills the single seated row with the value the app
+        // shipped with, so existing installs are unchanged.
+        migrator.registerMigration("addWorkspacePersonaName") { db in
+            try db.alter(table: "workspace") { t in
+                t.add(column: "persona_name", .text)
+                    .notNull()
+                    .defaults(to: "assist-ant-work")
+            }
+        }
+
         return migrator
     }
 }

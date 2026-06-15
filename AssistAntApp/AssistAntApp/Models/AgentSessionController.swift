@@ -82,10 +82,16 @@ enum AgentFailureReason: Equatable {
 final class AgentSessionController: ObservableObject {
     static let shared = AgentSessionController()
 
-    /// The persona this controller runs. Matches the persona TOML filename
-    /// under ~/.claude-persona/personas/. Hardcoded for now; per-machine persona
-    /// selection is deferred until a personal (non-work) persona exists.
-    private static let personaName = "assist-ant-work"
+    /// The persona this controller runs — the name of a TOML under
+    /// ~/.claude-persona/personas/, read from the workspace record
+    /// (Settings ▸ Workspace ▸ Persona). Falls back to the default when unset or
+    /// unreadable. Read at spawn time, so a change takes effect on the next fresh
+    /// session; it does not reach into a resumed conversation.
+    private static var personaName: String {
+        let stored = (try? WorkspaceStore.shared.current().personaName) ?? ""
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? Workspace.defaultPersonaName : trimmed
+    }
 
     @Published private(set) var state: AgentSessionState = .stopped
 

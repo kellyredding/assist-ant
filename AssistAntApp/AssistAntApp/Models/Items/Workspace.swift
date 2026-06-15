@@ -19,23 +19,30 @@ import GRDB
 struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
     let id: String
     var name: String
+    var personaName: String
     var createdAt: Date
     var updatedAt: Date
 
     static let databaseTableName = "workspace"
 
+    /// The persona the embedded agent loads when no explicit choice is stored.
+    static let defaultPersonaName = "assist-ant-work"
+
     enum CodingKeys: String, CodingKey {
         case id
         case name
+        case personaName = "persona_name"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 
-    /// A fresh workspace with a random opaque id and the default name.
+    /// A fresh workspace with a random opaque id, the default name, and the
+    /// default persona.
     static func make(now: Date = Date()) -> Workspace {
         Workspace(
             id: UUID().uuidString.lowercased(),
             name: defaultName(),
+            personaName: defaultPersonaName,
             createdAt: now,
             updatedAt: now)
     }
