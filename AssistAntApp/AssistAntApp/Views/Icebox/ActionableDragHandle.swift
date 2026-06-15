@@ -46,6 +46,11 @@ private struct DragGrip: NSViewRepresentable {
         view.item = item
         view.payload = payload
         view.isRowHovering = isRowHovering
+        // Hidden tabs stay mounted (opacity 0 + hit-testing off), but an
+        // NSTrackingArea fires regardless of that, so an occluded grip would set
+        // its cursor through the pane on top. Gate it on the surface being
+        // enabled (ContentView disables inactive panes), like `pointerButton`.
+        view.isActive = context.environment.isEnabled
     }
 }
 
@@ -141,6 +146,22 @@ final class DragGripNSView: NSView, NSDraggingSource {
 
     private var tracking: NSTrackingArea?
     private var isDragging = false
+    /// True only while this grip's surface is the active, interactive one. When
+    /// false (its tab is hidden behind another, or covered by the reader), the
+    /// tracking area is removed so the open-hand cursor can't bleed through the
+    /// pane on top — `NSTrackingArea` enter/exit ignores SwiftUI opacity and
+    /// hit-testing, so a mounted-but-hidden pane would otherwise still set it.
+    var isActive: Bool = true {
+        didSet {
+            guard isActive != oldValue else { return }
+            // Assigned from a SwiftUI update pass; defer the tracking rebuild.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.updateTrackingAreas()
+                if !self.isActive { self.resetCursorIfInside() }
+            }
+        }
+    }
 
     override var isFlipped: Bool { true }
 
@@ -168,7 +189,9 @@ final class DragGripNSView: NSView, NSDraggingSource {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let existing = tracking { removeTrackingArea(existing) }
+        if let existing = tracking { removeTrackingArea(existing); tracking = nil }
+        // No tracking while inactive — that's what stops the cursor bleed.
+        guard isActive else { return }
         let area = NSTrackingArea(
             rect: bounds,
             options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
@@ -177,11 +200,20 @@ final class DragGripNSView: NSView, NSDraggingSource {
         tracking = area
     }
 
+    /// On going inactive while the pointer is still inside, restore the arrow so
+    /// a stale open-hand doesn't strand on the surface now on top.
+    private func resetCursorIfInside() {
+        guard let window else { return }
+        if bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
+            NSCursor.arrow.set()
+        }
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        if !isDragging { NSCursor.openHand.set() }
+        if isActive && !isDragging { NSCursor.openHand.set() }
     }
     override func cursorUpdate(with event: NSEvent) {
-        if !isDragging { NSCursor.openHand.set() }
+        if isActive && !isDragging { NSCursor.openHand.set() }
     }
     override func mouseExited(with event: NSEvent) {
         if !isDragging { NSCursor.arrow.set() }

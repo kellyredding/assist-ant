@@ -115,19 +115,28 @@ struct ContentView: View {
                 .opacity(tabs.selectedTab == .schedule ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .schedule)
                 .zIndex(tabs.selectedTab == .schedule ? 1 : 0)
-                .disabled(viewer.openItem != nil)
+                // Disable while hidden so its drag-grip tracking areas — which
+                // ignore opacity/hit-testing — can't bleed their cursor through
+                // the pane on top; still disabled under the reader as before.
+                .disabled(viewer.openItem != nil || tabs.selectedTab != .schedule)
 
             IceboxPaneView()
                 .opacity(tabs.selectedTab == .icebox ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .icebox)
                 .zIndex(tabs.selectedTab == .icebox ? 1 : 0)
-                .disabled(viewer.openItem != nil)
+                // Disable while hidden so its drag-grip tracking areas — which
+                // ignore opacity/hit-testing — can't bleed their cursor through
+                // the pane on top; still disabled under the reader as before.
+                .disabled(viewer.openItem != nil || tabs.selectedTab != .icebox)
 
             TrashPaneView()
                 .opacity(tabs.selectedTab == .trash ? 1 : 0)
                 .allowsHitTesting(tabs.selectedTab == .trash)
                 .zIndex(tabs.selectedTab == .trash ? 1 : 0)
-                .disabled(viewer.openItem != nil)
+                // Disable while hidden so its drag-grip tracking areas — which
+                // ignore opacity/hit-testing — can't bleed their cursor through
+                // the pane on top; still disabled under the reader as before.
+                .disabled(viewer.openItem != nil || tabs.selectedTab != .trash)
 
             // The item reader is presented once here, above whichever tab is
             // selected, so it can be launched from any tab and float over it.
