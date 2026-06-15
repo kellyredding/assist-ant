@@ -17,9 +17,12 @@ enum AssistAntPaths {
     }
 
     /// The agent's workspace — the cwd of the embedded Claude session and the
-    /// home of its auto-loaded CLAUDE.md. A Sync-backed symlink set up
-    /// manually as a prerequisite; the app never creates it, which is why it
-    /// is intentionally absent from `ensureDirectories()`.
+    /// home of its auto-loaded CLAUDE.md. Machine-local on purpose: its
+    /// contents (CLAUDE.md, the agent skills, the SessionStart hook) are
+    /// app-owned and regenerated on launch by WorkspaceInstaller /
+    /// AgentHookInstaller, so nothing here is irreplaceable to sync — unlike
+    /// `dataDir`, whose items backup is Sync-backed. Created by
+    /// `ensureDirectories()`, so a fresh machine needs no manual setup.
     static var workspaceDir: URL {
         env("ASSIST_ANT_WORKSPACE_DIR")
             ?? root.appendingPathComponent("workspace", isDirectory: true)
@@ -72,7 +75,7 @@ enum AssistAntPaths {
     /// Create all directories the app expects to exist.
     /// Idempotent. Called once at startup by AppDelegate.
     static func ensureDirectories() {
-        for dir in [dataDir, runtimeDir, logDir] {
+        for dir in [dataDir, runtimeDir, logDir, workspaceDir] {
             try? FileManager.default.createDirectory(
                 at: dir, withIntermediateDirectories: true
             )

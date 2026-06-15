@@ -13,9 +13,11 @@ module AssistAnt
       Path.new(ENV.fetch("ASSIST_ANT_DATA_DIR", (root / "data").to_s))
     end
 
-    # The agent's workspace — the cwd of the embedded Claude session.
-    # A Sync-backed symlink set up manually as a prerequisite; never
-    # created here (absent from ensure_dirs!).
+    # The agent's workspace — the cwd of the embedded Claude session and
+    # the home of its auto-loaded CLAUDE.md. Machine-local on purpose: its
+    # contents (CLAUDE.md, skills, the SessionStart hook) are app-owned and
+    # regenerated on launch, so nothing here is sync-worthy — unlike data_dir,
+    # whose items backup is Sync-backed. Created by ensure_dirs! at startup.
     def workspace_dir : Path
       Path.new(ENV.fetch("ASSIST_ANT_WORKSPACE_DIR", (root / "workspace").to_s))
     end
@@ -37,7 +39,7 @@ module AssistAnt
     # startup. The CLI is a pure sender and must not assume the
     # data dir exists.
     def ensure_dirs!
-      [data_dir, runtime_dir, log_dir].each do |dir|
+      [data_dir, runtime_dir, log_dir, workspace_dir].each do |dir|
         FileUtils.mkdir_p(dir.to_s)
       end
     end

@@ -5,8 +5,9 @@ import Foundation
 /// truth: each file ships as a bundled resource and is written into the
 /// workspace when the copy there is missing or has drifted from the bundled
 /// one. Idempotent — it compares content and rewrites only on a mismatch, so it
-/// doesn't churn the Sync-backed workspace. A new machine that has the
-/// workspace symlink but no files gets them on first launch.
+/// doesn't churn the workspace. The workspace is a machine-local dir the app
+/// creates in `ensureDirectories()`, so a fresh machine gets these files on
+/// first launch.
 ///
 /// `CLAUDE.md` is intentionally app-owned and drift-corrected, not hand-edited
 /// in place: it carries load-bearing operating context a fresh install can't be
@@ -23,8 +24,8 @@ enum WorkspaceInstaller {
 
     static func installIfNeeded() {
         let workspace = AssistAntPaths.workspaceDir
-        // The workspace is a manually-set-up (Sync-backed) symlink. If it isn't
-        // present the agent can't run anyway, so don't create stray dirs.
+        // The app creates the workspace in `ensureDirectories()`; this guard is a
+        // defensive skip if it's somehow absent, so we never write stray files.
         guard FileManager.default.fileExists(atPath: workspace.path) else {
             NSLog("WorkspaceInstaller: workspace missing — skipping install")
             return
