@@ -11,8 +11,13 @@ struct ScheduleDaySection: View {
     let onOpen: (Item) -> Void
     let selection: ActionableSelection
     let actions: ActionableActions
+    /// Drop handling for the agenda's actionable rows + the absent-list slot.
+    let dropHandler: ActionableDropHandler
     let isCollapsed: (String) -> Bool
     let onToggle: (String) -> Void
+
+    /// The live drag, so a day can show its absent-list drop placeholder.
+    @ObservedObject private var drag = ItemDragSession.shared
 
     private var isToday: Bool { day.date == CivilDate(now) }
     private var isEmpty: Bool { day.events.isEmpty && day.actionableGroups.isEmpty }
@@ -52,9 +57,20 @@ struct ScheduleDaySection: View {
                                 selection.focus(item.id)
                                 onOpen(item)
                             },
-                            context: .schedule
+                            context: .schedule,
+                            dropHandler: dropHandler,
+                            day: day.date
                         )
                     }
+                }
+                // While dragging a schedule row whose list this day lacks, offer
+                // a placeholder so it can drop into that list here — preserving
+                // the list name and rescheduling onto this day. Past days accept
+                // only resolved items (handled by the drop handler's canDrop).
+                if let p = drag.payload, p.surface == .schedule,
+                   (day.date >= CivilDate.today || p.isResolved),
+                   !day.actionableGroups.contains(where: { $0.listName == p.listName }) {
+                    AbsentListDropSlot(listName: p.listName, day: day.date, handler: dropHandler)
                 }
             }
             Spacer(minLength: 0)

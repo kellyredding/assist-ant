@@ -527,6 +527,37 @@ final class GRDBItemStore: ItemStore {
         backup.itemsDidChange()
     }
 
+    // Set or clear the manual sort position used by drag-reorder. A single
+    // write; the grouping sort reads `position` (nulls last) so the row lands
+    // where dropped.
+    func setPosition(id: String, to position: Double?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            item.position = position
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Renormalize a group: write many positions in one transaction. Used when a
+    // fractional midpoint collides or a neighbor is unranked, so the whole group
+    // gets evenly spaced ranks at once.
+    func setPositions(_ positions: [String: Double]) throws {
+        guard !positions.isEmpty else { return }
+        try dbQueue.write { db in
+            for (id, pos) in positions {
+                guard var item = try Item.fetchOne(db, key: id) else { continue }
+                item.position = pos
+                item.updatedAt = Date()
+                item.pending = true
+                try item.update(db)
+            }
+        }
+        backup.itemsDidChange()
+    }
+
     func knownListNames() throws -> [String] {
         try dbQueue.read { db in
             // listName lives inside the type_data JSON, so pull it with

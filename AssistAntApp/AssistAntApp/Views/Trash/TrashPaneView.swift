@@ -97,7 +97,8 @@ struct TrashPaneView: View {
                                     selection.focus(item.id)
                                     ItemViewerModel.shared.open(item, over: .trash)
                                 },
-                                context: .trash
+                                context: .trash,
+                                dropHandler: model.dropHandler
                             )
                         }
                     }

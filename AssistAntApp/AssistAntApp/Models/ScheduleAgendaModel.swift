@@ -140,6 +140,52 @@ final class ScheduleAgendaModel: ObservableObject {
             putBack: { items in self.mutateMany(items) { try self.store.undelete(id: $0) } })
     }
 
+    // MARK: - Drag-and-drop
+
+    /// Drop handling bound to this surface. Schedule accepts items dragged from
+    /// the Schedule; a drop reschedules (when the day changed), sets the list
+    /// (when it changed), and positions among the destination neighbors. Past
+    /// days accept only resolved items — an unresolved item would carry forward
+    /// to today regardless.
+    var dropHandler: ActionableDropHandler {
+        ActionableDropHandler(
+            canDrop: { payload, _, day in
+                guard payload.surface == .schedule, let day else { return false }
+                if day < CivilDate.today && !payload.isResolved { return false }
+                return true
+            },
+            performDrop: { [weak self] payload, list, anchorID, edge, day in
+                self?.performDrop(payload, intoList: list, anchor: anchorID, edge: edge, day: day)
+            })
+    }
+
+    private func performDrop(_ payload: ItemDragSession.Payload,
+                             intoList list: String?, anchor anchorID: String?,
+                             edge: ItemDragSession.Edge, day: CivilDate?) {
+        guard let day, let moved = item(forID: payload.id) else { return }
+        let dest = orderedItems(day: day, list: list).filter { $0.id != payload.id }
+        let insertIdx = ItemReorder.insertionIndex(in: dest, anchorID: anchorID, edge: edge)
+        if payload.day != day { try? store.reschedule(id: payload.id, to: day) }
+        if moved.actionableListName != list { try? store.setListName(id: payload.id, to: list) }
+        ItemReorder.apply(store: store, destination: dest, movedID: payload.id, insertAt: insertIdx)
+        // Reload so the move (including across days) re-buckets at once.
+        ActionableSnapshots.refresh()
+    }
+
+    private func item(forID id: String) -> Item? {
+        for day in days {
+            for group in day.actionableGroups {
+                if let found = group.items.first(where: { $0.id == id }) { return found }
+            }
+        }
+        return nil
+    }
+
+    private func orderedItems(day: CivilDate, list: String?) -> [Item] {
+        days.first(where: { $0.date == day })?
+            .actionableGroups.first(where: { $0.listName == list })?.items ?? []
+    }
+
     /// Save an edited title + body for one item (the reader's edit, when it
     /// floats over the Schedule). Swaps the row in place so the agenda updates.
     @discardableResult

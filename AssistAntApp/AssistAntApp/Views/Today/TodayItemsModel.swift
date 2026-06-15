@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 
+/// Which Today column a drop targets — picks the reclassify-on-drop kind.
+enum TodayColumn { case reminder, todoExplore }
+
 /// Drives the today sidebar's lists. Three feeds, all rolled over at local
 /// midnight by the clock:
 ///  - **Calendar rows** — the live active calendar feed × the clock (the minute
@@ -135,6 +138,54 @@ final class TodayItemsModel: ObservableObject {
             setListName: { items, name in self.apply(items, hold: nil) { try self.store.setListName(id: $0, to: name) } },
             delete: { self.apply($0, hold: true) { try self.store.softDelete(id: $0) } },
             putBack: { self.apply($0, hold: false) { try self.store.undelete(id: $0) } })
+    }
+
+    // MARK: - Drag-and-drop
+
+    /// Drop handling for a Today column. Today accepts only items dragged within
+    /// Today; a drop reclassifies by the destination column (Todo/Explore →
+    /// Reminders becomes a reminder; a reminder dropped into Todo/Explore
+    /// defaults to a to-do), sets the list when it changed, and positions among
+    /// the destination neighbors. It never changes the scheduled day.
+    func dropHandler(for column: TodayColumn) -> ActionableDropHandler {
+        ActionableDropHandler(
+            canDrop: { payload, _, _ in payload.surface == .today },
+            performDrop: { [weak self] payload, list, anchorID, edge, _ in
+                self?.performDrop(payload, column: column, intoList: list, anchor: anchorID, edge: edge)
+            })
+    }
+
+    private func performDrop(_ payload: ItemDragSession.Payload, column: TodayColumn,
+                             intoList list: String?, anchor anchorID: String?,
+                             edge: ItemDragSession.Edge) {
+        guard let moved = item(forID: payload.id) else { return }
+        let columnGroups = column == .reminder ? reminderGroups : todoExploreGroups
+        let dest = (columnGroups.first(where: { $0.listName == list })?.items ?? [])
+            .filter { $0.id != payload.id }
+        let insertIdx = ItemReorder.insertionIndex(in: dest, anchorID: anchorID, edge: edge)
+        if let target = targetKind(for: column, current: ItemType(rawValue: moved.type)) {
+            try? store.reclassify(id: payload.id, to: target)
+        }
+        if moved.actionableListName != list { try? store.setListName(id: payload.id, to: list) }
+        ItemReorder.apply(store: store, destination: dest, movedID: payload.id, insertAt: insertIdx)
+        // Today is a live feed — it re-emits from the writes. Refresh the
+        // snapshot tabs (Icebox/Schedule/Trash) so they reflect the change.
+        refreshSnapshotSurfaces()
+    }
+
+    /// The kind a drop into `column` forces, or nil to keep the current kind.
+    private func targetKind(for column: TodayColumn, current: ItemType?) -> ItemType? {
+        switch column {
+        case .reminder: return current == .reminder ? nil : .reminder
+        case .todoExplore: return current == .reminder ? .todo : nil
+        }
+    }
+
+    private func item(forID id: String) -> Item? {
+        for group in reminderGroups + todoExploreGroups {
+            if let found = group.items.first(where: { $0.id == id }) { return found }
+        }
+        return nil
     }
 
     /// Run `op` per item; adjust the held set (`true` = hold the row dimmed in

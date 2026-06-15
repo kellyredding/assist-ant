@@ -86,6 +86,43 @@ final class TrashModel: ObservableObject {
             putBack: { self.putBack($0) })
     }
 
+    // MARK: - Drag-and-drop
+
+    /// Drop handling bound to this surface. Trash accepts only items dragged
+    /// from the Trash; a drop sets the list (when it changed) and the manual
+    /// position among the destination neighbors.
+    var dropHandler: ActionableDropHandler {
+        ActionableDropHandler(
+            canDrop: { payload, _, _ in payload.surface == .trash },
+            performDrop: { [weak self] payload, list, anchorID, edge, _ in
+                self?.performDrop(payload, intoList: list, anchor: anchorID, edge: edge)
+            })
+    }
+
+    private func performDrop(_ payload: ItemDragSession.Payload,
+                             intoList list: String?, anchor anchorID: String?,
+                             edge: ItemDragSession.Edge) {
+        guard let moved = item(forID: payload.id) else { return }
+        let dest = orderedItems(inList: list).filter { $0.id != payload.id }
+        let insertIdx = ItemReorder.insertionIndex(in: dest, anchorID: anchorID, edge: edge)
+        if moved.actionableListName != list {
+            try? store.setListName(id: payload.id, to: list)
+        }
+        ItemReorder.apply(store: store, destination: dest, movedID: payload.id, insertAt: insertIdx)
+        ActionableSnapshots.refresh()
+    }
+
+    private func item(forID id: String) -> Item? {
+        for group in groups {
+            if let found = group.items.first(where: { $0.id == id }) { return found }
+        }
+        return nil
+    }
+
+    private func orderedItems(inList list: String?) -> [Item] {
+        groups.first(where: { $0.listName == list })?.items ?? []
+    }
+
     // MARK: - Row actions (mutate store + snapshot, no re-fetch)
 
     @discardableResult

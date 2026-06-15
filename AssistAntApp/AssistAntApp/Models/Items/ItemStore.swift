@@ -103,6 +103,17 @@ protocol ItemStore {
     /// makes it always-today.
     func reschedule(id: String, to scheduledOn: CivilDate?) throws
 
+    /// Set or clear an item's manual sort position. `nil` un-ranks it (sinks it
+    /// below ranked items in its group). Stamps updated + pending. Backs
+    /// drag-reorder. Survives Linear sync; calendar sync resets it (calendar
+    /// items aren't reorderable).
+    func setPosition(id: String, to position: Double?) throws
+
+    /// Set positions for many items in one write transaction — renormalizes a
+    /// group to evenly spaced ranks when a fractional midpoint runs out of room.
+    /// Stamps each updated + pending; ids absent from the store are skipped.
+    func setPositions(_ positions: [String: Double]) throws
+
     /// Save the user-editable title and body in one write. The title is
     /// trimmed and required — a blank title is ignored (the existing one is
     /// kept); the body trims, and a blank value clears it to NULL. A local

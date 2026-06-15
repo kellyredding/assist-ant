@@ -16,6 +16,10 @@ struct ActionableListSection: View {
     let onOpen: (Item) -> Void
     /// Forwarded to each row to pick its surface-specific dimming + status.
     var context: ActionableRow.Context = .icebox
+    /// Drop handling for this surface; `.disabled` leaves rows non-droppable.
+    var dropHandler: ActionableDropHandler = .disabled
+    /// Schedule passes the day so a cross-day drop reschedules; nil elsewhere.
+    var day: CivilDate? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,7 +51,11 @@ struct ActionableListSection: View {
                 .font(.caption).foregroundStyle(.tertiary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8).padding(.vertical, 8)
+        // Inset the leading edge by the rows' drag-grip column so the caret
+        // stays aligned with the checkbox/badge below it (the grip shifts those
+        // right by the same width).
+        .padding(.leading, 8 + ActionableDragHandle.columnWidth)
+        .padding(.trailing, 8).padding(.vertical, 8)
         .contentShape(Rectangle())
         // Collapse is keyed by the group's id (== the name for a named list, a
         // reserved sentinel for the no-list group), so both collapse with one
@@ -66,7 +74,11 @@ struct ActionableListSection: View {
                     onOpen: { onOpen(item) },
                     selection: selection,
                     actions: actions,
-                    context: context
+                    context: context,
+                    dropHandler: dropHandler,
+                    groupID: group.id,
+                    groupListName: group.listName,
+                    day: day
                 )
                 // Explicit id so the pane's ScrollViewReader can scroll the
                 // keyboard-focused row into view.

@@ -18,12 +18,23 @@ struct ActionableRow: View {
     /// The surface this row renders on; governs the gutter, which transient
     /// state dims the row, and what the trailing status reads.
     var context: Context = .icebox
+    /// Drop handling for this row's surface; `.disabled` on read-only contexts.
+    var dropHandler: ActionableDropHandler = .disabled
+    /// The group this row belongs to — for the drop delegate + insertion line.
+    var groupID: String = ""
+    var groupListName: String? = nil
+    /// Schedule passes its day so a cross-day drop reschedules; nil elsewhere.
+    var day: CivilDate? = nil
 
     enum Context { case icebox, schedule, today, trash }
 
     @State private var isHovering = false
     /// Anchors the hover tooltip to this row's live screen frame.
     @State private var tipAnchor = RowFrameAnchor()
+    /// The live drag, for revealing the grip and drawing the insertion line.
+    @ObservedObject private var drag = ItemDragSession.shared
+    /// Measured row height, so the drop delegate can split top/bottom halves.
+    @State private var rowHeight: CGFloat = 36
 
     private var isResolved: Bool { item.resolvedAt != nil }
     private var isIceboxed: Bool { item.iceboxedAt != nil }
@@ -33,11 +44,25 @@ struct ActionableRow: View {
     /// Whether this surface shows the selection gutter (focus bar + checkbox).
     /// The Today sidebar drops it — its rows aren't batch-selectable.
     private var showsGutter: Bool { context != .today }
+    /// Hover effects (tooltip, action cluster, tint) are suppressed while a drag
+    /// is in flight so they don't fight the drag.
+    private var showsHover: Bool { isHovering && !drag.isDragging }
     /// True when the row carries a future scheduled day (Today only): it has
     /// left today's set and is held, dimmed, until the next refresh.
     private var isScheduledFuture: Bool {
         guard let on = item.scheduledOn else { return false }
         return on > CivilDate.today
+    }
+
+    /// The payload stamped on `ItemDragSession` when this row's grip is dragged.
+    private var dragPayload: ItemDragSession.Payload {
+        ItemDragSession.Payload(
+            id: item.id,
+            surface: context,
+            listName: item.actionableListName,
+            kind: ItemType(rawValue: item.type) ?? .todo,
+            day: context == .schedule ? day : nil,
+            isResolved: isResolved)
     }
 
     /// Dim a row whose state has stepped out of its surface's resting set:
@@ -59,6 +84,10 @@ struct ActionableRow: View {
         // over its whole HStack, and that overlay would shadow the checkbox's
         // own tap. Splitting them keeps the two gestures independent.
         HStack(spacing: 0) {
+            // The drag grip rides the leading edge — left of the checkbox on the
+            // index surfaces, left of the kind badge on Today. A fixed column so
+            // adding it never shifts layout on hover.
+            ActionableDragHandle(item: item, payload: dragPayload, isRowHovering: showsHover)
             if showsGutter { gutter }
             rowContent
         }
@@ -77,7 +106,7 @@ struct ActionableRow: View {
         }
         // Overlay (not a ZStack child) so the floating buttons never add to the
         // row's height — a hovered row stays the same size.
-        .overlay(alignment: .trailing) { if isHovering { hoverCluster } }
+        .overlay(alignment: .trailing) { if showsHover { hoverCluster } }
         // Persistent selected shading, with the transient hover tint layered on.
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -85,7 +114,7 @@ struct ActionableRow: View {
         )
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(isHovering ? 0.10 : 0))
+                .fill(Color.primary.opacity(showsHover ? 0.10 : 0))
         )
         .background(FrameAnchorView(anchor: tipAnchor))
         // A small trailing inset gives the hover cluster + trailing status a
@@ -96,14 +125,42 @@ struct ActionableRow: View {
         .animation(.easeInOut(duration: 0.12), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
-            if hovering {
+            if hovering && !drag.isDragging {
                 ItemTooltipController.shared.requestShow(
                     item, anchor: tipAnchor, side: tooltipSide)
             } else {
                 ItemTooltipController.shared.requestHide(tipAnchor)
             }
         }
+        .onChange(of: drag.isDragging) { _, dragging in
+            // Suppress hover (tooltip + cluster + tint) the moment a drag starts.
+            if dragging {
+                isHovering = false
+                ItemTooltipController.shared.hideNow()
+            }
+        }
         .onDisappear { ItemTooltipController.shared.hideNow() }
+        // Measure the row so the drop delegate can split top/bottom halves.
+        .background(GeometryReader { proxy in
+            Color.clear.onAppear { rowHeight = proxy.size.height }
+        })
+        // The insertion line: a 2pt accent rule on the edge a drop will land on.
+        .overlay(alignment: .top) {
+            if drag.indicator == ItemDragSession.Indicator(
+                groupID: groupID, rowID: item.id, edge: .above) { insertionLine }
+        }
+        .overlay(alignment: .bottom) {
+            if drag.indicator == ItemDragSession.Indicator(
+                groupID: groupID, rowID: item.id, edge: .below) { insertionLine }
+        }
+        .onDrop(of: [.text], delegate: ItemDropDelegate(
+            groupID: groupID, groupListName: groupListName, rowItem: item,
+            rowHeight: rowHeight, day: day, handler: dropHandler))
+    }
+
+    /// The 2pt accent insertion line drawn at the row edge a drop will land on.
+    private var insertionLine: some View {
+        Rectangle().fill(Color.accentColor).frame(height: 2)
     }
 
     /// Today rows hang the tooltip to the right, into the main pane; the

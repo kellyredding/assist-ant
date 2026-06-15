@@ -15,13 +15,22 @@ enum ActionableGrouping {
     /// Group `items` into: the no-list group first, then named lists ordered
     /// case-insensitively A→Z. A named list appears only when at least one item
     /// carries it — empty lists never render, since the groups derive from the
-    /// items present. Within each group, newest-iceboxed first (nil iceboxed
-    /// last), then id.
+    /// items present. Within each group, manual drag `position` leads (nulls
+    /// last); unranked items fall back to newest-iceboxed first, then id — so
+    /// the order is unchanged until an item is dragged.
     static func groups(items: [Item]) -> [ActionableGroup] {
         let grouped = Dictionary(grouping: items) { $0.actionableListName }
 
         func sortedItems(_ items: [Item]) -> [Item] {
             items.sorted { lhs, rhs in
+                // Manual drag position leads; nil sinks below ranked items.
+                switch (lhs.position, rhs.position) {
+                case let (l?, r?) where l != r: return l < r
+                case (nil, _?): return false
+                case (_?, nil): return true
+                default: break   // both nil, or equal — fall through to the old order
+                }
+                // Fallback (unchanged): newest-iceboxed first, then id.
                 switch (lhs.iceboxedAt, rhs.iceboxedAt) {
                 case let (l?, r?) where l != r: return l > r   // newest first
                 case (nil, _?): return false                   // nils last

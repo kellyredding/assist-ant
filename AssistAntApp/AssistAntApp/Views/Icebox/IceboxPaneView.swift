@@ -101,7 +101,8 @@ struct IceboxPaneView: View {
                                     // returning from the reader leaves it focused.
                                     selection.focus(item.id)
                                     ItemViewerModel.shared.open(item, over: .icebox)
-                                }
+                                },
+                                dropHandler: model.dropHandler
                             )
                         }
                     }

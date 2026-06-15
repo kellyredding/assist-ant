@@ -97,6 +97,7 @@ struct SchedulePaneView: View {
                                 onOpen: { ItemViewerModel.shared.open($0, over: .schedule) },
                                 selection: selection,
                                 actions: model.actions,
+                                dropHandler: model.dropHandler,
                                 isCollapsed: model.isCollapsed,
                                 onToggle: { name in model.toggleCollapse(name) }
                             )

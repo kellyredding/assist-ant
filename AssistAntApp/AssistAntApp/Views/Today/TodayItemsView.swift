@@ -10,6 +10,7 @@ struct TodayItemsView: View {
     @ObservedObject private var layout = SidebarLayoutModel.shared
     @ObservedObject private var sync = CalendarSyncCoordinator.shared
     @ObservedObject private var linearSync = LinearSyncCoordinator.shared
+    @ObservedObject private var drag = ItemDragSession.shared
 
     private var isExpanded: Bool {
         layout.fraction >= SidebarMetrics.toggleThreshold
@@ -59,8 +60,9 @@ struct TodayItemsView: View {
                 // Reminders live beneath the day's events, grouped into sublists.
                 if !model.reminderGroups.isEmpty {
                     if !model.calendarRows.isEmpty { Divider().padding(.vertical, 2) }
-                    actionableGroups(model.reminderGroups)
+                    actionableGroups(model.reminderGroups, column: .reminder)
                 }
+                columnDropPlaceholder(.reminder, groups: model.reminderGroups)
             }
         }
         .padding(.vertical, 16)
@@ -96,7 +98,8 @@ struct TodayItemsView: View {
             headerAccessory: AnyView(linearSyncButton)
         ) {
             VStack(alignment: .leading, spacing: 0) {
-                actionableGroups(model.todoExploreGroups)
+                actionableGroups(model.todoExploreGroups, column: .todoExplore)
+                columnDropPlaceholder(.todoExplore, groups: model.todoExploreGroups)
             }
         }
         .padding(.vertical, 16)
@@ -106,8 +109,22 @@ struct TodayItemsView: View {
     /// Render actionable groups as the shared list sections in the Today
     /// context: no selection gutter and glyph hover actions, tapping a row opens
     /// the reader over the Schedule tab. Sublists collapse via the model.
+    /// While a Today drag is in flight, offer a placeholder at the base of a
+    /// column that doesn't yet carry the dragged item's list — so you can move
+    /// between the Reminders and Todo/Explore columns while keeping the list
+    /// name (e.g. dropping into "no list" when the column has only named lists).
+    /// Mirrors the Schedule absent-list slot. Note: when a column is fully empty
+    /// it renders its empty state instead of rows, so the slot can't show there.
     @ViewBuilder
-    private func actionableGroups(_ groups: [ActionableGroup]) -> some View {
+    private func columnDropPlaceholder(_ column: TodayColumn, groups: [ActionableGroup]) -> some View {
+        if let p = drag.payload, p.surface == .today,
+           !groups.contains(where: { $0.listName == p.listName }) {
+            AbsentListDropSlot(listName: p.listName, day: nil, handler: model.dropHandler(for: column))
+        }
+    }
+
+    @ViewBuilder
+    private func actionableGroups(_ groups: [ActionableGroup], column: TodayColumn) -> some View {
         ForEach(groups) { group in
             ActionableListSection(
                 group: group,
@@ -115,7 +132,8 @@ struct TodayItemsView: View {
                 onToggle: { model.toggleCollapse($0) },
                 actions: model.actions,
                 onOpen: { ItemViewerModel.shared.open($0, over: .schedule) },
-                context: .today
+                context: .today,
+                dropHandler: model.dropHandler(for: column)
             )
         }
     }
