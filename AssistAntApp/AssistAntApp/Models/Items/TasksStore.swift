@@ -53,6 +53,18 @@ final class TasksStore {
         }
     }
 
+    /// Enabled recurring + one-shot tasks — the heartbeat's tick candidates.
+    /// `manual`/`today` are excluded (they fire only on demand). Ordered for a
+    /// stable batch sequence; the pure `TaskSchedule` decides which are due.
+    func enabledScheduledTasks() throws -> [AgentTask] {
+        try dbQueue.read { db in
+            try AgentTask
+                .filter(sql: "enabled = 1 AND trigger_type IN ('recurring', 'one_shot')")
+                .order(sql: "created_at, id")
+                .fetchAll(db)
+        }
+    }
+
     /// Insert a new task, stamping created/updated locally.
     func create(_ task: AgentTask) throws {
         var task = task

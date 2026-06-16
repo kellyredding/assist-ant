@@ -60,6 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // frame of the main window opening.
         _ = ClockService.shared
 
+        // Touch HeartbeatService.shared so it subscribes to the clock + the
+        // agent session state from launch — otherwise a due recurring/one-shot
+        // task would only begin firing once something first accessed the
+        // service. Depends on ItemsDatabase (warmed above) and the live
+        // AgentSessionController.
+        _ = HeartbeatService.shared
+
         // Touch AnnouncementService.shared so it subscribes to ClockService
         // from the moment the app is up — otherwise it would only start
         // observing on first access (e.g., when the settings UI is opened),

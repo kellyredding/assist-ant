@@ -1321,7 +1321,8 @@ func newTask(
     prompt: String = "do the thing",
     enabled: Bool = true,
     lastRunAt: Date? = nil,
-    position: Double? = nil
+    position: Double? = nil,
+    createdAt: Date = Date()   // control creation time for first-fire tests
 ) -> AgentTask {
     AgentTask(
         id: UUIDv7.generate(), name: name, triggerType: triggerType,
@@ -1329,7 +1330,7 @@ func newTask(
         dailyTime: dailyTime, weekdays: weekdays, windowStart: windowStart,
         windowEnd: windowEnd, runAt: runAt, todayKey: todayKey,
         prompt: prompt, enabled: enabled, lastRunAt: lastRunAt,
-        position: position, createdAt: Date(), updatedAt: Date())
+        position: position, createdAt: createdAt, updatedAt: createdAt)
 }
 
 func newRun(
@@ -1538,6 +1539,99 @@ check("tasks: TaskReorder places and renormalizes") {
     let order2 = try store.allTasks().map { $0.id }
 
     return order1 == [x, z, y] && order2 == [z, y, x]
+}
+
+// ── TaskSchedule (Phase 4 due-eval) ──────────────────────────────────────────
+// Weekdays are derived from each test date via isoWeekday, so the cases hold on
+// any calendar/timezone.
+let hbCal = Calendar.current
+func hbAt(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date {
+    hbCal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+}
+
+// S1. one_shot: due at/after runAt; nil runAt fires on the next tick.
+check("schedule: one_shot due at/after runAt; nil = next tick") {
+    let fire = hbAt(2026, 6, 16, 9, 0)
+    let t = newTask(triggerType: "one_shot", cadenceKind: nil, intervalSeconds: nil, runAt: fire)
+    let nilRun = newTask(triggerType: "one_shot", cadenceKind: nil, intervalSeconds: nil, runAt: nil)
+    return !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 8, 59))
+        && TaskSchedule.isDue(t, now: fire)
+        && TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 9, 1))
+        && TaskSchedule.isDue(nilRun, now: hbAt(2026, 6, 16, 0, 0))
+}
+
+// S2. daily: fires at/after the slot once per day; deduped by lastRunAt.
+check("schedule: daily fires after its slot, deduped by lastRunAt") {
+    let created = hbAt(2026, 6, 15, 0, 0)
+    let day = hbAt(2026, 6, 16, 9, 0)
+    let wd = TaskSchedule.isoWeekday(of: day, hbCal)
+    let t = newTask(triggerType: "recurring", cadenceKind: "daily", intervalSeconds: nil,
+                    dailyTime: "08:55", weekdays: "\(wd)", createdAt: created)
+    var ran = t; ran.lastRunAt = hbAt(2026, 6, 16, 8, 55)
+    return !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 8, 54))  // before slot
+        && TaskSchedule.isDue(t, now: day)                       // after slot, never ran
+        && !TaskSchedule.isDue(ran, now: day)                    // already ran today
+}
+
+// S3. daily: a task created after today's slot waits for the next occurrence.
+check("schedule: daily created after the slot does not back-fire same day") {
+    let created = hbAt(2026, 6, 16, 9, 0)   // after 08:55
+    let t = newTask(triggerType: "recurring", cadenceKind: "daily", intervalSeconds: nil,
+                    dailyTime: "08:55", createdAt: created)
+    return !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 9, 30))
+}
+
+// S4. daily: weekday mask excludes the slot's day.
+check("schedule: daily skips a slot on a disallowed weekday") {
+    let day = hbAt(2026, 6, 16, 9, 0)
+    let wd = TaskSchedule.isoWeekday(of: day, hbCal)
+    let other = wd == 7 ? 1 : wd + 1
+    let t = newTask(triggerType: "recurring", cadenceKind: "daily", intervalSeconds: nil,
+                    dailyTime: "08:55", weekdays: "\(other)", createdAt: hbAt(2026, 6, 15, 0, 0))
+    return !TaskSchedule.isDue(t, now: day)
+}
+
+// S5. continuous interval: first fire anchors to createdAt + interval (3A).
+check("schedule: continuous interval first fire = createdAt + interval") {
+    let created = hbAt(2026, 6, 16, 10, 3)
+    let t = newTask(triggerType: "recurring", cadenceKind: "interval",
+                    intervalSeconds: 900, createdAt: created)   // 15 min
+    return !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 10, 17))  // 14 min in
+        && TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 10, 18))   // 15 min in
+}
+
+// S6. continuous interval: a long gap coalesces to a single fire, spaced from
+//     lastRunAt (runs once, not once per missed interval).
+check("schedule: continuous interval coalesces a long gap to one fire") {
+    var t = newTask(triggerType: "recurring", cadenceKind: "interval", intervalSeconds: 900)
+    t.lastRunAt = hbAt(2026, 6, 16, 7, 0)
+    var stamped = t; stamped.lastRunAt = hbAt(2026, 6, 16, 10, 0)
+    return TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 10, 0))        // 3h later → due
+        && !TaskSchedule.isDue(stamped, now: hbAt(2026, 6, 16, 10, 5)) // just stamped → not due
+}
+
+// S7. windowed interval: fires at an anchored slot inside the window; never
+//     before the window opens or after it closes.
+check("schedule: windowed interval fires only inside the window, on slots") {
+    let created = hbAt(2026, 6, 16, 0, 0)
+    let day = hbAt(2026, 6, 16, 9, 55)
+    let wd = TaskSchedule.isoWeekday(of: day, hbCal)
+    let t = newTask(triggerType: "recurring", cadenceKind: "interval", intervalSeconds: 3600,
+                    weekdays: "\(wd)", windowStart: "08:55", windowEnd: "16:55",
+                    createdAt: created)
+    return !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 8, 0))    // before window
+        && TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 8, 55))    // open slot
+        && TaskSchedule.isDue(t, now: day)                         // 09:55 slot
+        && !TaskSchedule.isDue(t, now: hbAt(2026, 6, 16, 17, 30))  // after window
+}
+
+// S8. manual + today are never due on a tick.
+check("schedule: manual and today never fire on a tick") {
+    let m = newTask(triggerType: "manual", cadenceKind: nil, intervalSeconds: nil)
+    let d = newTask(triggerType: "today", cadenceKind: nil, intervalSeconds: nil,
+                    todayKey: "calendar_refresh")
+    return !TaskSchedule.isDue(m, now: hbAt(2026, 6, 16, 9, 0))
+        && !TaskSchedule.isDue(d, now: hbAt(2026, 6, 16, 9, 0))
 }
 
 print(failures == 0
