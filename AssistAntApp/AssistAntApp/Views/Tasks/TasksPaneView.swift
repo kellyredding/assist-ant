@@ -170,7 +170,7 @@ private struct TaskRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(task.enabled ? 1 : 0.5)
 
-            if let last = TaskFormat.lastRunText(task) {
+            if let last = TaskFormat.whenText(task) {
                 Text(last)
                     .font(.caption).foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -301,11 +301,32 @@ private enum TaskFormat {
         return "\(seconds)s"
     }
 
-    /// Recurring rows show the last-run stamp; other triggers show nothing.
-    static func lastRunText(_ task: AgentTask) -> String? {
-        guard task.triggerType == "recurring" else { return nil }
-        guard let at = task.lastRunAt else { return "never run" }
-        return "ran \(dateTime.string(from: at))"
+    /// Right-side caption: a recurring task's last-run, a one-shot's scheduled
+    /// run time (or "next tick" when it has no set time), or nil for manual
+    /// (fires on demand). Times honor the user's clock setting; a same-day time
+    /// drops the date.
+    static func whenText(_ task: AgentTask) -> String? {
+        switch task.triggerType {
+        case "recurring":
+            guard let at = task.lastRunAt else { return "never run" }
+            return "ran \(stamp(at))"
+        case "one_shot":
+            guard let at = task.runAt else { return "runs next tick" }
+            return "runs \(stamp(at))"
+        default:
+            return nil
+        }
+    }
+
+    /// A timestamp honoring the clock's 12h/24h setting; a same-day time shows
+    /// only the time, otherwise the month/day too. Built per call (read at
+    /// render) — not reactive to a live setting change, which is fine at this
+    /// list's size.
+    private static func stamp(_ date: Date) -> String {
+        let time = SettingsManager.shared.settings.timeFormat.dateFormat
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDateInToday(date) ? time : "MMM d, \(time)"
+        return f.string(from: date)
     }
 
     static let dateTime: DateFormatter = {
