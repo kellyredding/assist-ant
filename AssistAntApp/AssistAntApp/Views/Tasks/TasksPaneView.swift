@@ -32,6 +32,20 @@ struct TasksPaneView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if showLog { logOverlay }
+            // Tapping a row opens its viewer over the pane — the same full-cover
+            // reader pattern as the item viewers.
+            if let task = model.openTask {
+                TaskViewer(
+                    task: task,
+                    timeFormat: settings.settings.timeFormat,
+                    runs: model.runs.filter { $0.taskID == task.id },
+                    onClose: { model.closeViewer() },
+                    onRunNow: { model.runNow(task) },
+                    onToggle: { model.setEnabled(task, $0) },
+                    onDelete: { pendingDelete = task; model.closeViewer() },
+                    onSavePrompt: { model.updatePrompt(task, to: $0) }
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
@@ -108,6 +122,7 @@ struct TasksPaneView: View {
                         TaskRowView(
                             task: task,
                             timeFormat: settings.settings.timeFormat,
+                            onOpen: { model.openViewer(task) },
                             onRunNow: { model.runNow(task) },
                             onToggle: { model.setEnabled(task, $0) },
                             onDelete: { pendingDelete = task }
@@ -187,12 +202,13 @@ struct TasksPaneView: View {
 // MARK: - Task row
 
 /// One task row: a trigger badge, the name + prompt preview, the recurring
-/// last-run stamp, and the zero-form verbs (run-now placeholder, enabled
-/// toggle, delete). A disabled task dims its text. No tap-to-open — tasks have
-/// no reader in this phase.
+/// last-run stamp, and the zero-form verbs (run-now, enabled toggle, delete).
+/// A disabled task dims its text. Tapping the badge/name area opens the task
+/// viewer; the trailing verbs stay independent hit targets.
 private struct TaskRowView: View {
     let task: AgentTask
     let timeFormat: TimeFormat
+    let onOpen: () -> Void
     let onRunNow: () -> Void
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
@@ -201,24 +217,31 @@ private struct TaskRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Sizes to its content (≥96 so simple triggers still align), letting
-            // a windowed/weekday summary like "every 1h · 08:55–16:55 · Mon–Fri"
-            // show in full while the name column absorbs the remaining width.
-            TriggerBadge(text: TaskFormat.triggerSummary(task))
-                .frame(minWidth: 96, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
+            // Tapping the badge/name/when region opens the task viewer; the
+            // trailing verbs below stay independent hit targets.
+            HStack(spacing: 8) {
+                // Sizes to its content (≥96 so simple triggers still align),
+                // letting a windowed/weekday summary like
+                // "every 1h · 08:55–16:55 · Mon–Fri" show in full while the name
+                // column absorbs the remaining width.
+                TriggerBadge(text: TaskFormat.triggerSummary(task))
+                    .frame(minWidth: 96, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
 
-            nameLine
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .opacity(task.enabled ? 1 : 0.5)
-
-            if let last = TaskFormat.whenText(task, timeFormat) {
-                Text(last)
-                    .font(.caption).foregroundStyle(.tertiary)
+                nameLine
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(task.enabled ? 1 : 0.5)
+
+                if let last = TaskFormat.whenText(task, timeFormat) {
+                    Text(last)
+                        .font(.caption).foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
+            .contentShape(Rectangle())
+            .pointerButton(onHoverChange: { _ in }, action: onOpen)
 
             // Run now: deliver the task's prompt to the agent and log the run.
             // Stays enabled while the agent is down — it logs a skipped run.
@@ -253,8 +276,8 @@ private struct TaskRowView: View {
 }
 
 /// A small capsule labeling a task's trigger (e.g. "every 15m", "daily 07:00",
-/// "one-shot", "manual").
-private struct TriggerBadge: View {
+/// "one-shot", "manual"). Reused by the run-log rows and the task viewer.
+struct TriggerBadge: View {
     let text: String
 
     var body: some View {
@@ -275,7 +298,8 @@ private struct TriggerBadge: View {
 /// One run-log entry: the fired-at time (leftmost, log convention), the run's
 /// origin as a badge, then the (snapshot) task name with a one-line preview of
 /// the prompt that was sent. A skipped run keeps its reason as a trailing note.
-private struct TaskRunRowView: View {
+/// Reused by the run-log overlay and the task viewer's run history.
+struct TaskRunRowView: View {
     let run: TaskRun
     let timeFormat: TimeFormat
 
@@ -322,8 +346,9 @@ private struct TaskRunRowView: View {
 // MARK: - Display formatting
 
 /// Pure formatting for the read-only table — lives in the view layer (not on
-/// the GRDB record, which stays smoke-clean Foundation + GRDB).
-private enum TaskFormat {
+/// the GRDB record, which stays smoke-clean Foundation + GRDB). Reused by the
+/// task viewer.
+enum TaskFormat {
     static func triggerSummary(_ task: AgentTask) -> String {
         switch task.triggerType {
         case "recurring":

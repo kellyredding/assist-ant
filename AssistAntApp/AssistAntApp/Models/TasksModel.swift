@@ -17,6 +17,8 @@ final class TasksModel: ObservableObject {
     @Published private(set) var tasks: [AgentTask] = []
     @Published private(set) var runs: [TaskRun] = []
     @Published private(set) var isLoading = false
+    /// The task whose viewer overlay is open (nil = closed).
+    @Published var openTask: AgentTask?
 
     private let store: TasksStore
     private var hasActivatedOnce = false
@@ -49,6 +51,7 @@ final class TasksModel: ObservableObject {
             if let i = tasks.firstIndex(where: { $0.id == task.id }) {
                 tasks[i].enabled = enabled
             }
+            if openTask?.id == task.id { openTask?.enabled = enabled }
             return true
         } catch {
             NSLog("TasksModel: setEnabled failed for \(task.id): \(error)")
@@ -60,6 +63,7 @@ final class TasksModel: ObservableObject {
         do {
             try store.delete(id: task.id)
             tasks.removeAll { $0.id == task.id }
+            if openTask?.id == task.id { openTask = nil }
         } catch {
             NSLog("TasksModel: delete failed for \(task.id): \(error)")
         }
@@ -69,6 +73,30 @@ final class TasksModel: ObservableObject {
     /// the prompt, records the run, and refreshes this model so the log updates.
     func runNow(_ task: AgentTask) {
         TaskRunner.run(task, trigger: "run_now")
+    }
+
+    // MARK: - Task viewer
+
+    func openViewer(_ task: AgentTask) { openTask = task }
+    func closeViewer() { openTask = nil }
+
+    /// Inline prompt edit from the viewer — the one relaxation of agentic
+    /// authoring (name / trigger / cadence stay CLI-only). Writes straight
+    /// through the store the CLI's task.update handler also uses; a blank prompt
+    /// is ignored (a task must keep a prompt).
+    func updatePrompt(_ task: AgentTask, to newPrompt: String) {
+        guard !newPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        var t = task
+        t.prompt = newPrompt
+        do {
+            try store.update(t)
+        } catch {
+            NSLog("TasksModel: updatePrompt failed for \(task.id): \(error)")
+            return
+        }
+        refresh()
+        if openTask?.id == t.id { openTask = t }
     }
 
     private func load(spinner: Bool) {
