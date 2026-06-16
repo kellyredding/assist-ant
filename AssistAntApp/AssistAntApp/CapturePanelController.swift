@@ -269,12 +269,17 @@ final class CapturePanelController {
             closeAndSurfaceAgent()
             return nil
         case .task:
-            // A captured task is a task-creation request. Hand it to the live
-            // session framed so the agent routes it through the manage-tasks
-            // skill (which infers the trigger/schedule from the wording and runs
-            // `assist-ant task add`). Same paste→submit delivery as Ask.
-            let prompt = "Create an AssistAnt task from this captured request, "
-                + "inferring its trigger and any schedule from the wording: \(text)"
+            // A captured task is a task-creation request, biased to a one-shot —
+            // capture is for "do this once", not for minting reusable manual
+            // buttons. Hand it to the live session framed so the agent routes it
+            // through the manage-tasks skill and runs `assist-ant task add`. Same
+            // paste→submit delivery as Ask.
+            let prompt = "Create an AssistAnt task from this captured request. "
+                + "Make it a one-shot (fires once) by default — set its run-at if "
+                + "the wording names a time, otherwise let it fire on the next tick. "
+                + "Make it recurring only if the wording clearly names a cadence "
+                + "(e.g. \"every morning\", \"every 15 minutes\"). Never make it a "
+                + "manual task. The request: \(text)"
             AgentSessionController.shared.send(text: prompt, asPaste: true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 AgentSessionController.shared.submit()
