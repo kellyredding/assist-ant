@@ -129,6 +129,11 @@ module AssistAnt
         events : Array(CalendarSync::NormalizedEvent),
         source : String, from : String, to : String,
       ) : String
+        # Segment every event once (a multi-day timed event fans out to one row
+        # per covered local day); both `keep` and `items` read from this so the
+        # prune set always matches the rows we emit.
+        segmented = events.map { |e| {e, CalendarSync.segments(e, from, to)} }
+
         JSON.build do |j|
           j.object do
             j.field "source", source
@@ -136,25 +141,33 @@ module AssistAnt
             j.field "to", to
             j.field "prune", !events.empty?
             j.field "keep" do
-              j.array { events.each { |e| j.string e.external_id } }
+              j.array do
+                segmented.each do |_, segs|
+                  segs.each { |s| j.string s.external_id }
+                end
+              end
             end
             j.field "items" do
               j.array do
-                events.each do |e|
-                  j.object do
-                    j.field "external_id", e.external_id
-                    j.field "title", e.title
-                    j.field "start_at", e.start_raw
-                    j.field "scheduled_on", CalendarItem.scheduled_on(e.start_raw)
-                    if er = e.end_raw
-                      j.field "end_at", er
-                    end
-                    if tz = e.time_zone
-                      j.field "time_zone", tz
-                    end
-                    j.field "body", CalendarSync.compose_body(e)
-                    if url = CalendarSync.external_url(e)
-                      j.field "external_url", url
+                segmented.each do |e, segs|
+                  body = CalendarSync.compose_body(e)
+                  url = CalendarSync.external_url(e)
+                  segs.each do |s|
+                    j.object do
+                      j.field "external_id", s.external_id
+                      j.field "title", e.title
+                      j.field "start_at", s.start_at
+                      j.field "scheduled_on", s.scheduled_on
+                      if ea = s.end_at
+                        j.field "end_at", ea
+                      end
+                      if tz = e.time_zone
+                        j.field "time_zone", tz
+                      end
+                      j.field "body", body
+                      if url
+                        j.field "external_url", url
+                      end
                     end
                   end
                 end
@@ -319,13 +332,98 @@ module AssistAnt
       PARSERS.keys
     end
 
-    # Keep an event if it falls in [from, to] (by local scheduled day) AND is
-    # not declined/pending: you own it, you have no attendee entry (subscribed
-    # calendars), or you accepted/tentatively-accepted.
+    # One emitted calendar row: its per-day external id, local day, and the
+    # segment's start/end instants (ISO-8601 with local offset).
+    record Segment,
+      external_id : String,
+      scheduled_on : String,
+      start_at : String,
+      end_at : String?
+
+    # The first and last LOCAL day an event covers. A no-end event covers only
+    # its start day. A timed event ending exactly at local midnight does NOT
+    # cover that final day (zero-length), so the last day is the day before.
+    def self.covered_days(start_raw : String, end_raw : String?) : {Time, Time}
+      start_day = Time.parse_rfc3339(start_raw).to_local.at_beginning_of_day
+      return {start_day, start_day} unless er = end_raw
+
+      end_t = Time.parse_rfc3339(er).to_local
+      last =
+        if end_t == end_t.at_beginning_of_day       # exact local midnight
+          end_t.shift(days: -1).at_beginning_of_day # calendar-aware (DST-safe)
+        else
+          end_t.at_beginning_of_day
+        end
+      last = start_day if last < start_day # clamp degenerate spans
+      {start_day, last}
+    end
+
+    # One Segment per local day in [from, to] the event covers. A single-day (or
+    # midnight-bounded same-day) event returns ONE segment with the bare event id
+    # and the raw instants — byte-for-byte as before. A multi-day event emits one
+    # segment per covered in-window day, keyed "<id>#<YYYY-MM-DD>": the true start
+    # day carries the real start instant and the true last day the real end; other
+    # days open at 00:00:00 and close at 23:59:59. Emission is clamped to the
+    # window (a longer-than-window tail fills in as the window advances).
+    def self.segments(e : NormalizedEvent, from : String, to : String) : Array(Segment)
+      first_day, last_day = covered_days(e.start_raw, e.end_raw)
+
+      if last_day == first_day
+        return [Segment.new(
+          external_id: e.external_id,
+          scheduled_on: Commands::CalendarItem.scheduled_on(e.start_raw),
+          start_at: e.start_raw,
+          end_at: e.end_raw,
+        )]
+      end
+
+      start_day_str = first_day.to_s("%Y-%m-%d")
+      # The raw end's local day — where the real end instant belongs. For an
+      # exact-midnight end this is the day AFTER last_day, so it's never emitted
+      # and the last covered day closes at end-of-day instead.
+      end_day_str = (er = e.end_raw) ? Time.parse_rfc3339(er).to_local.to_s("%Y-%m-%d") : ""
+
+      out = [] of Segment
+      cursor = first_day
+      while cursor <= last_day
+        day = cursor.to_s("%Y-%m-%d")
+        if day >= from && day <= to # clamp to the sync window
+          start_at = day == start_day_str ? e.start_raw : iso_local(cursor)
+          end_at =
+            if day == end_day_str && (er = e.end_raw)
+              er
+            else
+              iso_local(cursor.at_end_of_day) # 23:59:59 local
+            end
+          out << Segment.new(
+            external_id: "#{e.external_id}##{day}",
+            scheduled_on: day,
+            start_at: start_at,
+            end_at: end_at,
+          )
+        end
+        cursor = cursor.shift(days: 1) # DST-safe calendar step
+      end
+      out
+    end
+
+    # RFC-3339 in the time's LOCAL offset (e.g. "…-05:00"), to whole seconds —
+    # `Time#to_rfc3339` normalizes to UTC ("…Z"), but we want the local offset to
+    # match the provider's raw start/end strings.
+    def self.iso_local(t : Time) : String
+      t.to_s("%Y-%m-%dT%H:%M:%S%:z")
+    end
+
+    # Keep an event whose covered span intersects [from, to] (NOT start-day only,
+    # so a multi-day event running into the window from before is re-emitted and
+    # its in-window segments stay in `keep`), AND that isn't declined/pending:
+    # you own it, you have no attendee entry (subscribed calendars), or you
+    # accepted/tentatively-accepted.
     def self.filter(events : Array(NormalizedEvent), from : String, to : String) : Array(NormalizedEvent)
       events.select do |e|
-        sched = Commands::CalendarItem.scheduled_on(e.start_raw)
-        next false unless sched >= from && sched <= to
+        first_day, last_day = covered_days(e.start_raw, e.end_raw)
+        next false unless first_day.to_s("%Y-%m-%d") <= to &&
+                          last_day.to_s("%Y-%m-%d") >= from
         e.is_owner ||
           e.self_response.nil? ||
           e.self_response == "accepted" ||

@@ -175,4 +175,101 @@ describe AssistAnt::CalendarSync do
         .should eq "Join at [https://x.com/a_b](https://x.com/a_b) now"
     end
   end
+
+  # Zone-pinned so day boundaries are deterministic regardless of the test
+  # machine. UTC-5 matches the -05:00 offsets in the fixtures (Chicago in July).
+  describe ".segments" do
+    saved = Time::Location.local
+    before_each { Time::Location.local = Time::Location.fixed(-5 * 3600) }
+    after_each { Time::Location.local = saved }
+
+    it "fans a multi-day timed event into one segment per covered day" do
+      raw = %({"events":[{"id":"oncall","summary":"Kelly on call","start":{"dateTime":"2026-07-06T11:00:00-05:00","timeZone":"America/Chicago"},"end":{"dateTime":"2026-07-13T11:00:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      e = google.parse(raw).first
+      segs = AssistAnt::CalendarSync.segments(e, from: "2026-07-01", to: "2026-08-01")
+
+      segs.map(&.scheduled_on).should eq [
+        "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09",
+        "2026-07-10", "2026-07-11", "2026-07-12", "2026-07-13",
+      ]
+      segs.first.external_id.should eq "oncall#2026-07-06"
+      segs.last.external_id.should eq "oncall#2026-07-13"
+      # Start day: real start → end of day.
+      segs.first.start_at.should eq "2026-07-06T11:00:00-05:00"
+      segs.first.end_at.should eq "2026-07-06T23:59:59-05:00"
+      # Interior day: full day.
+      segs[1].start_at.should eq "2026-07-07T00:00:00-05:00"
+      segs[1].end_at.should eq "2026-07-07T23:59:59-05:00"
+      # End day: 00:00 → real end (verbatim).
+      segs.last.start_at.should eq "2026-07-13T00:00:00-05:00"
+      segs.last.end_at.should eq "2026-07-13T11:00:00-05:00"
+    end
+
+    it "leaves a single-day timed event as one bare-id segment" do
+      raw = %({"events":[{"id":"single","summary":"Standup","start":{"dateTime":"2026-07-06T11:00:00-05:00"},"end":{"dateTime":"2026-07-06T11:30:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      segs = AssistAnt::CalendarSync.segments(
+        google.parse(raw).first, from: "2026-07-01", to: "2026-08-01")
+      segs.size.should eq 1
+      segs.first.external_id.should eq "single"
+      segs.first.start_at.should eq "2026-07-06T11:00:00-05:00"
+      segs.first.end_at.should eq "2026-07-06T11:30:00-05:00"
+    end
+
+    it "treats a no-end event as a single bare-id segment" do
+      raw = %({"events":[{"id":"noend","summary":"X","start":{"dateTime":"2026-07-06T11:00:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      segs = AssistAnt::CalendarSync.segments(
+        google.parse(raw).first, from: "2026-07-01", to: "2026-08-01")
+      segs.size.should eq 1
+      segs.first.external_id.should eq "noend"
+      segs.first.end_at.should be_nil
+    end
+
+    it "does not create a zero-length segment when the event ends at midnight" do
+      raw = %({"events":[{"id":"mid","summary":"X","start":{"dateTime":"2026-07-06T11:00:00-05:00"},"end":{"dateTime":"2026-07-09T00:00:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      segs = AssistAnt::CalendarSync.segments(
+        google.parse(raw).first, from: "2026-07-01", to: "2026-08-01")
+      segs.map(&.scheduled_on).should eq ["2026-07-06", "2026-07-07", "2026-07-08"]
+      segs.last.end_at.should eq "2026-07-08T23:59:59-05:00"
+    end
+
+    it "spans a month boundary" do
+      raw = %({"events":[{"id":"mb","summary":"X","start":{"dateTime":"2026-07-30T09:00:00-05:00"},"end":{"dateTime":"2026-08-02T10:00:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      segs = AssistAnt::CalendarSync.segments(
+        google.parse(raw).first, from: "2026-07-01", to: "2026-08-31")
+      segs.map(&.scheduled_on).should eq [
+        "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02",
+      ]
+    end
+
+    it "clamps emission to the window (head/tail days outside it are dropped)" do
+      raw = %({"events":[{"id":"oncall","summary":"Kelly on call","start":{"dateTime":"2026-07-06T11:00:00-05:00"},"end":{"dateTime":"2026-07-13T11:00:00-05:00"},"calendarId":"kelly.redding@kajabi.com"}]})
+      segs = AssistAnt::CalendarSync.segments(
+        google.parse(raw).first, from: "2026-07-08", to: "2026-07-10")
+      segs.map(&.scheduled_on).should eq ["2026-07-08", "2026-07-09", "2026-07-10"]
+      # Clamped head opens at midnight (not the real 11:00 start)…
+      segs.first.start_at.should eq "2026-07-08T00:00:00-05:00"
+      # …and the clamped tail closes at end-of-day (not the real 11:00 end).
+      segs.last.end_at.should eq "2026-07-10T23:59:59-05:00"
+    end
+  end
+
+  describe ".filter (multi-day overlap)" do
+    saved = Time::Location.local
+    before_each { Time::Location.local = Time::Location.fixed(-5 * 3600) }
+    after_each { Time::Location.local = saved }
+
+    it "keeps a multi-day event that starts before the window but runs into it" do
+      raw = %({"events":[{"id":"spanin","summary":"On call","start":{"dateTime":"2026-07-04T11:00:00-05:00"},"end":{"dateTime":"2026-07-10T11:00:00-05:00"},"organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}]})
+      kept = AssistAnt::CalendarSync.filter(
+        google.parse(raw), from: "2026-07-08", to: "2026-07-20")
+      kept.map(&.external_id).should eq ["spanin"]
+    end
+
+    it "drops an event whose whole span is before the window" do
+      raw = %({"events":[{"id":"before","summary":"Old","start":{"dateTime":"2026-07-01T11:00:00-05:00"},"end":{"dateTime":"2026-07-02T11:00:00-05:00"},"organizer":{"self":true},"calendarId":"kelly.redding@kajabi.com"}]})
+      kept = AssistAnt::CalendarSync.filter(
+        google.parse(raw), from: "2026-07-08", to: "2026-07-20")
+      kept.should be_empty
+    end
+  end
 end

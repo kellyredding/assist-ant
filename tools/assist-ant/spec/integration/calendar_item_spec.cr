@@ -72,6 +72,42 @@ describe "assist-ant calendar-item sync" do
     end
   end
 
+  it "fans a multi-day timed event into one row per day, all kept" do
+    with_socket_server do |sock_path, channel|
+      input = File.tempfile("gcal-multiday", ".json")
+      input.print(%({"events":[{"id":"oncall","summary":"Kelly on call","start":{"dateTime":"2026-07-06T11:00:00-05:00","timeZone":"America/Chicago"},"end":{"dateTime":"2026-07-13T11:00:00-05:00"},"organizer":{"email":"kelly.redding@kajabi.com","self":true},"calendarId":"kelly.redding@kajabi.com"}]}))
+      input.close
+      begin
+        result = run_binary(
+          [binary, "calendar-item", "sync",
+           "--provider", "google-calendar", "--source", "gcal",
+           "--from", "2026-07-01", "--to", "2026-08-01",
+           "--input", input.path],
+          # TZ pins the binary's local zone so the day count is deterministic.
+          env: {"ASSIST_ANT_SOCKET" => sock_path, "TZ" => "America/Chicago"},
+        )
+        result[:status].success?.should be_true
+
+        parsed = JSON.parse(channel.receive)
+        batch_file = parsed["detail_data"]["batch_file"].as_s
+        batch = JSON.parse(File.read(batch_file))
+        File.delete(batch_file)
+
+        items = batch["items"].as_a
+        items.size.should eq 8
+        ids = items.map { |i| i["external_id"].as_s }
+        ids.first.should eq "oncall#2026-07-06"
+        ids.last.should eq "oncall#2026-07-13"
+
+        # Every emitted row is in `keep`, so a re-sync's prune can't retire it.
+        keep = batch["keep"].as_a.map(&.as_s)
+        ids.all? { |id| keep.includes?(id) }.should be_true
+      ensure
+        File.delete(input.path) if File.exists?(input.path)
+      end
+    end
+  end
+
   describe "validation" do
     it "exits non-zero on an unknown subcommand" do
       result = run_binary([binary, "calendar-item", "bogus"])
