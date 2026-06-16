@@ -16,6 +16,7 @@ struct TaskRun: Codable, Equatable, FetchableRecord, PersistableRecord {
     var firedAt: Date
     var status: String             // Tier-0: "sent" | "skipped"
     var detail: String?            // e.g. "agent not running"
+    var prompt: String?            // snapshot of the prompt as sent (log preview)
 
     static let databaseTableName = "task_runs"
 
@@ -27,6 +28,7 @@ struct TaskRun: Codable, Equatable, FetchableRecord, PersistableRecord {
         case firedAt = "fired_at"
         case status
         case detail
+        case prompt
     }
 }
 
@@ -36,12 +38,13 @@ extension TaskRun {
     /// it's testable without the session controller / AppKit.
     static func make(
         taskID: String?, name: String, trigger: String,
-        agentRunning: Bool, at: Date = Date()
+        agentRunning: Bool, prompt: String? = nil, at: Date = Date()
     ) -> TaskRun {
         TaskRun(
             id: UUIDv7.generate(), taskID: taskID, taskName: name,
             trigger: trigger, firedAt: at,
             status: agentRunning ? "sent" : "skipped",
-            detail: agentRunning ? nil : "agent not running")
+            detail: agentRunning ? nil : "agent not running",
+            prompt: prompt)
     }
 }

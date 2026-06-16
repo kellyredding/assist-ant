@@ -228,6 +228,16 @@ final class ItemsDatabase {
             }
         }
 
+        // Snapshot the prompt as sent onto each run-log row, mirroring the
+        // task_name snapshot, so the log can show a one-line preview of what was
+        // delivered even after the task's prompt changes or the task is deleted.
+        // Nullable: rows logged before this stay preview-less.
+        migrator.registerMigration("addTaskRunPrompt") { db in
+            try db.alter(table: "task_runs") { t in
+                t.add(column: "prompt", .text)
+            }
+        }
+
         return migrator
     }
 }

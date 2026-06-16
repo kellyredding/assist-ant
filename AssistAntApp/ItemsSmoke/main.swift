@@ -1287,11 +1287,13 @@ func newTask(
 
 func newRun(
     taskID: String? = nil, taskName: String = "t", trigger: String = "manual",
-    firedAt: Date = Date(), status: String = "sent", detail: String? = nil
+    firedAt: Date = Date(), status: String = "sent", detail: String? = nil,
+    prompt: String? = nil
 ) -> TaskRun {
     TaskRun(
         id: UUIDv7.generate(), taskID: taskID, taskName: taskName,
-        trigger: trigger, firedAt: firedAt, status: status, detail: detail)
+        trigger: trigger, firedAt: firedAt, status: status, detail: detail,
+        prompt: prompt)
 }
 
 // T1. A fresh in-memory DB migrated through the real migrator seeds the two
@@ -1377,7 +1379,8 @@ check("task_runs: recordRun + recentRuns newest-first") {
     let old = newRun(taskName: "old", trigger: "recurring", firedAt: at(100))
     let mid = newRun(taskName: "mid", trigger: "manual", firedAt: at(200),
                      status: "skipped", detail: "agent not running")
-    let new = newRun(taskName: "new", trigger: "run_now", firedAt: at(300))
+    let new = newRun(taskName: "new", trigger: "run_now", firedAt: at(300),
+                     prompt: "summarize today")
     for r in [old, mid, new] { try store.recordRun(r) }
     let runs = try store.recentRuns(limit: 10)
     let names = runs.map { $0.taskName }
@@ -1385,16 +1388,19 @@ check("task_runs: recordRun + recentRuns newest-first") {
     return names == ["new", "mid", "old"]
         && midDetail == "agent not running"
         && runs.first?.status == "sent"
+        && runs.first?.prompt == "summarize today"   // snapshot column round-trips
 }
 
 // T7. TaskRun.make encodes the Tier-0 outcome: sent + nil detail when the agent
 //     is running, skipped + a reason when it isn't.
 check("task_runs: make() encodes sent vs skipped") {
-    let sent = TaskRun.make(taskID: "t1", name: "X", trigger: "run_now", agentRunning: true)
+    let sent = TaskRun.make(taskID: "t1", name: "X", trigger: "run_now",
+                            agentRunning: true, prompt: "do X")
     let skipped = TaskRun.make(taskID: nil, name: "Y", trigger: "manual", agentRunning: false)
     return sent.status == "sent" && sent.detail == nil && sent.taskID == "t1"
+        && sent.prompt == "do X"
         && skipped.status == "skipped" && skipped.detail == "agent not running"
-        && skipped.taskID == nil
+        && skipped.taskID == nil && skipped.prompt == nil
 }
 
 // T8. task(manualKey:) resolves the seeded built-in by its key; nil for unknown.

@@ -25,7 +25,7 @@ enum MainTab: String, CaseIterable {
         switch self {
         case .agent: return "apple.terminal"
         case .schedule: return "calendar"
-        case .tasks: return "clock.arrow.circlepath"
+        case .tasks: return "list.bullet"
         case .icebox: return "snowflake"
         case .trash: return "trash"
         }

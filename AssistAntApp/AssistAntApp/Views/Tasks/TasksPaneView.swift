@@ -13,19 +13,25 @@ import SwiftUI
 struct TasksPaneView: View {
     @ObservedObject private var model = TasksModel.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
+    /// Observed so a live 12h/24h clock change re-renders the timestamps.
+    @ObservedObject private var settings = SettingsManager.shared
 
     @State private var pendingDelete: AgentTask?
+    /// The run log is an overlay now (a control-bar glyph toggles it) so the
+    /// task list owns the full pane height.
+    @State private var showLog = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            controlBar
-            Divider()
-            // Tasks size to their content (a short config list); the run log
-            // below takes the remaining height and scrolls.
-            tasksContent
-            Divider()
-            logSection
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack {
+            VStack(spacing: 0) {
+                controlBar
+                Divider()
+                // The task list now owns the full pane height and scrolls; the
+                // run log lives in an overlay toggled from the control bar.
+                tasksContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            if showLog { logOverlay }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.textBackgroundColor))
@@ -59,6 +65,17 @@ struct TasksPaneView: View {
         HStack(spacing: 12) {
             Text("Tasks").font(.headline)
             Spacer()
+            HStack(spacing: 4) {
+                PointerIconButton(
+                    systemName: "clock.arrow.circlepath",
+                    help: showLog ? "Hide run log" : "Show run log",
+                    action: { showLog.toggle() }
+                )
+                if !model.runs.isEmpty {
+                    Text("\(model.runs.count)")
+                        .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+                }
+            }
             PointerIconButton(
                 systemName: "arrow.clockwise",
                 help: "Reload tasks", action: { model.refresh() }
@@ -84,40 +101,62 @@ struct TasksPaneView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
         } else {
-            // A plain stack (no scroll) so the section sizes to its content.
-            LazyVStack(spacing: 0) {
-                ForEach(model.tasks, id: \.id) { task in
-                    TaskRowView(
-                        task: task,
-                        onRunNow: { model.runNow(task) },
-                        onToggle: { model.setEnabled(task, $0) },
-                        onDelete: { pendingDelete = task }
-                    )
-                    Divider().opacity(0.4)
+            // The list fills the pane and scrolls; the run log moved to an overlay.
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(model.tasks, id: \.id) { task in
+                        TaskRowView(
+                            task: task,
+                            timeFormat: settings.settings.timeFormat,
+                            onRunNow: { model.runNow(task) },
+                            onToggle: { model.setEnabled(task, $0) },
+                            onDelete: { pendingDelete = task }
+                        )
+                        Divider().opacity(0.4)
+                    }
                 }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
         }
     }
 
-    // MARK: - Run log
+    // MARK: - Run log (overlay)
 
-    private var logSection: some View {
+    /// The run log as a full-cover reader over the Tasks pane — the same chrome
+    /// as the item viewers: a header control bar over the scrollable content,
+    /// opaque over the list (no dimmed card). Closed by the header ✕ or Esc.
+    private var logOverlay: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("Run Log").font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            // Reader-style header, mirroring ActionableItemViewer's.
+            HStack(spacing: 10) {
+                Text("Run Log").font(.headline)
                 if !model.runs.isEmpty {
                     Text("\(model.runs.count)")
                         .font(.caption).monospacedDigit().foregroundStyle(.tertiary)
                 }
-                Spacer()
+                Spacer(minLength: 12)
+                PointerIconButton(
+                    systemName: "xmark", help: "Close (Esc)", action: { showLog = false }
+                )
             }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            Divider()
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(Color(.windowBackgroundColor))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1)
+            }
             logContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.textBackgroundColor))
+        // Esc closes the log: a zero-size cancel-action button binds Escape
+        // window-wide without needing focus (unlike .onExitCommand).
+        .overlay {
+            Button("", action: { showLog = false })
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
     }
 
@@ -136,7 +175,7 @@ struct TasksPaneView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(model.runs, id: \.id) { run in
-                        TaskRunRowView(run: run)
+                        TaskRunRowView(run: run, timeFormat: settings.settings.timeFormat)
                     }
                 }
                 .padding(.vertical, 2)
@@ -153,6 +192,7 @@ struct TasksPaneView: View {
 /// no reader in this phase.
 private struct TaskRowView: View {
     let task: AgentTask
+    let timeFormat: TimeFormat
     let onRunNow: () -> Void
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
@@ -174,7 +214,7 @@ private struct TaskRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(task.enabled ? 1 : 0.5)
 
-            if let last = TaskFormat.whenText(task) {
+            if let last = TaskFormat.whenText(task, timeFormat) {
                 Text(last)
                     .font(.caption).foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -232,40 +272,50 @@ private struct TriggerBadge: View {
 
 // MARK: - Run-log row
 
-/// One run-log entry: a status glyph, the (snapshot) task name, the trigger
-/// that fired it, an optional detail, and the fired-at time.
+/// One run-log entry: the fired-at time (leftmost, log convention), the run's
+/// origin as a badge, then the (snapshot) task name with a one-line preview of
+/// the prompt that was sent. A skipped run keeps its reason as a trailing note.
 private struct TaskRunRowView: View {
     let run: TaskRun
+    let timeFormat: TimeFormat
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: run.status == "sent" ? "paperplane.fill" : "minus.circle")
-                .font(.system(size: 11))
-                .foregroundStyle(run.status == "sent"
-                    ? Color(nsColor: .secondaryLabelColor)
-                    : Color(nsColor: .tertiaryLabelColor))
-                .frame(width: 18)
+            // Timestamp first, in the primary text color.
+            Text(TaskFormat.dateTime(run.firedAt, timeFormat))
+                .font(.caption).monospacedDigit().foregroundStyle(.primary)
+                .frame(width: 116, alignment: .leading)
 
-            Text(run.taskName)
-                .font(.caption)
+            // The run's origin as a badge in its own fixed column, so the name
+            // column starts at the same x on every row (the capsule still hugs
+            // its text, left-aligned within the column).
+            TriggerBadge(text: TaskFormat.runTriggerLabel(run.trigger))
+                .frame(width: 80, alignment: .leading)
+
+            // Name + a muted one-line prompt preview, like the actionable rows.
+            nameLine
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if let detail = run.detail, !detail.isEmpty {
                 Text(detail)
-                    .font(.caption2).foregroundStyle(.tertiary)
+                    .font(.caption2).foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
-            Text(run.trigger)
-                .font(.caption2).foregroundStyle(.secondary)
-
-            Text(TaskFormat.dateTime.string(from: run.firedAt))
-                .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    /// Task name (semibold, primary) then the prompt-as-sent preview (secondary)
+    /// — the same Gmail-style one-liner the task rows and actionable rows use.
+    private var nameLine: Text {
+        let name = Text(run.taskName).font(.caption).fontWeight(.semibold)
+            .foregroundStyle(.primary)
+        let prompt = (run.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if prompt.isEmpty { return name }
+        return name + Text("  \(prompt)").font(.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -348,33 +398,45 @@ private enum TaskFormat {
     /// run time (or "next tick" when it has no set time), or nil for manual
     /// (fires on demand). Times honor the user's clock setting; a same-day time
     /// drops the date.
-    static func whenText(_ task: AgentTask) -> String? {
+    static func whenText(_ task: AgentTask, _ timeFormat: TimeFormat) -> String? {
         switch task.triggerType {
         case "recurring":
             guard let at = task.lastRunAt else { return "never run" }
-            return "ran \(stamp(at))"
+            return "ran \(stamp(at, timeFormat))"
         case "one_shot":
             guard let at = task.runAt else { return "runs next tick" }
-            return "runs \(stamp(at))"
+            return "runs \(stamp(at, timeFormat))"
         default:
             return nil
         }
     }
 
     /// A timestamp honoring the clock's 12h/24h setting; a same-day time shows
-    /// only the time, otherwise the month/day too. Built per call (read at
-    /// render) — not reactive to a live setting change, which is fine at this
-    /// list's size.
-    private static func stamp(_ date: Date) -> String {
-        let time = SettingsManager.shared.settings.timeFormat.dateFormat
+    /// only the time, otherwise the month/day too. The format is passed in (from
+    /// the pane's observed settings) so a live 12h/24h change re-renders.
+    private static func stamp(_ date: Date, _ timeFormat: TimeFormat) -> String {
+        let time = timeFormat.dateFormat
         let f = DateFormatter()
         f.dateFormat = Calendar.current.isDateInToday(date) ? time : "MMM d, \(time)"
         return f.string(from: date)
     }
 
-    static let dateTime: DateFormatter = {
+    /// The run-log timestamp, honoring the user's 12h/24h clock (e.g.
+    /// "Jun 15, 9:52 PM" / "Jun 15, 21:52"). Built per call so a live setting
+    /// change re-renders when the pane re-reads the format.
+    static func dateTime(_ date: Date, _ timeFormat: TimeFormat) -> String {
         let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMMdHmm")
-        return f
-    }()
+        f.dateFormat = "MMM d, \(timeFormat.dateFormat)"
+        return f.string(from: date)
+    }
+
+    /// Humanize a run's origin for the log badge: "run_now" → "run now",
+    /// "one_shot" → "one-shot"; "manual" / "recurring" pass through.
+    static func runTriggerLabel(_ trigger: String) -> String {
+        switch trigger {
+        case "run_now": return "run now"
+        case "one_shot": return "one-shot"
+        default: return trigger
+        }
+    }
 }

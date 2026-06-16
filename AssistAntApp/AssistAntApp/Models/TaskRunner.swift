@@ -17,7 +17,7 @@ enum TaskRunner {
     /// (`run_now`, `manual`, and — from Phase 4 — `recurring` / `one_shot`).
     static func run(_ task: AgentTask, trigger: String) {
         deliver(for: task)
-        record(taskID: task.id, name: task.name, trigger: trigger)
+        record(taskID: task.id, name: task.name, trigger: trigger, prompt: task.prompt)
     }
 
     /// Fire several tasks back-to-back, each fully submitted before the next so
@@ -43,7 +43,8 @@ enum TaskRunner {
     private static func runBuiltin(key: String, fallbackName: String) {
         let task = try? TasksStore.shared.task(manualKey: key)
         deliverBuiltin(key: key)
-        record(taskID: task?.id, name: task?.name ?? fallbackName, trigger: "manual")
+        record(taskID: task?.id, name: task?.name ?? fallbackName, trigger: "manual",
+               prompt: task?.prompt)
     }
 
     private static func deliver(for task: AgentTask) {
@@ -72,10 +73,11 @@ enum TaskRunner {
 
     // MARK: - Logging
 
-    private static func record(taskID: String?, name: String, trigger: String) {
+    private static func record(taskID: String?, name: String, trigger: String, prompt: String?) {
         let running = AgentSessionController.shared.state == .running
         let run = TaskRun.make(
-            taskID: taskID, name: name, trigger: trigger, agentRunning: running)
+            taskID: taskID, name: name, trigger: trigger,
+            agentRunning: running, prompt: prompt)
         do {
             try TasksStore.shared.recordRun(run)
         } catch {
