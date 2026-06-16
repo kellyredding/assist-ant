@@ -125,7 +125,10 @@ struct TasksPaneView: View {
                             onOpen: { model.openViewer(task) },
                             onRunNow: { model.runNow(task) },
                             onToggle: { model.setEnabled(task, $0) },
-                            onDelete: { pendingDelete = task }
+                            onDelete: { pendingDelete = task },
+                            onReorder: { moved, anchor, edge in
+                                model.reorder(movedID: moved, anchorID: anchor, edge: edge)
+                            }
                         )
                         Divider().opacity(0.4)
                     }
@@ -212,11 +215,24 @@ private struct TaskRowView: View {
     let onRunNow: () -> Void
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
+    let onReorder: (_ movedID: String, _ anchorID: String,
+                    _ edge: TaskDragSession.Edge) -> Void
 
     @State private var isHovering = false
+    /// The live drag, for revealing the grip and drawing the insertion line.
+    @ObservedObject private var drag = TaskDragSession.shared
+    /// Measured row height, so the drop delegate can split top/bottom halves.
+    @State private var rowHeight: CGFloat = 36
+
+    /// Hover effects are suppressed mid-drag so they don't fight the drag.
+    private var showsHover: Bool { isHovering && !drag.isDragging }
 
     var body: some View {
         HStack(spacing: 8) {
+            // The drag grip rides the leading edge; faint until the row is
+            // hovered (or this row is the one being dragged).
+            TaskDragHandle(task: task, isRowHovering: showsHover)
+
             // Tapping the badge/name/when region opens the task viewer; the
             // trailing verbs below stay independent hit targets.
             HStack(spacing: 8) {
@@ -259,10 +275,32 @@ private struct TaskRowView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(isHovering ? 0.06 : 0))
+                .fill(Color.primary.opacity(showsHover ? 0.06 : 0))
         )
         .animation(.easeInOut(duration: 0.12), value: isHovering)
         .onHover { isHovering = $0 }
+        // Measure the row so the drop delegate can split top/bottom halves.
+        .background(GeometryReader { proxy in
+            Color.clear.onAppear { rowHeight = proxy.size.height }
+        })
+        // The insertion line: a 2pt accent rule on the edge a drop will land on.
+        .overlay(alignment: .top) {
+            if drag.indicator == TaskDragSession.Indicator(rowID: task.id, edge: .above) {
+                insertionLine
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if drag.indicator == TaskDragSession.Indicator(rowID: task.id, edge: .below) {
+                insertionLine
+            }
+        }
+        .onDrop(of: [.text], delegate: TaskDropDelegate(
+            rowTask: task, rowHeight: rowHeight, onReorder: onReorder))
+    }
+
+    /// The 2pt accent insertion line drawn at the row edge a drop will land on.
+    private var insertionLine: some View {
+        Rectangle().fill(Color.accentColor).frame(height: 2)
     }
 
     /// Name (semibold) followed by a muted single-line prompt preview — the

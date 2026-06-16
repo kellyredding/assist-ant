@@ -238,6 +238,15 @@ final class ItemsDatabase {
             }
         }
 
+        // Manual sort order for the Tasks list, mirroring items.position. The
+        // Tasks tab orders by it (nulls last), so a CLI-authored task lands
+        // unranked at the bottom in creation order until the user drags it.
+        migrator.registerMigration("addTaskPosition") { db in
+            try db.alter(table: "tasks") { t in
+                t.add(column: "position", .double)
+            }
+        }
+
         return migrator
     }
 }

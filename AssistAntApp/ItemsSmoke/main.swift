@@ -1274,7 +1274,8 @@ func newTask(
     manualKey: String? = nil,
     prompt: String = "do the thing",
     enabled: Bool = true,
-    lastRunAt: Date? = nil
+    lastRunAt: Date? = nil,
+    position: Double? = nil
 ) -> AgentTask {
     AgentTask(
         id: UUIDv7.generate(), name: name, triggerType: triggerType,
@@ -1282,7 +1283,7 @@ func newTask(
         dailyTime: dailyTime, weekdays: weekdays, windowStart: windowStart,
         windowEnd: windowEnd, runAt: runAt, manualKey: manualKey,
         prompt: prompt, enabled: enabled, lastRunAt: lastRunAt,
-        createdAt: Date(), updatedAt: Date())
+        position: position, createdAt: Date(), updatedAt: Date())
 }
 
 func newRun(
@@ -1439,6 +1440,51 @@ check("tasks: weekdaySet parses the mask, unset = every day") {
         && unset == Set(1...7)
         && empty == Set(1...7)
         && junk == Set([3])
+}
+
+// T11. allTasks() orders by position (nulls last): a ranked task sorts ahead of
+//      unranked rows, which fall back to creation order.
+check("tasks: allTasks orders by position, nulls last") {
+    let (store, _) = try makeTasksStore()
+    var ranked = newTask(name: "ranked", manualKey: "k1")
+    ranked.position = 10
+    let unranked = newTask(name: "unranked", manualKey: "k2")   // nil position
+    try store.create(unranked)   // created first…
+    try store.create(ranked)     // …but ranked sorts ahead via position
+    let names = try store.allTasks().map { $0.name }
+    guard let ri = names.firstIndex(of: "ranked"),
+          let ui = names.firstIndex(of: "unranked") else { return false }
+    return ri < ui
+}
+
+// T12. TaskReorder: the renormalize path (an all-unranked list) then a single
+//      midpoint write both yield the dropped order. Works off the store's
+//      actual initial order (x, y, z) rather than assuming creation order — for
+//      three rows minted in one millisecond the created_at ties break on the
+//      UUIDv7 id, which isn't guaranteed monotonic.
+check("tasks: TaskReorder places and renormalizes") {
+    let (store, _) = try makeTasksStore()
+    // Clear the seeded built-ins so the list is exactly our three.
+    for t in try store.allTasks() { try store.delete(id: t.id) }
+    for t in [newTask(name: "a", manualKey: "a"),
+              newTask(name: "b", manualKey: "b"),
+              newTask(name: "c", manualKey: "c")] { try store.create(t) }
+
+    let ids0 = try store.allTasks().map { $0.id }
+    guard ids0.count == 3 else { return false }
+    let (x, y, z) = (ids0[0], ids0[1], ids0[2])
+
+    // Renormalize path: move the last row between the first two → [x, z, y].
+    let dest1 = try store.allTasks().filter { $0.id != z }
+    TaskReorder.apply(store: store, destination: dest1, movedID: z, insertAt: 1)
+    let order1 = try store.allTasks().map { $0.id }
+
+    // Single-write path: move the first row to the end → [z, y, x].
+    let dest2 = try store.allTasks().filter { $0.id != x }
+    TaskReorder.apply(store: store, destination: dest2, movedID: x, insertAt: dest2.count)
+    let order2 = try store.allTasks().map { $0.id }
+
+    return order1 == [x, z, y] && order2 == [z, y, x]
 }
 
 print(failures == 0

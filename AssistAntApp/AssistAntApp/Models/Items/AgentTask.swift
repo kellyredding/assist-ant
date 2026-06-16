@@ -36,6 +36,7 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
     var prompt: String             // the text sent to the agent
     var enabled: Bool
     var lastRunAt: Date?           // drives recurring dedup/coalescing
+    var position: Double?          // manual drag-reorder rank; nil = unranked (sorts last)
     var createdAt: Date
     var updatedAt: Date
 
@@ -56,6 +57,7 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
         case prompt
         case enabled
         case lastRunAt = "last_run_at"
+        case position
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

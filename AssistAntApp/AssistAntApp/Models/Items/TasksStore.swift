@@ -26,11 +26,15 @@ final class TasksStore {
 
     // MARK: - Tasks
 
-    /// All tasks in creation order (UUIDv7 id approximates it; `created_at`
-    /// pins it precisely).
+    /// All tasks in manual drag order, then unranked rows in creation order:
+    /// `position IS NULL` sorts the ranked rows first, then `position`, then
+    /// `created_at, id` as a stable tiebreak. (SQLite has no native date type;
+    /// `created_at` is TEXT, so it sorts chronologically.)
     func allTasks() throws -> [AgentTask] {
         try dbQueue.read { db in
-            try AgentTask.order(sql: "created_at, id").fetchAll(db)
+            try AgentTask
+                .order(sql: "position IS NULL, position, created_at, id")
+                .fetchAll(db)
         }
     }
 
@@ -66,6 +70,31 @@ final class TasksStore {
 
     func delete(id: String) throws {
         _ = try dbQueue.write { db in try AgentTask.deleteOne(db, key: id) }
+    }
+
+    /// Set or clear the manual drag-reorder rank. `allTasks()` orders by it
+    /// (nulls last), so the row lands where dropped.
+    func setPosition(id: String, to position: Double?) throws {
+        try dbQueue.write { db in
+            guard var task = try AgentTask.fetchOne(db, key: id) else { return }
+            task.position = position
+            task.updatedAt = Date()
+            try task.update(db)
+        }
+    }
+
+    /// Renormalize the list: write many ranks in one transaction (used when a
+    /// fractional midpoint collides or a neighbor is unranked).
+    func setPositions(_ positions: [String: Double]) throws {
+        guard !positions.isEmpty else { return }
+        try dbQueue.write { db in
+            for (id, pos) in positions {
+                guard var task = try AgentTask.fetchOne(db, key: id) else { continue }
+                task.position = pos
+                task.updatedAt = Date()
+                try task.update(db)
+            }
+        }
     }
 
     func setEnabled(id: String, _ enabled: Bool) throws {

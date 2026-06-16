@@ -36,7 +36,7 @@ extension AgentTask {
             cadenceKind: cadence, intervalSeconds: interval, dailyTime: dailyTime,
             weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd,
             runAt: runAt, manualKey: manualKey, prompt: prompt, enabled: enabled,
-            lastRunAt: nil, createdAt: now, updatedAt: now)
+            lastRunAt: nil, position: nil, createdAt: now, updatedAt: now)
     }
 
     /// Overlay the present fields of a `task.update` envelope onto this task and

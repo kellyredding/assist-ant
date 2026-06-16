@@ -80,6 +80,17 @@ final class TasksModel: ObservableObject {
     func openViewer(_ task: AgentTask) { openTask = task }
     func closeViewer() { openTask = nil }
 
+    // MARK: - Drag-reorder
+
+    /// Rank the moved task relative to the anchor row, then re-fetch so the list
+    /// shows the new order. The destination excludes the moved row.
+    func reorder(movedID: String, anchorID: String, edge: TaskDragSession.Edge) {
+        let dest = tasks.filter { $0.id != movedID }
+        let index = TaskReorderIndex.insertionIndex(in: dest, anchorID: anchorID, edge: edge)
+        TaskReorder.apply(store: store, destination: dest, movedID: movedID, insertAt: index)
+        refresh()
+    }
+
     /// Inline prompt edit from the viewer — the one relaxation of agentic
     /// authoring (name / trigger / cadence stay CLI-only). Writes straight
     /// through the store the CLI's task.update handler also uses; a blank prompt
