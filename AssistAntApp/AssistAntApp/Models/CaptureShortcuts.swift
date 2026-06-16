@@ -16,6 +16,7 @@ extension KeyboardShortcuts.Name {
     static let captureTodo = Self("captureTodo")
     static let captureReminder = Self("captureReminder")
     static let captureExplore = Self("captureExplore")
+    static let captureTask = Self("captureTask")
 
     /// The shortcut name that summons a given kind — keeps the controller's
     /// registration loop and any kind→name lookups in one place.
@@ -25,6 +26,7 @@ extension KeyboardShortcuts.Name {
         case .todo: return .captureTodo
         case .reminder: return .captureReminder
         case .explore: return .captureExplore
+        case .task: return .captureTask
         }
     }
 }

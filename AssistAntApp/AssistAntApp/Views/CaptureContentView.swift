@@ -20,7 +20,7 @@ struct CaptureContentView: View {
 
     // ⌘1–⌘4 select a kind. (The bare-number / arrow chooser-state machine is a
     // follow-up refinement; ⌘-number avoids fighting typing for now.)
-    private let numberKeys: [KeyEquivalent] = ["1", "2", "3", "4"]
+    private let numberKeys: [KeyEquivalent] = ["1", "2", "3", "4", "5"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

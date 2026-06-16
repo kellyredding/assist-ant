@@ -41,6 +41,10 @@ struct CaptureSettingsTab: View {
                     SettingsRow(label: "Explore") {
                         KeyboardShortcuts.Recorder("", name: .captureExplore)
                     }
+
+                    SettingsRow(label: "Task") {
+                        KeyboardShortcuts.Recorder("", name: .captureTask)
+                    }
                 }
             }
 

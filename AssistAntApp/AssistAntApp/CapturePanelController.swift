@@ -268,6 +268,19 @@ final class CapturePanelController {
             }
             closeAndSurfaceAgent()
             return nil
+        case .task:
+            // A captured task is a task-creation request. Hand it to the live
+            // session framed so the agent routes it through the manage-tasks
+            // skill (which infers the trigger/schedule from the wording and runs
+            // `assist-ant task add`). Same paste→submit delivery as Ask.
+            let prompt = "Create an AssistAnt task from this captured request, "
+                + "inferring its trigger and any schedule from the wording: \(text)"
+            AgentSessionController.shared.send(text: prompt, asPaste: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                AgentSessionController.shared.submit()
+            }
+            closeAndSurfaceAgent()
+            return nil
         case .todo, .reminder, .explore:
             do {
                 let path = try Self.writeCapturePayload(kind: kind, text: text)
