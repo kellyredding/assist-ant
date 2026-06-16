@@ -16,7 +16,6 @@ struct SchedulePaneView: View {
     @ObservedObject private var selection = ScheduleAgendaModel.shared.selection
     @ObservedObject private var navigator = MainTabNavigator.shared
     @ObservedObject private var clock = ClockService.shared
-    @ObservedObject private var sync = CalendarSyncCoordinator.shared
     @ObservedObject private var viewer = ItemViewerModel.shared
 
     @State private var chords = ActionableListChords()
@@ -67,11 +66,11 @@ struct SchedulePaneView: View {
                 onBack: { model.goBack() },
                 onForward: { model.goForward() },
                 onOpenGoogleCalendar: { Self.openGoogleCalendar() },
-                onRefresh: {
-                    CalendarSyncCoordinator.shared.requestSync()
-                    model.refresh()
-                },
-                isWorking: model.isWorking || sync.isSyncing,
+                // Pure local refresh — re-read the live data into the agenda.
+                // It does NOT run the calendar Today tasks; those are explicitly
+                // tied to the Today list's glyph, not this generic tab.
+                onRefresh: { model.refresh() },
+                isWorking: model.isWorking,
                 selection: selection,
                 actions: model.actions,
                 selectedItems: model.selectedItems

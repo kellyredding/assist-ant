@@ -6,11 +6,10 @@ import Foundation
 /// `runBatch`.
 ///
 /// Delivery never interrupts: a prompt sent while the agent is mid-turn rides
-/// Claude Code's native FIFO queue. Built-in sync tasks (matched by
-/// `manual_key`) delegate to their coordinator, which owns the prompt and the
-/// commit/timeout spinner; every other task delivers its stored prompt. Lives
-/// in `Models/` (not `Models/Items/`) so the smoke tool — which can't see the
-/// session controller — doesn't compile it.
+/// Claude Code's native FIFO queue. Every task — including the Today-glyph
+/// ones — delivers its own stored prompt; a glyph just fires all the enabled
+/// tasks that share its key. Lives in `Models/` (not `Models/Items/`) so the
+/// smoke tool — which can't see the session controller — doesn't compile it.
 @MainActor
 enum TaskRunner {
     /// Fire one task and log the run. `trigger` is the run's recorded origin
@@ -27,48 +26,26 @@ enum TaskRunner {
         for task in tasks { run(task, trigger: trigger) }
     }
 
-    /// The Today Calendar glyph: run the seeded built-in (so the log ties to its
-    /// row), falling back to driving the coordinator directly if it was deleted.
-    static func runCalendarGlyph() {
-        runBuiltin(key: AgentTask.calendarRefreshKey, fallbackName: "Calendar sync")
-    }
+    /// The Today Calendar glyph: fire every enabled calendar-keyed Today task.
+    static func runCalendarGlyph() { runTodayKey(AgentTask.calendarRefreshKey) }
 
-    /// The Today To-do glyph: same shape for the Linear sync.
-    static func runLinearGlyph() {
-        runBuiltin(key: AgentTask.todoRefreshKey, fallbackName: "Linear sync")
+    /// The Today To-do glyph: same for the to-do-keyed Today tasks.
+    static func runLinearGlyph() { runTodayKey(AgentTask.todoRefreshKey) }
+
+    /// Fire every enabled `today` task bound to `key` — the glyph's tasks —
+    /// each as its own agent message and run-log row. If nothing matches (all
+    /// deleted or disabled), nothing runs.
+    static func runTodayKey(_ key: String) {
+        let tasks = (try? TasksStore.shared.tasks(todayKey: key))?.filter(\.enabled) ?? []
+        runBatch(tasks, trigger: "today")
     }
 
     // MARK: - Delivery
 
-    private static func runBuiltin(key: String, fallbackName: String) {
-        let task = try? TasksStore.shared.task(manualKey: key)
-        deliverBuiltin(key: key)
-        record(taskID: task?.id, name: task?.name ?? fallbackName, trigger: "manual",
-               prompt: task?.prompt)
-    }
-
     private static func deliver(for task: AgentTask) {
-        switch task.manualKey {
-        case AgentTask.calendarRefreshKey, AgentTask.todoRefreshKey:
-            deliverBuiltin(key: task.manualKey ?? "")
-        default:
-            guard AgentSessionController.shared.state == .running else { return }
-            AgentSessionController.shared.send(text: task.prompt, asPaste: true)
-            AgentSessionController.shared.submit()
-        }
-    }
-
-    /// Route a built-in sync key to its coordinator (which self-guards on the
-    /// agent running and owns the spinner/timeout).
-    private static func deliverBuiltin(key: String) {
-        switch key {
-        case AgentTask.calendarRefreshKey:
-            CalendarSyncCoordinator.shared.requestSync()
-        case AgentTask.todoRefreshKey:
-            LinearSyncCoordinator.shared.requestSync()
-        default:
-            break
-        }
+        guard AgentSessionController.shared.state == .running else { return }
+        AgentSessionController.shared.send(text: task.prompt, asPaste: true)
+        AgentSessionController.shared.submit()
     }
 
     // MARK: - Logging

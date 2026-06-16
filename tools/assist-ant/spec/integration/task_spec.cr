@@ -152,6 +152,48 @@ describe "assist-ant task" do
       result[:stderr].should contain "recurring"
     end
 
+    it "sends a today_key for a today task" do
+      with_task_reply_server(%({"ok":true,"id":"t5","name":"Calendar sync"})) do |sock, channel|
+        result = run_binary(
+          [binary, "task", "add",
+           "--name", "Calendar sync", "--trigger", "today",
+           "--today-key", "calendar_refresh", "--prompt", "Sync my calendar"],
+          env: {"ASSIST_ANT_SOCKET" => sock},
+        )
+        result[:status].success?.should be_true
+
+        detail = JSON.parse(channel.receive)["detail_data"]
+        detail["trigger_type"].should eq "today"
+        detail["today_key"].should eq "calendar_refresh"
+      end
+    end
+
+    it "rejects a today task with no --today-key" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "today", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "today-key"
+    end
+
+    it "rejects an unknown --today-key value" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "today",
+         "--today-key", "bogus", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "today-key"
+    end
+
+    it "rejects --today-key on a non-today trigger" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "manual",
+         "--today-key", "calendar_refresh", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "today"
+    end
+
     it "carries --disabled through as enabled=false" do
       with_task_reply_server(%({"ok":true,"id":"t3","name":"Off"})) do |sock, channel|
         result = run_binary(

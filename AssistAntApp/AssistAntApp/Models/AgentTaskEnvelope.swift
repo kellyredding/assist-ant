@@ -22,12 +22,13 @@ extension AgentTask {
         let windowStart = e.detailValue("window_start", as: String.self)
         let windowEnd = e.detailValue("window_end", as: String.self)
         let runAt = envelopeDate(e, "run_at")
-        let manualKey = e.detailValue("manual_key", as: String.self)
+        let todayKey = e.detailValue("today_key", as: String.self)
         let enabled = e.detailValue("enabled", as: Bool.self) ?? true
 
         guard AgentTask.isValidTrigger(
             trigger, cadence: cadence, intervalSeconds: interval, dailyTime: dailyTime,
-            weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd
+            weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd,
+            todayKey: todayKey
         ) else { return nil }
 
         let now = Date()
@@ -35,7 +36,7 @@ extension AgentTask {
             id: UUIDv7.generate(), name: name, triggerType: trigger,
             cadenceKind: cadence, intervalSeconds: interval, dailyTime: dailyTime,
             weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd,
-            runAt: runAt, manualKey: manualKey, prompt: prompt, enabled: enabled,
+            runAt: runAt, todayKey: todayKey, prompt: prompt, enabled: enabled,
             lastRunAt: nil, position: nil, createdAt: now, updatedAt: now)
     }
 
@@ -54,14 +55,15 @@ extension AgentTask {
         if let v = e.detailValue("window_start", as: String.self) { t.windowStart = v }
         if let v = e.detailValue("window_end", as: String.self) { t.windowEnd = v }
         if let v = envelopeDate(e, "run_at") { t.runAt = v }
-        if let v = e.detailValue("manual_key", as: String.self) { t.manualKey = v }
+        if let v = e.detailValue("today_key", as: String.self) { t.todayKey = v }
         if let v = e.detailValue("prompt", as: String.self), !v.isEmpty { t.prompt = v }
         if let v = e.detailValue("enabled", as: Bool.self) { t.enabled = v }
 
         guard AgentTask.isValidTrigger(
             t.triggerType, cadence: t.cadenceKind,
             intervalSeconds: t.intervalSeconds, dailyTime: t.dailyTime,
-            weekdays: t.weekdays, windowStart: t.windowStart, windowEnd: t.windowEnd
+            weekdays: t.weekdays, windowStart: t.windowStart, windowEnd: t.windowEnd,
+            todayKey: t.todayKey
         ) else { return nil }
         return t
     }
@@ -83,25 +85,27 @@ extension AgentTask {
         if let windowStart { d["window_start"] = windowStart }
         if let windowEnd { d["window_end"] = windowEnd }
         if let runAt { d["run_at"] = Self.iso8601.string(from: runAt) }
-        if let manualKey { d["manual_key"] = manualKey }
+        if let todayKey { d["today_key"] = todayKey }
         if let lastRunAt { d["last_run_at"] = Self.iso8601.string(from: lastRunAt) }
         return d
     }
 
     /// Trigger/cadence validity, shared by create and update. recurring needs a
     /// cadence (interval → a positive interval; daily → an HH:MM time);
-    /// one_shot and manual carry no required cadence fields.
+    /// one_shot and manual carry no required fields; `today` requires a valid
+    /// `todayKey` naming one of the Today refresh glyphs.
     ///
     /// Cadence precision adds two optional refinements, both recurring-only: a
     /// `weekdays` mask (every entry an ISO weekday 1…7) usable with either
     /// cadence, and a `windowStart`/`windowEnd` pair (both-or-neither, HH:MM,
-    /// open strictly before close) usable only with `interval`. A non-recurring
-    /// trigger carrying either is rejected so a malformed payload can't smuggle
-    /// cadence fields onto a one-shot or manual task.
+    /// open strictly before close) usable only with `interval`. The `todayKey`
+    /// belongs only to a `today` task. A trigger carrying a field that isn't
+    /// its own is rejected so a malformed payload can't smuggle one in.
     static func isValidTrigger(
         _ trigger: String, cadence: String?,
         intervalSeconds: Int?, dailyTime: String?,
-        weekdays: String? = nil, windowStart: String? = nil, windowEnd: String? = nil
+        weekdays: String? = nil, windowStart: String? = nil, windowEnd: String? = nil,
+        todayKey: String? = nil
     ) -> Bool {
         if let weekdays, !isValidWeekdayMask(weekdays) { return false }
 
@@ -113,6 +117,9 @@ extension AgentTask {
             else { return false }
         }
 
+        // A Today-glyph key belongs only to a `today` task.
+        if todayKey != nil && trigger != "today" { return false }
+
         switch trigger {
         case "recurring":
             switch cadence {
@@ -122,6 +129,9 @@ extension AgentTask {
                     of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil
             default: return false
             }
+        case "today":
+            // Bound to a real glyph; weekday/window are recurring-only.
+            return isValidTodayKey(todayKey) && weekdays == nil && !hasWindow
         case "one_shot", "manual":
             // Weekday/window are recurring-only; a non-recurring trigger must
             // carry neither (the window pairing above already fails for these).

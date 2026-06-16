@@ -15,8 +15,11 @@ import GRDB
 ///   `weekdays` mask; `interval` may also carry a `windowStart`/`windowEnd`
 ///   pair that anchors the interval inside a daily time window.
 /// - `one_shot`: `runAt` is the fire instant, or nil to fire on the next tick.
-/// - `manual`: `manualKey` names a built-in trigger (e.g. the Today refreshes);
-///   manual tasks fire only on demand.
+/// - `manual`: fires only on demand (the ▶ run-now button); carries no key.
+/// - `today`: bound to a Today sidebar refresh glyph by `todayKey`
+///   (`calendar_refresh` / `todo_refresh`). Pressing that glyph fires every
+///   enabled `today` task sharing its key (each its own agent message); a
+///   `today` task also runs on demand like a manual one.
 ///
 /// `lastRunAt` is the field the recurring due-eval reads for dedup/coalescing.
 /// Column names are pinned via explicit snake_case `CodingKeys` (GRDB derives
@@ -32,7 +35,7 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
     var windowStart: String?       // recurring + interval: window open "HH:MM" local
     var windowEnd: String?         // recurring + interval: window close "HH:MM" local
     var runAt: Date?               // one_shot fire instant; nil = next tick
-    var manualKey: String?         // manual: built-in trigger key
+    var todayKey: String?          // today: which refresh glyph fires this
     var prompt: String             // the text sent to the agent
     var enabled: Bool
     var lastRunAt: Date?           // drives recurring dedup/coalescing
@@ -53,7 +56,7 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
         case windowStart = "window_start"
         case windowEnd = "window_end"
         case runAt = "run_at"
-        case manualKey = "manual_key"
+        case todayKey = "today_key"
         case prompt
         case enabled
         case lastRunAt = "last_run_at"
@@ -64,10 +67,16 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
 }
 
 extension AgentTask {
-    /// Built-in manual-trigger keys backing the Today sync glyphs. Seeded as
-    /// tasks; the runner routes these to their sync coordinators.
-    static let calendarRefreshKey = "today_calendar_refresh"
-    static let todoRefreshKey = "today_todo_refresh"
+    /// The two Today-refresh-glyph keys. A `today` task carries one of these in
+    /// `todayKey`; pressing the matching sidebar glyph fires every enabled task
+    /// that shares it.
+    static let calendarRefreshKey = "calendar_refresh"
+    static let todoRefreshKey = "todo_refresh"
+
+    /// Whether `key` names a real Today glyph — the create/update validity gate.
+    static func isValidTodayKey(_ key: String?) -> Bool {
+        key == calendarRefreshKey || key == todoRefreshKey
+    }
 
     /// The allowed ISO weekdays (1=Mon … 7=Sun) parsed from `weekdays`. A nil,
     /// empty, or all-junk mask resolves to the full week, so a recurring task

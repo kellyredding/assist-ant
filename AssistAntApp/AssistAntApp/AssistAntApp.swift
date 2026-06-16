@@ -530,6 +530,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
+    /// Posted by the calendar-sync handler right after it applies a calendar
+    /// sync (upsert + prune) to the item store. Windowed views that don't
+    /// observe the store live (the Calendar agenda) re-fetch on it.
+    static let calendarItemsDidChange =
+        Notification.Name("calendarItemsDidChange")
+
     /// Posted by the actionable-sync handler right after it applies a Linear
     /// sync to the item store. Snapshot views that don't observe the store
     /// live (the Icebox) re-fetch on it.

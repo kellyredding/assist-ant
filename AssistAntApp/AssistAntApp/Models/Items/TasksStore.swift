@@ -42,13 +42,14 @@ final class TasksStore {
         try dbQueue.read { db in try AgentTask.fetchOne(db, key: id) }
     }
 
-    /// Fetch a task by its manual-trigger key (used to resolve the seeded
-    /// built-in sync tasks). First match if more than one shares a key.
-    func task(manualKey: String) throws -> AgentTask? {
+    /// Every task bound to a Today glyph key, in the list's display order — the
+    /// set the glyph fires (the runner filters to enabled).
+    func tasks(todayKey: String) throws -> [AgentTask] {
         try dbQueue.read { db in
             try AgentTask
-                .filter(sql: "manual_key = ?", arguments: [manualKey])
-                .fetchOne(db)
+                .filter(sql: "today_key = ?", arguments: [todayKey])
+                .order(sql: "position IS NULL, position, created_at, id")
+                .fetchAll(db)
         }
     }
 

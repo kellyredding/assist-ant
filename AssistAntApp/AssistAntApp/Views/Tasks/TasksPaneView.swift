@@ -401,10 +401,22 @@ enum TaskFormat {
             return parts.joined(separator: " · ")
         case "one_shot":
             return "one-shot"
+        case "today":
+            return "today"
         case "manual":
             return "manual"
         default:
             return task.triggerType
+        }
+    }
+
+    /// The Today glyph a `today` task is bound to — shown in the row's
+    /// right-side slot (where recurring shows its last run).
+    static func todayKeyLabel(_ key: String?) -> String? {
+        switch key {
+        case AgentTask.calendarRefreshKey: return "calendar refresh"
+        case AgentTask.todoRefreshKey: return "to-do refresh"
+        default: return key
         }
     }
 
@@ -469,6 +481,8 @@ enum TaskFormat {
         case "one_shot":
             guard let at = task.runAt else { return "runs next tick" }
             return "runs \(stamp(at, timeFormat))"
+        case "today":
+            return todayKeyLabel(task.todayKey)
         default:
             return nil
         }

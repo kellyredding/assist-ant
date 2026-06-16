@@ -8,8 +8,6 @@ import SwiftUI
 struct TodayItemsView: View {
     @StateObject private var model = TodayItemsModel()
     @ObservedObject private var layout = SidebarLayoutModel.shared
-    @ObservedObject private var sync = CalendarSyncCoordinator.shared
-    @ObservedObject private var linearSync = LinearSyncCoordinator.shared
     @ObservedObject private var drag = ItemDragSession.shared
 
     private var isExpanded: Bool {
@@ -73,17 +71,13 @@ struct TodayItemsView: View {
     /// (releasing any held rows), then asks the agent to run the sync skill. A
     /// spinner shows while the sync is in flight; items it commits arrive on
     /// their own through the live feed.
-    @ViewBuilder private var syncButton: some View {
-        if sync.isSyncing {
-            ProgressView().controlSize(.small)
-        } else {
-            PointerIconButton(
-                systemName: "arrow.clockwise",
-                help: "Re-sync calendar with the agent"
-            ) {
-                model.refresh()
-                TaskRunner.runCalendarGlyph()
-            }
+    private var syncButton: some View {
+        PointerIconButton(
+            systemName: "arrow.clockwise",
+            help: "Refresh, then run the calendar Today tasks"
+        ) {
+            model.refresh()
+            TaskRunner.runCalendarGlyph()
         }
     }
 
@@ -142,17 +136,13 @@ struct TodayItemsView: View {
     /// (releasing any held rows), then asks the agent to run the Linear sync
     /// skill. A spinner shows while the sync is in flight; items it commits
     /// arrive on their own through the live feed.
-    @ViewBuilder private var linearSyncButton: some View {
-        if linearSync.isSyncing {
-            ProgressView().controlSize(.small)
-        } else {
-            PointerIconButton(
-                systemName: "arrow.clockwise",
-                help: "Re-sync to-dos with the agent"
-            ) {
-                model.refresh()
-                TaskRunner.runLinearGlyph()
-            }
+    private var linearSyncButton: some View {
+        PointerIconButton(
+            systemName: "arrow.clockwise",
+            help: "Refresh, then run the to-do Today tasks"
+        ) {
+            model.refresh()
+            TaskRunner.runLinearGlyph()
         }
     }
 }

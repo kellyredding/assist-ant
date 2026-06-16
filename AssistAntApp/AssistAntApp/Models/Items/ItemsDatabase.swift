@@ -209,8 +209,11 @@ final class ItemsDatabase {
                         UUIDv7.generate(), name, key, prompt, now, now,
                     ])
             }
-            try seed("Calendar sync", AgentTask.calendarRefreshKey, "Sync my calendar")
-            try seed("Linear sync", AgentTask.todoRefreshKey, "Sync my Linear issues")
+            // Frozen literals (not AgentTask constants): this past migration must
+            // keep seeding the original key values regardless of later renames;
+            // a follow-up migration promotes these rows to the `today` type.
+            try seed("Calendar sync", "today_calendar_refresh", "Sync my calendar")
+            try seed("Linear sync", "today_todo_refresh", "Sync my Linear issues")
         }
 
         // Cadence precision for recurring tasks. `weekdays` is an ISO-weekday
@@ -245,6 +248,23 @@ final class ItemsDatabase {
             try db.alter(table: "tasks") { t in
                 t.add(column: "position", .double)
             }
+        }
+
+        // Promote the two glyph-bound built-ins from a keyed `manual` task to a
+        // first-class `today` task, and rename the binding column to match:
+        // `today_key` names which Today refresh glyph fires the task. (`manual`
+        // is now keyless; `today` carries the key.) The key values shed their
+        // now-redundant `today_` prefix.
+        migrator.registerMigration("promoteBuiltinsToTodayTasks") { db in
+            try db.execute(sql: "ALTER TABLE tasks RENAME COLUMN manual_key TO today_key")
+            try db.execute(sql: """
+                UPDATE tasks SET trigger_type = 'today', today_key = 'calendar_refresh'
+                WHERE today_key = 'today_calendar_refresh'
+                """)
+            try db.execute(sql: """
+                UPDATE tasks SET trigger_type = 'today', today_key = 'todo_refresh'
+                WHERE today_key = 'today_todo_refresh'
+                """)
         }
 
         return migrator

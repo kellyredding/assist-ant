@@ -1,6 +1,6 @@
 ---
 name: assist-ant-manage-tasks
-description: Create, change, list, or remove AssistAnt tasks for the user by driving the `assist-ant task` CLI. A task is a named prompt plus a trigger (recurring on an interval or daily time, a one-shot at a time, or a manual trigger). Use when the user asks to schedule, automate, recur, remind-on-a-cadence, run something on a timer, or stop one of these.
+description: Create, change, list, or remove AssistAnt tasks for the user by driving the `assist-ant task` CLI. A task is a named prompt plus a trigger (recurring on an interval or daily time, a one-shot at a time, a manual run-on-demand, or a Today-refresh-glyph task). Use when the user asks to schedule, automate, recur, remind-on-a-cadence, run something on a timer, bind something to a Today refresh, or stop one of these.
 ---
 
 # Manage AssistAnt tasks
@@ -25,8 +25,13 @@ list). Run `assist-ant task <sub> --help` if unsure of a flag.
    - "at 5pm today", a specific date/time, "once" → `one_shot`
      (`--run-at` as full ISO-8601 with offset, e.g. `2026-06-15T17:00:00-05:00`;
      omit to fire on the next tick).
-   - "when I hit the calendar refresh" / a built-in hook → `manual`
-     (`--manual-key KEY`).
+   - "run only when I ask" / on-demand → `manual` (no key; runs from the ▶
+     button or the CLI, never on a schedule).
+   - "run when I press the Today calendar/to-do refresh" → `today`
+     (`--today-key calendar_refresh` for the calendar glyph, `todo_refresh` for
+     the to-do glyph). Pressing that Today-sidebar glyph fires **every enabled
+     `today` task with that key**, each as its own message — so create as many
+     per glyph as the user wants.
 
    **Refine a recurring cadence** (both optional, both recurring-only):
    - **Weekdays** — "on weekdays", "Mon–Fri", "Tue & Thu" → `--weekdays` as an
@@ -49,13 +54,13 @@ list). Run `assist-ant task <sub> --help` if unsure of a flag.
    ```bash
    assist-ant task add \
      --name '<name>' \
-     --trigger <recurring|one_shot|manual> \
+     --trigger <recurring|one_shot|manual|today> \
      [--cadence interval --interval-seconds <N>] \
      [--cadence daily --daily-time HH:MM] \
      [--weekdays 1,2,3,4,5] \
      [--window-start HH:MM --window-end HH:MM] \
      [--run-at <ISO8601>] \
-     [--manual-key <KEY>] \
+     [--today-key calendar_refresh|todo_refresh] \
      [--disabled] \
      --prompt '<prompt>'      # or --prompt-file '<path>'
    ```
@@ -72,8 +77,10 @@ list). Run `assist-ant task <sub> --help` if unsure of a flag.
 
 ## Notes
 
-- Tasks authored now are **inert** — there is no runner yet, so a new task sits
-  enabled but doesn't fire. Say so if the user expects it to run immediately.
+- `manual` and `today` tasks fire on demand (the ▶ button, or the matching
+  Today refresh glyph for `today`). Scheduled `recurring` / `one_shot` tasks
+  don't fire on their own yet — no heartbeat — so say so if the user expects one
+  to run on its schedule.
 - The CLI validates the trigger/cadence combo and exits non-zero on a bad one
   (e.g. `recurring` with no `--cadence`); the app re-validates and replies
   `{"ok":false,"error":…}` if it still refuses. Surface the error, don't retry

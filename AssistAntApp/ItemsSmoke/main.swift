@@ -1271,7 +1271,7 @@ func newTask(
     windowStart: String? = nil,
     windowEnd: String? = nil,
     runAt: Date? = nil,
-    manualKey: String? = nil,
+    todayKey: String? = nil,
     prompt: String = "do the thing",
     enabled: Bool = true,
     lastRunAt: Date? = nil,
@@ -1281,7 +1281,7 @@ func newTask(
         id: UUIDv7.generate(), name: name, triggerType: triggerType,
         cadenceKind: cadenceKind, intervalSeconds: intervalSeconds,
         dailyTime: dailyTime, weekdays: weekdays, windowStart: windowStart,
-        windowEnd: windowEnd, runAt: runAt, manualKey: manualKey,
+        windowEnd: windowEnd, runAt: runAt, todayKey: todayKey,
         prompt: prompt, enabled: enabled, lastRunAt: lastRunAt,
         position: position, createdAt: Date(), updatedAt: Date())
 }
@@ -1299,15 +1299,15 @@ func newRun(
 
 // T1. A fresh in-memory DB migrated through the real migrator seeds the two
 //     built-in manual sync triggers; the run log starts empty.
-check("tasks: migration seeds the two built-in sync triggers") {
+check("tasks: migration seeds the two Today refresh tasks") {
     let (store, _) = try makeTasksStore()
     let all = try store.allTasks()
-    guard let cal = all.first(where: { $0.manualKey == "today_calendar_refresh" }),
-          let todo = all.first(where: { $0.manualKey == "today_todo_refresh" })
+    guard let cal = all.first(where: { $0.todayKey == "calendar_refresh" }),
+          let todo = all.first(where: { $0.todayKey == "todo_refresh" })
     else { return false }
     return try all.count == 2
-        && cal.triggerType == "manual" && cal.enabled && cal.prompt == "Sync my calendar"
-        && todo.triggerType == "manual" && todo.enabled
+        && cal.triggerType == "today" && cal.enabled && cal.prompt == "Sync my calendar"
+        && todo.triggerType == "today" && todo.enabled
         && todo.prompt == "Sync my Linear issues"
         && store.recentRuns().isEmpty
 }
@@ -1323,20 +1323,20 @@ check("tasks: round-trip every trigger type + cadence fields") {
     let oneShot = newTask(name: "ping", triggerType: "one_shot",
                           cadenceKind: nil, intervalSeconds: nil,
                           runAt: Date(timeIntervalSince1970: 1_800_000_000))
-    let manual = newTask(name: "refresh", triggerType: "manual",
-                         cadenceKind: nil, intervalSeconds: nil,
-                         manualKey: "custom_refresh")
-    for t in [interval, daily, oneShot, manual] { try store.create(t) }
+    let today = newTask(name: "refresh", triggerType: "today",
+                        cadenceKind: nil, intervalSeconds: nil,
+                        todayKey: "calendar_refresh")
+    for t in [interval, daily, oneShot, today] { try store.create(t) }
     // Two built-in tasks are seeded by the migration, so assert membership of
     // the four created here rather than an exact total.
     guard let i = try store.task(id: interval.id),
           let d = try store.task(id: daily.id),
           let o = try store.task(id: oneShot.id),
-          let m = try store.task(id: manual.id) else { return false }
+          let m = try store.task(id: today.id) else { return false }
     return i.cadenceKind == "interval" && i.intervalSeconds == 900
         && d.cadenceKind == "daily" && d.dailyTime == "07:00" && d.intervalSeconds == nil
         && o.triggerType == "one_shot" && o.runAt == oneShot.runAt
-        && m.triggerType == "manual" && m.manualKey == "custom_refresh"
+        && m.triggerType == "today" && m.todayKey == "calendar_refresh"
 }
 
 // T3. The write surface Phase 5 drives: update replaces fields in place, and
@@ -1356,7 +1356,7 @@ check("tasks: update + setEnabled write through") {
 // T4. delete removes the task row entirely (the seeded built-ins remain).
 check("tasks: delete removes the row") {
     let (store, _) = try makeTasksStore()
-    let t = newTask(manualKey: "custom_delete")
+    let t = newTask(todayKey: "custom_delete")
     try store.create(t)
     try store.delete(id: t.id)
     return (try store.task(id: t.id)) == nil
@@ -1404,12 +1404,19 @@ check("task_runs: make() encodes sent vs skipped") {
         && skipped.taskID == nil && skipped.prompt == nil
 }
 
-// T8. task(manualKey:) resolves the seeded built-in by its key; nil for unknown.
-check("tasks: task(manualKey:) fetches the seeded built-in") {
+// T8. tasks(todayKey:) returns every task bound to a glyph key (the set the
+//     glyph fires), and is empty for an unknown key.
+check("tasks: tasks(todayKey:) returns all matching, empty for unknown") {
     let (store, _) = try makeTasksStore()
-    guard let cal = try store.task(manualKey: "today_calendar_refresh") else { return false }
-    return try cal.name == "Calendar sync" && cal.triggerType == "manual"
-        && store.task(manualKey: "nope") == nil
+    // A second calendar-keyed Today task alongside the seeded one.
+    try store.create(newTask(name: "Calendar extras", triggerType: "today",
+                             cadenceKind: nil, intervalSeconds: nil,
+                             todayKey: "calendar_refresh"))
+    let cal = try store.tasks(todayKey: "calendar_refresh")
+    return try cal.count == 2
+        && cal.allSatisfy { $0.triggerType == "today" }
+        && cal.contains { $0.name == "Calendar sync" }
+        && store.tasks(todayKey: "nope").isEmpty
 }
 
 // T9. The cadence-precision migration adds the columns and a windowed-interval
@@ -1446,9 +1453,9 @@ check("tasks: weekdaySet parses the mask, unset = every day") {
 //      unranked rows, which fall back to creation order.
 check("tasks: allTasks orders by position, nulls last") {
     let (store, _) = try makeTasksStore()
-    var ranked = newTask(name: "ranked", manualKey: "k1")
+    var ranked = newTask(name: "ranked")
     ranked.position = 10
-    let unranked = newTask(name: "unranked", manualKey: "k2")   // nil position
+    let unranked = newTask(name: "unranked")   // nil position
     try store.create(unranked)   // created first…
     try store.create(ranked)     // …but ranked sorts ahead via position
     let names = try store.allTasks().map { $0.name }
@@ -1466,9 +1473,9 @@ check("tasks: TaskReorder places and renormalizes") {
     let (store, _) = try makeTasksStore()
     // Clear the seeded built-ins so the list is exactly our three.
     for t in try store.allTasks() { try store.delete(id: t.id) }
-    for t in [newTask(name: "a", manualKey: "a"),
-              newTask(name: "b", manualKey: "b"),
-              newTask(name: "c", manualKey: "c")] { try store.create(t) }
+    for t in [newTask(name: "a"), newTask(name: "b"), newTask(name: "c")] {
+        try store.create(t)
+    }
 
     let ids0 = try store.allTasks().map { $0.id }
     guard ids0.count == 3 else { return false }

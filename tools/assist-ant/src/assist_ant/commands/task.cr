@@ -11,8 +11,9 @@ module AssistAnt
     # management always happens with the app up (the agent runs inside it), so an
     # absent reply is an error, not silence — unlike the `sync`/`create` senders.
     class Task
-      VALID_TRIGGERS = {"recurring", "one_shot", "manual"}
-      VALID_CADENCES = {"interval", "daily"}
+      VALID_TRIGGERS   = {"recurring", "one_shot", "manual", "today"}
+      VALID_CADENCES   = {"interval", "daily"}
+      VALID_TODAY_KEYS = {"calendar_refresh", "todo_refresh"}
 
       def run(args : Array(String))
         rest = args.dup
@@ -48,7 +49,7 @@ module AssistAnt
           assist-ant task <subcommand> [options]
 
         SUBCOMMANDS:
-          add            Create a task (recurring, one-shot, or manual).
+          add            Create a task (recurring, one-shot, manual, or today).
           list           List all tasks (JSON).
           update <id>    Change fields on an existing task.
           remove <id>    Delete a task.
@@ -72,7 +73,7 @@ module AssistAnt
         window_start : String? = nil
         window_end : String? = nil
         run_at : String? = nil
-        manual_key : String? = nil
+        today_key : String? = nil
         prompt : String? = nil
         prompt_path : String? = nil
         enabled = true
@@ -81,7 +82,7 @@ module AssistAnt
           p.banner = "Usage: assist-ant task add [options]"
           p.on("-h", "--help", "Show this help") { puts add_help; exit 0 }
           p.on("--name=NAME", "Task name (required)") { |v| name = v }
-          p.on("--trigger=TYPE", "recurring | one_shot | manual (required)") { |v| trigger = v }
+          p.on("--trigger=TYPE", "recurring | one_shot | manual | today (required)") { |v| trigger = v }
           p.on("--cadence=KIND", "recurring: interval | daily") { |v| cadence = v }
           p.on("--interval-seconds=N", "recurring+interval: seconds between runs") { |v| interval_seconds = v.to_i64? }
           p.on("--daily-time=HH:MM", "recurring+daily: local time of day") { |v| daily_time = v }
@@ -89,7 +90,7 @@ module AssistAnt
           p.on("--window-start=HH:MM", "recurring+interval: window open") { |v| window_start = v }
           p.on("--window-end=HH:MM", "recurring+interval: window close") { |v| window_end = v }
           p.on("--run-at=ISO8601", "one_shot: fire time (omit → next tick)") { |v| run_at = v }
-          p.on("--manual-key=KEY", "manual: built-in trigger key") { |v| manual_key = v }
+          p.on("--today-key=KEY", "today: which refresh glyph (calendar_refresh | todo_refresh)") { |v| today_key = v }
           p.on("--prompt=TEXT", "The prompt sent to the agent") { |v| prompt = v }
           p.on("--prompt-file=PATH", "Read the prompt from a file (multi-line)") { |v| prompt_path = v }
           p.on("--disabled", "Create disabled (default: enabled)") { enabled = false }
@@ -105,7 +106,7 @@ module AssistAnt
         resolved_prompt = resolve_prompt(prompt, prompt_path)
         validate_trigger(
           trigger, cadence, interval_seconds, daily_time,
-          weekdays, window_start, window_end)
+          weekdays, window_start, window_end, today_key)
 
         detail = {} of String => JSON::Any
         detail["name"] = JSON::Any.new(name)
@@ -133,8 +134,8 @@ module AssistAnt
         if r = run_at
           detail["run_at"] = JSON::Any.new(r)
         end
-        if k = manual_key
-          detail["manual_key"] = JSON::Any.new(k)
+        if k = today_key
+          detail["today_key"] = JSON::Any.new(k)
         end
 
         ack = request_ack("task.create", detail)
@@ -180,7 +181,7 @@ module AssistAnt
         window_start : String? = nil
         window_end : String? = nil
         run_at : String? = nil
-        manual_key : String? = nil
+        today_key : String? = nil
         prompt : String? = nil
         prompt_path : String? = nil
 
@@ -188,7 +189,7 @@ module AssistAnt
           p.banner = "Usage: assist-ant task update <id> [options]"
           p.on("-h", "--help", "Show this help") { puts update_help; exit 0 }
           p.on("--name=NAME", "New task name") { |v| name = v }
-          p.on("--trigger=TYPE", "recurring | one_shot | manual") { |v| trigger = v }
+          p.on("--trigger=TYPE", "recurring | one_shot | manual | today") { |v| trigger = v }
           p.on("--cadence=KIND", "recurring: interval | daily") { |v| cadence = v }
           p.on("--interval-seconds=N", "recurring+interval: seconds between runs") { |v| interval_seconds = v.to_i64? }
           p.on("--daily-time=HH:MM", "recurring+daily: local time of day") { |v| daily_time = v }
@@ -196,7 +197,7 @@ module AssistAnt
           p.on("--window-start=HH:MM", "recurring+interval: window open") { |v| window_start = v }
           p.on("--window-end=HH:MM", "recurring+interval: window close") { |v| window_end = v }
           p.on("--run-at=ISO8601", "one_shot: fire time") { |v| run_at = v }
-          p.on("--manual-key=KEY", "manual: built-in trigger key") { |v| manual_key = v }
+          p.on("--today-key=KEY", "today: which refresh glyph (calendar_refresh | todo_refresh)") { |v| today_key = v }
           p.on("--prompt=TEXT", "New prompt") { |v| prompt = v }
           p.on("--prompt-file=PATH", "Read the new prompt from a file") { |v| prompt_path = v }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant task update") }
@@ -235,8 +236,8 @@ module AssistAnt
         if r = run_at
           detail["run_at"] = JSON::Any.new(r)
         end
-        if k = manual_key
-          detail["manual_key"] = JSON::Any.new(k)
+        if k = today_key
+          detail["today_key"] = JSON::Any.new(k)
         end
         if prompt || prompt_path
           detail["prompt"] = JSON::Any.new(resolve_prompt(prompt, prompt_path))
@@ -336,6 +337,7 @@ module AssistAnt
         trigger : String, cadence : String?,
         interval_seconds : Int64?, daily_time : String?,
         weekdays : String?, window_start : String?, window_end : String?,
+        today_key : String?,
       )
         if w = weekdays
           unless valid_weekday_mask?(w)
@@ -366,6 +368,12 @@ module AssistAnt
           end
         end
 
+        # A Today-glyph key belongs only to a `today` task.
+        if today_key && trigger != "today"
+          STDERR.puts "Error: --today-key only applies to --trigger today"
+          exit 1
+        end
+
         case trigger
         when "recurring"
           unless (c = cadence) && VALID_CADENCES.includes?(c)
@@ -383,6 +391,11 @@ module AssistAnt
               STDERR.puts "Error: --cadence daily requires --daily-time HH:MM"
               exit 1
             end
+          end
+        when "today"
+          unless (k = today_key) && VALID_TODAY_KEYS.includes?(k)
+            STDERR.puts "Error: --trigger today requires --today-key calendar_refresh|todo_refresh"
+            exit 1
           end
         when "manual", "one_shot"
           # No required cadence fields. one_shot's --run-at is optional (omit →
@@ -414,7 +427,7 @@ module AssistAnt
 
         REQUIRED:
           --name NAME            Task name
-          --trigger TYPE         recurring | one_shot | manual
+          --trigger TYPE         recurring | one_shot | manual | today
           --prompt TEXT          The prompt sent to the agent
                                  (or --prompt-file PATH for multi-line)
 
@@ -422,7 +435,9 @@ module AssistAnt
           recurring:  --cadence interval --interval-seconds N
                       --cadence daily --daily-time HH:MM
           one_shot:   --run-at ISO8601   (omit → fire on the next tick)
-          manual:     --manual-key KEY   (built-in trigger binding)
+          manual:     (no options — runs only from the ▶ button)
+          today:      --today-key calendar_refresh | todo_refresh
+                      (fires when its Today sidebar refresh glyph is pressed)
 
         RECURRING REFINEMENTS (optional):
           --weekdays LIST        ISO weekday mask, 1=Mon..7=Sun (e.g. 1,2,3,4,5);
@@ -447,6 +462,8 @@ module AssistAnt
             --prompt "Check my progress"
           assist-ant task add --name "EOD wrap" --trigger one_shot \\
             --run-at 2026-06-15T17:00:00 --prompt "Wrap up the day"
+          assist-ant task add --name "Calendar sync" --trigger today \\
+            --today-key calendar_refresh --prompt "Sync my calendar"
         HELP
       end
 
@@ -480,7 +497,7 @@ module AssistAnt
           --window-start HH:MM   recurring+interval window open
           --window-end HH:MM     recurring+interval window close
           --run-at ISO8601       one_shot fire time
-          --manual-key KEY       manual trigger key
+          --today-key KEY        today: calendar_refresh | todo_refresh
           --prompt TEXT          New prompt (or --prompt-file PATH)
           --prompt-file PATH     Read the new prompt from a file
           -h, --help             Show this help
