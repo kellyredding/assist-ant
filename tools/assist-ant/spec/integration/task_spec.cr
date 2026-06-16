@@ -82,6 +82,76 @@ describe "assist-ant task" do
       end
     end
 
+    it "sends weekdays + window for a windowed-interval task" do
+      with_task_reply_server(%({"ok":true,"id":"t4","name":"Progress check"})) do |sock, channel|
+        result = run_binary(
+          [binary, "task", "add",
+           "--name", "Progress check", "--trigger", "recurring",
+           "--cadence", "interval", "--interval-seconds", "3600",
+           "--window-start", "08:55", "--window-end", "16:55",
+           "--weekdays", "1,2,3,4,5", "--prompt", "Check my progress"],
+          env: {"ASSIST_ANT_SOCKET" => sock},
+        )
+        result[:status].success?.should be_true
+
+        detail = JSON.parse(channel.receive)["detail_data"]
+        detail["cadence_kind"].should eq "interval"
+        detail["interval_seconds"].as_i.should eq 3600
+        detail["window_start"].should eq "08:55"
+        detail["window_end"].should eq "16:55"
+        detail["weekdays"].should eq "1,2,3,4,5"
+      end
+    end
+
+    it "rejects a window on a daily cadence (interval only)" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "recurring",
+         "--cadence", "daily", "--daily-time", "08:55",
+         "--window-start", "08:55", "--window-end", "16:55", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "interval"
+    end
+
+    it "rejects half a window (start without end)" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "recurring",
+         "--cadence", "interval", "--interval-seconds", "3600",
+         "--window-start", "08:55", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "both"
+    end
+
+    it "rejects a window whose start is not before its end" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "recurring",
+         "--cadence", "interval", "--interval-seconds", "3600",
+         "--window-start", "16:55", "--window-end", "08:55", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "earlier"
+    end
+
+    it "rejects an out-of-range weekday mask" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "recurring",
+         "--cadence", "daily", "--daily-time", "08:55",
+         "--weekdays", "1,8", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "weekdays"
+    end
+
+    it "rejects --weekdays on a one_shot task" do
+      result = run_binary(
+        [binary, "task", "add",
+         "--name", "x", "--trigger", "one_shot",
+         "--weekdays", "1,2,3", "--prompt", "p"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "recurring"
+    end
+
     it "carries --disabled through as enabled=false" do
       with_task_reply_server(%({"ok":true,"id":"t3","name":"Off"})) do |sock, channel|
         result = run_binary(

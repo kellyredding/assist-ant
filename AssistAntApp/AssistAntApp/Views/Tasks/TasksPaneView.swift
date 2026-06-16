@@ -161,8 +161,12 @@ private struct TaskRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Sizes to its content (≥96 so simple triggers still align), letting
+            // a windowed/weekday summary like "every 1h · 08:55–16:55 · Mon–Fri"
+            // show in full while the name column absorbs the remaining width.
             TriggerBadge(text: TaskFormat.triggerSummary(task))
-                .frame(width: 96, alignment: .leading)
+                .frame(minWidth: 96, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
 
             nameLine
                 .lineLimit(1)
@@ -273,16 +277,15 @@ private enum TaskFormat {
     static func triggerSummary(_ task: AgentTask) -> String {
         switch task.triggerType {
         case "recurring":
-            switch task.cadenceKind {
-            case "interval":
-                if let s = task.intervalSeconds { return "every \(intervalText(s))" }
-                return "recurring"
-            case "daily":
-                if let t = task.dailyTime { return "daily \(t)" }
-                return "daily"
-            default:
-                return "recurring"
+            // Base cadence, then the interval's time window, then the weekday
+            // mask: "every 1h · 08:55–16:55 · Mon–Fri", "daily 08:55 · Mon–Fri".
+            var parts = [cadenceText(task)]
+            if task.cadenceKind == "interval",
+               let s = task.windowStart, let e = task.windowEnd {
+                parts.append("\(s)–\(e)")
             }
+            if let weekdays = weekdayText(task.weekdaySet) { parts.append(weekdays) }
+            return parts.joined(separator: " · ")
         case "one_shot":
             return "one-shot"
         case "manual":
@@ -290,6 +293,46 @@ private enum TaskFormat {
         default:
             return task.triggerType
         }
+    }
+
+    /// The bare recurring cadence, before any weekday/window refinement.
+    private static func cadenceText(_ task: AgentTask) -> String {
+        switch task.cadenceKind {
+        case "interval":
+            if let s = task.intervalSeconds { return "every \(intervalText(s))" }
+            return "recurring"
+        case "daily":
+            if let t = task.dailyTime { return "daily \(t)" }
+            return "daily"
+        default:
+            return "recurring"
+        }
+    }
+
+    /// An ISO-weekday set (1=Mon…7=Sun) as compact text: a contiguous run of
+    /// three or more becomes a range ("Mon–Fri"), shorter runs and isolated days
+    /// join with commas ("Mon, Wed, Fri"). Returns nil for the full week — every
+    /// day needs no qualifier — so an unfiltered task shows just its cadence.
+    static func weekdayText(_ days: Set<Int>) -> String? {
+        let sorted = days.sorted()
+        guard !sorted.isEmpty, sorted != Array(1...7) else { return nil }
+        let names = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        var parts: [String] = []
+        var runStart = sorted[0]
+        var prev = sorted[0]
+        func flush() {
+            if prev - runStart >= 2 {
+                parts.append("\(names[runStart])–\(names[prev])")
+            } else {
+                for d in runStart...prev { parts.append(names[d]) }
+            }
+        }
+        for d in sorted.dropFirst() {
+            if d == prev + 1 { prev = d; continue }
+            flush(); runStart = d; prev = d
+        }
+        flush()
+        return parts.joined(separator: ", ")
     }
 
     /// A compact interval, snapping to the largest whole unit (900 → "15m",

@@ -1267,6 +1267,9 @@ func newTask(
     cadenceKind: String? = "interval",
     intervalSeconds: Int? = 900,
     dailyTime: String? = nil,
+    weekdays: String? = nil,
+    windowStart: String? = nil,
+    windowEnd: String? = nil,
     runAt: Date? = nil,
     manualKey: String? = nil,
     prompt: String = "do the thing",
@@ -1276,7 +1279,8 @@ func newTask(
     AgentTask(
         id: UUIDv7.generate(), name: name, triggerType: triggerType,
         cadenceKind: cadenceKind, intervalSeconds: intervalSeconds,
-        dailyTime: dailyTime, runAt: runAt, manualKey: manualKey,
+        dailyTime: dailyTime, weekdays: weekdays, windowStart: windowStart,
+        windowEnd: windowEnd, runAt: runAt, manualKey: manualKey,
         prompt: prompt, enabled: enabled, lastRunAt: lastRunAt,
         createdAt: Date(), updatedAt: Date())
 }
@@ -1399,6 +1403,36 @@ check("tasks: task(manualKey:) fetches the seeded built-in") {
     guard let cal = try store.task(manualKey: "today_calendar_refresh") else { return false }
     return try cal.name == "Calendar sync" && cal.triggerType == "manual"
         && store.task(manualKey: "nope") == nil
+}
+
+// T9. The cadence-precision migration adds the columns and a windowed-interval
+//     task (weekdays + window_start/window_end) round-trips through the store.
+check("tasks: weekdays + window round-trip through the store") {
+    let (store, _) = try makeTasksStore()
+    let windowed = newTask(
+        name: "Progress check", triggerType: "recurring",
+        cadenceKind: "interval", intervalSeconds: 3600,
+        weekdays: "1,2,3,4,5", windowStart: "08:55", windowEnd: "16:55")
+    try store.create(windowed)
+    guard let w = try store.task(id: windowed.id) else { return false }
+    return w.weekdays == "1,2,3,4,5"
+        && w.windowStart == "08:55" && w.windowEnd == "16:55"
+        && w.intervalSeconds == 3600
+}
+
+// T10. weekdaySet parses the mask; a nil, empty, or all-out-of-range mask
+//      resolves to the full week, and out-of-range entries are dropped.
+check("tasks: weekdaySet parses the mask, unset = every day") {
+    let weekdays = newTask(weekdays: "1,2,3,4,5").weekdaySet
+    let single = newTask(weekdays: "2,4").weekdaySet
+    let unset = newTask(weekdays: nil).weekdaySet
+    let empty = newTask(weekdays: "").weekdaySet
+    let junk = newTask(weekdays: "0,9, 3 ").weekdaySet   // drops 0/9, keeps 3
+    return weekdays == Set([1, 2, 3, 4, 5])
+        && single == Set([2, 4])
+        && unset == Set(1...7)
+        && empty == Set(1...7)
+        && junk == Set([3])
 }
 
 print(failures == 0

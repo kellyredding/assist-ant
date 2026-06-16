@@ -18,18 +18,23 @@ extension AgentTask {
         let cadence = e.detailValue("cadence_kind", as: String.self)
         let interval = envelopeInt(e, "interval_seconds")
         let dailyTime = e.detailValue("daily_time", as: String.self)
+        let weekdays = e.detailValue("weekdays", as: String.self)
+        let windowStart = e.detailValue("window_start", as: String.self)
+        let windowEnd = e.detailValue("window_end", as: String.self)
         let runAt = envelopeDate(e, "run_at")
         let manualKey = e.detailValue("manual_key", as: String.self)
         let enabled = e.detailValue("enabled", as: Bool.self) ?? true
 
         guard AgentTask.isValidTrigger(
-            trigger, cadence: cadence, intervalSeconds: interval, dailyTime: dailyTime
+            trigger, cadence: cadence, intervalSeconds: interval, dailyTime: dailyTime,
+            weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd
         ) else { return nil }
 
         let now = Date()
         self.init(
             id: UUIDv7.generate(), name: name, triggerType: trigger,
             cadenceKind: cadence, intervalSeconds: interval, dailyTime: dailyTime,
+            weekdays: weekdays, windowStart: windowStart, windowEnd: windowEnd,
             runAt: runAt, manualKey: manualKey, prompt: prompt, enabled: enabled,
             lastRunAt: nil, createdAt: now, updatedAt: now)
     }
@@ -45,6 +50,9 @@ extension AgentTask {
         if let v = e.detailValue("cadence_kind", as: String.self) { t.cadenceKind = v }
         if let v = envelopeInt(e, "interval_seconds") { t.intervalSeconds = v }
         if let v = e.detailValue("daily_time", as: String.self) { t.dailyTime = v }
+        if let v = e.detailValue("weekdays", as: String.self) { t.weekdays = v }
+        if let v = e.detailValue("window_start", as: String.self) { t.windowStart = v }
+        if let v = e.detailValue("window_end", as: String.self) { t.windowEnd = v }
         if let v = envelopeDate(e, "run_at") { t.runAt = v }
         if let v = e.detailValue("manual_key", as: String.self) { t.manualKey = v }
         if let v = e.detailValue("prompt", as: String.self), !v.isEmpty { t.prompt = v }
@@ -52,7 +60,8 @@ extension AgentTask {
 
         guard AgentTask.isValidTrigger(
             t.triggerType, cadence: t.cadenceKind,
-            intervalSeconds: t.intervalSeconds, dailyTime: t.dailyTime
+            intervalSeconds: t.intervalSeconds, dailyTime: t.dailyTime,
+            weekdays: t.weekdays, windowStart: t.windowStart, windowEnd: t.windowEnd
         ) else { return nil }
         return t
     }
@@ -70,6 +79,9 @@ extension AgentTask {
         if let cadenceKind { d["cadence_kind"] = cadenceKind }
         if let intervalSeconds { d["interval_seconds"] = intervalSeconds }
         if let dailyTime { d["daily_time"] = dailyTime }
+        if let weekdays { d["weekdays"] = weekdays }
+        if let windowStart { d["window_start"] = windowStart }
+        if let windowEnd { d["window_end"] = windowEnd }
         if let runAt { d["run_at"] = Self.iso8601.string(from: runAt) }
         if let manualKey { d["manual_key"] = manualKey }
         if let lastRunAt { d["last_run_at"] = Self.iso8601.string(from: lastRunAt) }
@@ -79,10 +91,28 @@ extension AgentTask {
     /// Trigger/cadence validity, shared by create and update. recurring needs a
     /// cadence (interval → a positive interval; daily → an HH:MM time);
     /// one_shot and manual carry no required cadence fields.
+    ///
+    /// Cadence precision adds two optional refinements, both recurring-only: a
+    /// `weekdays` mask (every entry an ISO weekday 1…7) usable with either
+    /// cadence, and a `windowStart`/`windowEnd` pair (both-or-neither, HH:MM,
+    /// open strictly before close) usable only with `interval`. A non-recurring
+    /// trigger carrying either is rejected so a malformed payload can't smuggle
+    /// cadence fields onto a one-shot or manual task.
     static func isValidTrigger(
         _ trigger: String, cadence: String?,
-        intervalSeconds: Int?, dailyTime: String?
+        intervalSeconds: Int?, dailyTime: String?,
+        weekdays: String? = nil, windowStart: String? = nil, windowEnd: String? = nil
     ) -> Bool {
+        if let weekdays, !isValidWeekdayMask(weekdays) { return false }
+
+        let hasWindow = windowStart != nil || windowEnd != nil
+        if hasWindow {
+            guard trigger == "recurring", cadence == "interval",
+                  let s = windowStart, let e = windowEnd,
+                  isValidClock(s), isValidClock(e), s < e
+            else { return false }
+        }
+
         switch trigger {
         case "recurring":
             switch cadence {
@@ -93,9 +123,29 @@ extension AgentTask {
             default: return false
             }
         case "one_shot", "manual":
-            return true
+            // Weekday/window are recurring-only; a non-recurring trigger must
+            // carry neither (the window pairing above already fails for these).
+            return weekdays == nil && !hasWindow
         default:
             return false
+        }
+    }
+
+    /// "HH:MM", the same shape as `dailyTime`. Lexicographic comparison of two
+    /// such fixed-width strings orders them by time, so `start < end` suffices.
+    private static func isValidClock(_ s: String) -> Bool {
+        s.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil
+    }
+
+    /// A non-empty comma list of ISO weekdays, each in 1…7.
+    private static func isValidWeekdayMask(_ s: String) -> Bool {
+        let parts = s.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        guard !parts.isEmpty else { return false }
+        return parts.allSatisfy {
+            guard let n = Int($0) else { return false }
+            return (1...7).contains(n)
         }
     }
 

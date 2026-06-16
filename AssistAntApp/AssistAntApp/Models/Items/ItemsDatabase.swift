@@ -213,6 +213,21 @@ final class ItemsDatabase {
             try seed("Linear sync", AgentTask.todoRefreshKey, "Sync my Linear issues")
         }
 
+        // Cadence precision for recurring tasks. `weekdays` is an ISO-weekday
+        // mask ("1,2,3,4,5", 1=Mon…7=Sun; NULL = every day) that narrows both
+        // daily and interval recurrence; `window_start`/`window_end` ("HH:MM"
+        // local) anchor an interval inside a daily window, so "every hour at :55
+        // from 8 to 5" is one task instead of ten dailies. All nullable/additive,
+        // so existing rows keep firing as every-day, no window. The Phase 4
+        // due-eval reads these.
+        migrator.registerMigration("addTaskCadencePrecision") { db in
+            try db.alter(table: "tasks") { t in
+                t.add(column: "weekdays", .text)
+                t.add(column: "window_start", .text)
+                t.add(column: "window_end", .text)
+            }
+        }
+
         return migrator
     }
 }

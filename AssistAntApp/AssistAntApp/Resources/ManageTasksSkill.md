@@ -28,9 +28,16 @@ list). Run `assist-ant task <sub> --help` if unsure of a flag.
    - "when I hit the calendar refresh" / a built-in hook → `manual`
      (`--manual-key KEY`).
 
-   State anything you couldn't honor: the schema has **no work-hours window or
-   weekday filter** — map "every weekday at 9" to the nearest daily/interval and
-   say so.
+   **Refine a recurring cadence** (both optional, both recurring-only):
+   - **Weekdays** — "on weekdays", "Mon–Fri", "Tue & Thu" → `--weekdays` as an
+     ISO mask, `1`=Mon … `7`=Sun (Mon–Fri = `1,2,3,4,5`; Tue & Thu = `2,4`).
+     Applies to `interval` and `daily`. Omit for every day.
+   - **Windowed interval** — "every hour at :55 from 8 to 5", "hourly during work
+     hours" → `interval` plus `--window-start`/`--window-end` (both `HH:MM`
+     local), which anchor the interval inside a daily window. So "every hour at
+     :55 from 8 to 5 on weekdays" is **one** task: `--cadence interval
+     --interval-seconds 3600 --window-start 08:55 --window-end 16:55 --weekdays
+     1,2,3,4,5` — not ten dailies. The window is interval-only.
 
 2. **Compose name + prompt.** A short imperative name ("Linear sync", "Morning
    brief"); the prompt is the instruction you'll later carry out. For a
@@ -45,6 +52,8 @@ list). Run `assist-ant task <sub> --help` if unsure of a flag.
      --trigger <recurring|one_shot|manual> \
      [--cadence interval --interval-seconds <N>] \
      [--cadence daily --daily-time HH:MM] \
+     [--weekdays 1,2,3,4,5] \
+     [--window-start HH:MM --window-end HH:MM] \
      [--run-at <ISO8601>] \
      [--manual-key <KEY>] \
      [--disabled] \

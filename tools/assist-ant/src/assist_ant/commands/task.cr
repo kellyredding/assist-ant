@@ -68,6 +68,9 @@ module AssistAnt
         cadence : String? = nil
         interval_seconds : Int64? = nil
         daily_time : String? = nil
+        weekdays : String? = nil
+        window_start : String? = nil
+        window_end : String? = nil
         run_at : String? = nil
         manual_key : String? = nil
         prompt : String? = nil
@@ -82,6 +85,9 @@ module AssistAnt
           p.on("--cadence=KIND", "recurring: interval | daily") { |v| cadence = v }
           p.on("--interval-seconds=N", "recurring+interval: seconds between runs") { |v| interval_seconds = v.to_i64? }
           p.on("--daily-time=HH:MM", "recurring+daily: local time of day") { |v| daily_time = v }
+          p.on("--weekdays=LIST", "recurring: ISO weekday mask, e.g. 1,2,3,4,5 (Mon..Sun)") { |v| weekdays = v }
+          p.on("--window-start=HH:MM", "recurring+interval: window open") { |v| window_start = v }
+          p.on("--window-end=HH:MM", "recurring+interval: window close") { |v| window_end = v }
           p.on("--run-at=ISO8601", "one_shot: fire time (omit → next tick)") { |v| run_at = v }
           p.on("--manual-key=KEY", "manual: built-in trigger key") { |v| manual_key = v }
           p.on("--prompt=TEXT", "The prompt sent to the agent") { |v| prompt = v }
@@ -97,7 +103,9 @@ module AssistAnt
           exit 1
         end
         resolved_prompt = resolve_prompt(prompt, prompt_path)
-        validate_trigger(trigger, cadence, interval_seconds, daily_time)
+        validate_trigger(
+          trigger, cadence, interval_seconds, daily_time,
+          weekdays, window_start, window_end)
 
         detail = {} of String => JSON::Any
         detail["name"] = JSON::Any.new(name)
@@ -112,6 +120,15 @@ module AssistAnt
         end
         if t = daily_time
           detail["daily_time"] = JSON::Any.new(t)
+        end
+        if w = weekdays
+          detail["weekdays"] = JSON::Any.new(w)
+        end
+        if ws = window_start
+          detail["window_start"] = JSON::Any.new(ws)
+        end
+        if we = window_end
+          detail["window_end"] = JSON::Any.new(we)
         end
         if r = run_at
           detail["run_at"] = JSON::Any.new(r)
@@ -159,6 +176,9 @@ module AssistAnt
         cadence : String? = nil
         interval_seconds : Int64? = nil
         daily_time : String? = nil
+        weekdays : String? = nil
+        window_start : String? = nil
+        window_end : String? = nil
         run_at : String? = nil
         manual_key : String? = nil
         prompt : String? = nil
@@ -172,6 +192,9 @@ module AssistAnt
           p.on("--cadence=KIND", "recurring: interval | daily") { |v| cadence = v }
           p.on("--interval-seconds=N", "recurring+interval: seconds between runs") { |v| interval_seconds = v.to_i64? }
           p.on("--daily-time=HH:MM", "recurring+daily: local time of day") { |v| daily_time = v }
+          p.on("--weekdays=LIST", "recurring: ISO weekday mask, e.g. 1,2,3,4,5 (Mon..Sun)") { |v| weekdays = v }
+          p.on("--window-start=HH:MM", "recurring+interval: window open") { |v| window_start = v }
+          p.on("--window-end=HH:MM", "recurring+interval: window close") { |v| window_end = v }
           p.on("--run-at=ISO8601", "one_shot: fire time") { |v| run_at = v }
           p.on("--manual-key=KEY", "manual: built-in trigger key") { |v| manual_key = v }
           p.on("--prompt=TEXT", "New prompt") { |v| prompt = v }
@@ -199,6 +222,15 @@ module AssistAnt
         end
         if t = daily_time
           detail["daily_time"] = JSON::Any.new(t)
+        end
+        if w = weekdays
+          detail["weekdays"] = JSON::Any.new(w)
+        end
+        if ws = window_start
+          detail["window_start"] = JSON::Any.new(ws)
+        end
+        if we = window_end
+          detail["window_end"] = JSON::Any.new(we)
         end
         if r = run_at
           detail["run_at"] = JSON::Any.new(r)
@@ -296,11 +328,44 @@ module AssistAnt
       end
 
       # Validate the trigger/cadence combination before sending (the app
-      # re-validates, but a local check gives a clear, fast error).
+      # re-validates, but a local check gives a clear, fast error). Mirrors
+      # AgentTask.isValidTrigger: a weekday mask is recurring-only (either
+      # cadence); a time window is interval-only and both-or-neither, HH:MM, open
+      # before close.
       private def validate_trigger(
         trigger : String, cadence : String?,
         interval_seconds : Int64?, daily_time : String?,
+        weekdays : String?, window_start : String?, window_end : String?,
       )
+        if w = weekdays
+          unless valid_weekday_mask?(w)
+            STDERR.puts "Error: --weekdays must be a comma list of ISO weekdays 1..7 (Mon..Sun), e.g. 1,2,3,4,5"
+            exit 1
+          end
+        end
+
+        has_window = !window_start.nil? || !window_end.nil?
+        if has_window
+          unless trigger == "recurring" && cadence == "interval"
+            STDERR.puts "Error: --window-start/--window-end require --trigger recurring --cadence interval"
+            exit 1
+          end
+          s = window_start
+          e = window_end
+          if s.nil? || e.nil?
+            STDERR.puts "Error: a window needs both --window-start and --window-end"
+            exit 1
+          end
+          unless s =~ /\A\d{2}:\d{2}\z/ && e =~ /\A\d{2}:\d{2}\z/
+            STDERR.puts "Error: --window-start/--window-end must be HH:MM"
+            exit 1
+          end
+          unless s < e
+            STDERR.puts "Error: --window-start must be earlier than --window-end"
+            exit 1
+          end
+        end
+
         case trigger
         when "recurring"
           unless (c = cadence) && VALID_CADENCES.includes?(c)
@@ -321,7 +386,22 @@ module AssistAnt
           end
         when "manual", "one_shot"
           # No required cadence fields. one_shot's --run-at is optional (omit →
-          # next tick); manual fires on demand.
+          # next tick); manual fires on demand. A weekday mask is recurring-only
+          # (a window is already refused above, requiring interval).
+          if weekdays
+            STDERR.puts "Error: --weekdays only applies to a recurring task"
+            exit 1
+          end
+        end
+      end
+
+      # A non-empty comma list of ISO weekdays, each in 1..7.
+      private def valid_weekday_mask?(s : String) : Bool
+        parts = s.split(",").map(&.strip)
+        return false if parts.empty?
+        parts.all? do |p|
+          n = p.to_i?
+          !n.nil? && n >= 1 && n <= 7
         end
       end
 
@@ -344,6 +424,12 @@ module AssistAnt
           one_shot:   --run-at ISO8601   (omit → fire on the next tick)
           manual:     --manual-key KEY   (built-in trigger binding)
 
+        RECURRING REFINEMENTS (optional):
+          --weekdays LIST        ISO weekday mask, 1=Mon..7=Sun (e.g. 1,2,3,4,5);
+                                 applies to interval and daily. Omit = every day.
+          --window-start HH:MM   Interval only: anchor the interval inside a daily
+          --window-end HH:MM     window (both required). Omit = run continuously.
+
         OTHER OPTIONS:
           --prompt-file PATH     Read the prompt from a file (multi-line)
           --disabled             Create disabled (default: enabled)
@@ -353,7 +439,12 @@ module AssistAnt
           assist-ant task add --name "Linear sync" --trigger recurring \\
             --cadence interval --interval-seconds 900 --prompt "Sync my Linear issues"
           assist-ant task add --name "Morning brief" --trigger recurring \\
-            --cadence daily --daily-time 07:00 --prompt "Summarize today's calendar"
+            --cadence daily --daily-time 07:00 --weekdays 1,2,3,4,5 \\
+            --prompt "Summarize today's calendar"
+          assist-ant task add --name "Progress check" --trigger recurring \\
+            --cadence interval --interval-seconds 3600 \\
+            --window-start 08:55 --window-end 16:55 --weekdays 1,2,3,4,5 \\
+            --prompt "Check my progress"
           assist-ant task add --name "EOD wrap" --trigger one_shot \\
             --run-at 2026-06-15T17:00:00 --prompt "Wrap up the day"
         HELP
@@ -385,6 +476,9 @@ module AssistAnt
           --cadence KIND         interval | daily
           --interval-seconds N   recurring+interval seconds
           --daily-time HH:MM     recurring+daily local time
+          --weekdays LIST        recurring weekday mask, e.g. 1,2,3,4,5 (Mon..Sun)
+          --window-start HH:MM   recurring+interval window open
+          --window-end HH:MM     recurring+interval window close
           --run-at ISO8601       one_shot fire time
           --manual-key KEY       manual trigger key
           --prompt TEXT          New prompt (or --prompt-file PATH)
