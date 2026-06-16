@@ -82,7 +82,7 @@ struct TodayItemsView: View {
                 help: "Re-sync calendar with the agent"
             ) {
                 model.refresh()
-                CalendarSyncCoordinator.shared.requestSync()
+                TaskRunner.runCalendarGlyph()
             }
         }
     }
@@ -151,7 +151,7 @@ struct TodayItemsView: View {
                 help: "Re-sync to-dos with the agent"
             ) {
                 model.refresh()
-                LinearSyncCoordinator.shared.requestSync()
+                TaskRunner.runLinearGlyph()
             }
         }
     }

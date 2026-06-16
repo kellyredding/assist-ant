@@ -65,6 +65,12 @@ final class TasksModel: ObservableObject {
         }
     }
 
+    /// Fire a task now from the Tasks tab (the run-now ▶). The runner delivers
+    /// the prompt, records the run, and refreshes this model so the log updates.
+    func runNow(_ task: AgentTask) {
+        TaskRunner.run(task, trigger: "run_now")
+    }
+
     private func load(spinner: Bool) {
         if spinner { isLoading = true }
         do {

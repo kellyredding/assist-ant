@@ -38,6 +38,16 @@ final class TasksStore {
         try dbQueue.read { db in try AgentTask.fetchOne(db, key: id) }
     }
 
+    /// Fetch a task by its manual-trigger key (used to resolve the seeded
+    /// built-in sync tasks). First match if more than one shares a key.
+    func task(manualKey: String) throws -> AgentTask? {
+        try dbQueue.read { db in
+            try AgentTask
+                .filter(sql: "manual_key = ?", arguments: [manualKey])
+                .fetchOne(db)
+        }
+    }
+
     /// Insert a new task, stamping created/updated locally.
     func create(_ task: AgentTask) throws {
         var task = task

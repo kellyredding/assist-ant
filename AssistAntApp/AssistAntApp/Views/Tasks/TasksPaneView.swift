@@ -89,6 +89,7 @@ struct TasksPaneView: View {
                 ForEach(model.tasks, id: \.id) { task in
                     TaskRowView(
                         task: task,
+                        onRunNow: { model.runNow(task) },
                         onToggle: { model.setEnabled(task, $0) },
                         onDelete: { pendingDelete = task }
                     )
@@ -152,6 +153,7 @@ struct TasksPaneView: View {
 /// no reader in this phase.
 private struct TaskRowView: View {
     let task: AgentTask
+    let onRunNow: () -> Void
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
 
@@ -174,12 +176,9 @@ private struct TaskRowView: View {
                     .lineLimit(1)
             }
 
-            // Run-now placeholder: inert until the runner lands (a later phase).
-            Image(systemName: "play.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(.quaternary)
-                .frame(width: 24, height: 24)
-                .help("Run now — available once the task runner lands")
+            // Run now: deliver the task's prompt to the agent and log the run.
+            // Stays enabled while the agent is down — it logs a skipped run.
+            PointerIconButton(systemName: "play.fill", help: "Run now", action: onRunNow)
 
             Toggle("", isOn: Binding(get: { task.enabled }, set: onToggle))
                 .toggleStyle(.switch)

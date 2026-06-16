@@ -29,3 +29,19 @@ struct TaskRun: Codable, Equatable, FetchableRecord, PersistableRecord {
         case detail
     }
 }
+
+extension TaskRun {
+    /// Build a Tier-0 run record: `sent` when the agent was running and the
+    /// prompt was submitted, `skipped` (with a reason) when it was down. Pure so
+    /// it's testable without the session controller / AppKit.
+    static func make(
+        taskID: String?, name: String, trigger: String,
+        agentRunning: Bool, at: Date = Date()
+    ) -> TaskRun {
+        TaskRun(
+            id: UUIDv7.generate(), taskID: taskID, taskName: name,
+            trigger: trigger, firedAt: at,
+            status: agentRunning ? "sent" : "skipped",
+            detail: agentRunning ? nil : "agent not running")
+    }
+}

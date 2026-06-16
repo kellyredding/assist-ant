@@ -1290,11 +1290,19 @@ func newRun(
         trigger: trigger, firedAt: firedAt, status: status, detail: detail)
 }
 
-// T1. The migration applies clean on a fresh in-memory DB: both tables exist
-//     and start empty.
-check("tasks: migration applies clean on a fresh DB") {
+// T1. A fresh in-memory DB migrated through the real migrator seeds the two
+//     built-in manual sync triggers; the run log starts empty.
+check("tasks: migration seeds the two built-in sync triggers") {
     let (store, _) = try makeTasksStore()
-    return try store.allTasks().isEmpty && (try store.recentRuns()).isEmpty
+    let all = try store.allTasks()
+    guard let cal = all.first(where: { $0.manualKey == "today_calendar_refresh" }),
+          let todo = all.first(where: { $0.manualKey == "today_todo_refresh" })
+    else { return false }
+    return try all.count == 2
+        && cal.triggerType == "manual" && cal.enabled && cal.prompt == "Sync my calendar"
+        && todo.triggerType == "manual" && todo.enabled
+        && todo.prompt == "Sync my Linear issues"
+        && store.recentRuns().isEmpty
 }
 
 // T2. Every trigger type round-trips through the store, preserving its cadence
@@ -1310,9 +1318,10 @@ check("tasks: round-trip every trigger type + cadence fields") {
                           runAt: Date(timeIntervalSince1970: 1_800_000_000))
     let manual = newTask(name: "refresh", triggerType: "manual",
                          cadenceKind: nil, intervalSeconds: nil,
-                         manualKey: "today_todo_refresh")
+                         manualKey: "custom_refresh")
     for t in [interval, daily, oneShot, manual] { try store.create(t) }
-    guard try store.allTasks().count == 4 else { return false }
+    // Two built-in tasks are seeded by the migration, so assert membership of
+    // the four created here rather than an exact total.
     guard let i = try store.task(id: interval.id),
           let d = try store.task(id: daily.id),
           let o = try store.task(id: oneShot.id),
@@ -1320,7 +1329,7 @@ check("tasks: round-trip every trigger type + cadence fields") {
     return i.cadenceKind == "interval" && i.intervalSeconds == 900
         && d.cadenceKind == "daily" && d.dailyTime == "07:00" && d.intervalSeconds == nil
         && o.triggerType == "one_shot" && o.runAt == oneShot.runAt
-        && m.triggerType == "manual" && m.manualKey == "today_todo_refresh"
+        && m.triggerType == "manual" && m.manualKey == "custom_refresh"
 }
 
 // T3. The write surface Phase 5 drives: update replaces fields in place, and
@@ -1337,13 +1346,13 @@ check("tasks: update + setEnabled write through") {
     return after.name == "v2" && after.intervalSeconds == 3600 && !after.enabled
 }
 
-// T4. delete removes the task row entirely.
+// T4. delete removes the task row entirely (the seeded built-ins remain).
 check("tasks: delete removes the row") {
     let (store, _) = try makeTasksStore()
-    let t = newTask()
+    let t = newTask(manualKey: "custom_delete")
     try store.create(t)
     try store.delete(id: t.id)
-    return try store.allTasks().isEmpty && (try store.task(id: t.id)) == nil
+    return (try store.task(id: t.id)) == nil
 }
 
 // T5. markRan stamps last_run_at — the field the recurring due-eval reads.
@@ -1372,6 +1381,24 @@ check("task_runs: recordRun + recentRuns newest-first") {
     return names == ["new", "mid", "old"]
         && midDetail == "agent not running"
         && runs.first?.status == "sent"
+}
+
+// T7. TaskRun.make encodes the Tier-0 outcome: sent + nil detail when the agent
+//     is running, skipped + a reason when it isn't.
+check("task_runs: make() encodes sent vs skipped") {
+    let sent = TaskRun.make(taskID: "t1", name: "X", trigger: "run_now", agentRunning: true)
+    let skipped = TaskRun.make(taskID: nil, name: "Y", trigger: "manual", agentRunning: false)
+    return sent.status == "sent" && sent.detail == nil && sent.taskID == "t1"
+        && skipped.status == "skipped" && skipped.detail == "agent not running"
+        && skipped.taskID == nil
+}
+
+// T8. task(manualKey:) resolves the seeded built-in by its key; nil for unknown.
+check("tasks: task(manualKey:) fetches the seeded built-in") {
+    let (store, _) = try makeTasksStore()
+    guard let cal = try store.task(manualKey: "today_calendar_refresh") else { return false }
+    return try cal.name == "Calendar sync" && cal.triggerType == "manual"
+        && store.task(manualKey: "nope") == nil
 }
 
 print(failures == 0

@@ -190,6 +190,29 @@ final class ItemsDatabase {
             }
         }
 
+        // Seed the two built-in manual triggers backing the Today sync glyphs,
+        // so they show in the Tasks tab and a glyph press / run-now logs against
+        // a real row. Inserted once; they're ordinary rows the user can
+        // rename/disable/delete (the glyph falls back to the coordinator if its
+        // row is gone).
+        migrator.registerMigration("seedBuiltinTasks") { db in
+            let now = Date()
+            func seed(_ name: String, _ key: String, _ prompt: String) throws {
+                try db.execute(
+                    sql: """
+                        INSERT INTO tasks
+                          (id, name, trigger_type, manual_key, prompt, enabled,
+                           created_at, updated_at)
+                        VALUES (?, ?, 'manual', ?, ?, 1, ?, ?)
+                        """,
+                    arguments: [
+                        UUIDv7.generate(), name, key, prompt, now, now,
+                    ])
+            }
+            try seed("Calendar sync", AgentTask.calendarRefreshKey, "Sync my calendar")
+            try seed("Linear sync", AgentTask.todoRefreshKey, "Sync my Linear issues")
+        }
+
         return migrator
     }
 }

@@ -52,3 +52,10 @@ struct AgentTask: Codable, Equatable, FetchableRecord, PersistableRecord {
         case updatedAt = "updated_at"
     }
 }
+
+extension AgentTask {
+    /// Built-in manual-trigger keys backing the Today sync glyphs. Seeded as
+    /// tasks; the runner routes these to their sync coordinators.
+    static let calendarRefreshKey = "today_calendar_refresh"
+    static let todoRefreshKey = "today_todo_refresh"
+}
