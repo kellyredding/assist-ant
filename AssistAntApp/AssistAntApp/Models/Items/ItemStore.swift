@@ -138,6 +138,12 @@ protocol ItemStore {
     /// retired by reconcile — their Put back is disabled (sync owns them).
     func fetchTrashed() throws -> [Item]
 
+    /// All non-deleted actionable items (todo/reminder/explore), in any icebox
+    /// or resolved state. Ordered by id. Distinct from `fetchActive` (excludes
+    /// iceboxed) and `fetchIceboxed` (iceboxed + unresolved only) — this is the
+    /// `actionable-item list --state active` source, source-flagged downstream.
+    func fetchAllActionable() throws -> [Item]
+
     /// Trend summary over the same set as `fetchIceboxed` — total, per-kind
     /// counts, and aging — without materializing the items. For the briefing.
     func iceboxSummary(asOf today: CivilDate) throws -> IceboxSummary
@@ -156,6 +162,10 @@ protocol ItemStore {
     /// preserving the kind and the external URL. No-op for a non-actionable
     /// item.
     func setListName(id: String, to listName: String?) throws
+
+    /// Set or clear an actionable item's external URL (nil or blank clears it),
+    /// preserving the kind and the list name. No-op for a non-actionable item.
+    func setExternalURL(id: String, to url: String?) throws
 
     /// Distinct, non-empty list names currently in use by non-deleted
     /// actionable items, sorted case-insensitively. Derived live (no stored

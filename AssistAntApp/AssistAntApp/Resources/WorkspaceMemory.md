@@ -52,6 +52,13 @@ the note names, routing to the Icebox when asked, and enriching a public URL.
 Quick Capture invokes it for you; reach for it when the user hands you something
 to jot down.
 
+Once an item exists you can edit, remove, or restore it through
+`actionable-item list|update|remove`: `list` surfaces item ids (source-flagged
+so you can tell manual from synced), `update <id>` changes a field (title, body,
+schedule, list, URL, icebox, or trash), and `remove <id>` soft-deletes to the
+Trash. Only **manual** items are editable — synced Linear/calendar items are
+owned by their source.
+
 ## Managing tasks
 
 The `/assist-ant-manage-tasks` skill creates, changes, lists, and removes tasks

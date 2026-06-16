@@ -1,9 +1,12 @@
 require "../spec_helper"
 
-# Integration coverage for `actionable-item create`: one manual item is
-# published as an `actionable_item.create` envelope carrying the fields inline;
-# invalid input exits non-zero before publishing. Shells out to the built
-# binary, so it skips when the binary isn't built (run `make dev` first).
+# Integration coverage for `actionable-item create`. It is now REQUEST/REPLY (so
+# it can print the new item's id), so each happy-path test stands up a one-shot
+# replying socket (`with_task_reply_server`, defined in task_spec), asserts the
+# `actionable_item.create` envelope the CLI sent, and checks the CLI relays the
+# app's ack. Local validation errors exit non-zero before any request, and an
+# absent app (no reply) / refused write also exit non-zero. Shells out to the
+# built binary, so it skips when the binary isn't built (run `make dev` first).
 describe "assist-ant actionable-item create" do
   binary = SPEC_BIN
 
@@ -11,23 +14,8 @@ describe "assist-ant actionable-item create" do
     pending! "binary not built — run `make dev` first" unless File.exists?(binary)
   end
 
-  it "publishes an actionable_item.create envelope with the inline fields" do
-    with_sandbox do |sandbox|
-      runtime = sandbox / "runtime"
-      Dir.mkdir_p(runtime.to_s)
-      sock_path = (runtime / "assist-ant.sock").to_s
-      server = UNIXServer.new(sock_path)
-      channel = Channel(String).new(1)
-
-      spawn do
-        conn = server.accept
-        line = conn.gets || ""
-        channel.send(line)
-        conn.close
-      rescue ex
-        channel.send("ERROR: #{ex.message}")
-      end
-
+  it "sends an actionable_item.create envelope and prints the acked id" do
+    with_task_reply_server(%({"ok":true,"id":"itm-1","name":"Read the RFC"})) do |sock, channel|
       body = File.tempfile("aa-cap-body", ".md")
       body.print("## Summary\n\n- point one\n")
       body.close
@@ -38,9 +26,10 @@ describe "assist-ant actionable-item create" do
            "--kind", "explore", "--title", "Read the RFC",
            "--scheduled-on", "2026-06-20", "--url", "https://example.com/rfc",
            "--body-file", body.path],
-          env: {"ASSIST_ANT_ROOT" => sandbox.to_s},
+          env: {"ASSIST_ANT_SOCKET" => sock},
         )
         result[:status].success?.should be_true
+        result[:stdout].should contain "itm-1"
 
         parsed = JSON.parse(channel.receive)
         parsed["event"].should eq "actionable_item.create"
@@ -51,48 +40,41 @@ describe "assist-ant actionable-item create" do
         detail["external_url"].should eq "https://example.com/rfc"
         detail["body"].as_s.should contain "point one"
       ensure
-        server.close
-        File.delete(sock_path) if File.exists?(sock_path)
         File.delete(body.path) if File.exists?(body.path)
       end
     end
   end
 
   it "passes --icebox through as a boolean detail flag" do
-    with_sandbox do |sandbox|
-      runtime = sandbox / "runtime"
-      Dir.mkdir_p(runtime.to_s)
-      sock_path = (runtime / "assist-ant.sock").to_s
-      server = UNIXServer.new(sock_path)
-      channel = Channel(String).new(1)
+    with_task_reply_server(%({"ok":true,"id":"itm-2","name":"Later task"})) do |sock, channel|
+      result = run_binary(
+        [binary, "actionable-item", "create",
+         "--kind", "todo", "--title", "Later task", "--icebox"],
+        env: {"ASSIST_ANT_SOCKET" => sock},
+      )
+      result[:status].success?.should be_true
 
-      spawn do
-        conn = server.accept
-        line = conn.gets || ""
-        channel.send(line)
-        conn.close
-      rescue ex
-        channel.send("ERROR: #{ex.message}")
-      end
-
-      begin
-        result = run_binary(
-          [binary, "actionable-item", "create",
-           "--kind", "todo", "--title", "Later task", "--icebox"],
-          env: {"ASSIST_ANT_ROOT" => sandbox.to_s},
-        )
-        result[:status].success?.should be_true
-
-        parsed = JSON.parse(channel.receive)
-        parsed["detail_data"]["icebox"].should eq true
-      ensure
-        server.close
-        File.delete(sock_path) if File.exists?(sock_path)
-      end
+      parsed = JSON.parse(channel.receive)
+      parsed["detail_data"]["icebox"].should eq true
     end
   end
 
-  it "rejects an invalid --kind with a non-zero exit" do
+  it "passes --list through as the list_name detail field" do
+    with_task_reply_server(%({"ok":true,"id":"itm-3","name":"Buy milk"})) do |sock, channel|
+      result = run_binary(
+        [binary, "actionable-item", "create",
+         "--kind", "todo", "--title", "Buy milk", "--list", "Errands"],
+        env: {"ASSIST_ANT_SOCKET" => sock},
+      )
+      result[:status].success?.should be_true
+
+      parsed = JSON.parse(channel.receive)
+      parsed["event"].should eq "actionable_item.create"
+      parsed["detail_data"]["list_name"].should eq "Errands"
+    end
+  end
+
+  it "rejects an invalid --kind with a non-zero exit (before any request)" do
     result = run_binary(
       [binary, "actionable-item", "create", "--kind", "calendar", "--title", "x"])
     result[:status].success?.should be_false
@@ -105,18 +87,24 @@ describe "assist-ant actionable-item create" do
     result[:status].success?.should be_false
   end
 
-  it "passes --list through as the list_name detail field" do
-    with_socket_server do |sock_path, channel|
+  it "exits non-zero when the app refused the write" do
+    with_task_reply_server(%({"ok":false,"error":"invalid kind/title"})) do |sock, _|
       result = run_binary(
-        [binary, "actionable-item", "create",
-         "--kind", "todo", "--title", "Buy milk", "--list", "Errands"],
-        env: {"ASSIST_ANT_SOCKET" => sock_path},
+        [binary, "actionable-item", "create", "--kind", "todo", "--title", "x"],
+        env: {"ASSIST_ANT_SOCKET" => sock},
       )
-      result[:status].success?.should be_true
-
-      parsed = JSON.parse(channel.receive)
-      parsed["event"].should eq "actionable_item.create"
-      parsed["detail_data"]["list_name"].should eq "Errands"
+      result[:status].success?.should be_false
+      result[:stderr].should contain "invalid kind/title"
     end
+  end
+
+  it "exits non-zero when the app is not running (no reply)" do
+    missing = File.join(Dir.tempdir, "aa-absent-#{Random.rand(1_000_000)}.sock")
+    result = run_binary(
+      [binary, "actionable-item", "create", "--kind", "todo", "--title", "x"],
+      env: {"ASSIST_ANT_SOCKET" => missing},
+    )
+    result[:status].success?.should be_false
+    result[:stderr].should contain "is the app running?"
   end
 end

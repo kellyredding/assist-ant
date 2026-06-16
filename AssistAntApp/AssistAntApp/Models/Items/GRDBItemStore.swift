@@ -399,6 +399,20 @@ final class GRDBItemStore: ItemStore {
         }
     }
 
+    // Every non-deleted actionable, any icebox / resolved state — the source for
+    // `actionable-item list --state active`. Distinct from fetchActive (excludes
+    // iceboxed) and fetchIceboxed (iceboxed + unresolved only).
+    func fetchAllActionable() throws -> [Item] {
+        try dbQueue.read { db in
+            try Item
+                .filter(sql: """
+                    type IN ('todo', 'reminder', 'explore') AND deleted_at IS NULL
+                    """)
+                .order(sql: "id")
+                .fetchAll(db)
+        }
+    }
+
     func iceboxSummary(asOf today: CivilDate) throws -> IceboxSummary {
         try dbQueue.read { db in
             // Same set as fetchIceboxed; aggregate in Swift (the box is small).
@@ -519,6 +533,31 @@ final class GRDBItemStore: ItemStore {
                 item.typeData = .explore(ActionableData(listName: value, externalURL: d.externalURL))
             default:
                 return   // calendar / unknown have no list name
+            }
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Set or clear an actionable's external URL, preserving the kind and list
+    // name (mirrors setListName). A blank/nil clears it. Non-actionable items
+    // (calendar / unknown) carry no editable URL here and are left untouched.
+    func setExternalURL(id: String, to url: String?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = (trimmed?.isEmpty == false) ? trimmed : nil
+            switch item.typeData {
+            case .todo(let d):
+                item.typeData = .todo(ActionableData(listName: d.listName, externalURL: value))
+            case .reminder(let d):
+                item.typeData = .reminder(ActionableData(listName: d.listName, externalURL: value))
+            case .explore(let d):
+                item.typeData = .explore(ActionableData(listName: d.listName, externalURL: value))
+            default:
+                return   // calendar / unknown have no editable URL here
             }
             item.updatedAt = Date()
             item.pending = true

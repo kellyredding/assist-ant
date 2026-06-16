@@ -44,4 +44,35 @@ describe AssistAnt::CLI do
       end
     end
   end
+
+  describe "#run with actionable-item" do
+    # Routing smoke (in-process): each subcommand's `--help` reaches
+    # Commands::ActionableItem and returns without raising or exiting — a misroute
+    # would `exit 1` and kill the spec. The `--help` paths print and return
+    # without touching the socket; envelope behavior + exit codes for the write
+    # subcommands live in spec/integration/actionable_item_*_spec.cr.
+    it "routes `actionable-item` with no args to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["actionable-item"])
+      end
+    end
+
+    it "routes `actionable-item list --help` to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["actionable-item", "list", "--help"])
+      end
+    end
+
+    it "routes `actionable-item update --help` to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["actionable-item", "update", "--help"])
+      end
+    end
+
+    it "routes `actionable-item remove --help` to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["actionable-item", "remove", "--help"])
+      end
+    end
+  end
 end

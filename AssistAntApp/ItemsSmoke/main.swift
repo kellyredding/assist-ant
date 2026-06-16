@@ -1252,6 +1252,52 @@ check("ItemActionState: allDeleted across a set") {
         && !ItemActionState([active]).allDeleted
 }
 
+// setExternalURL sets + clears an actionable's URL, preserving kind + list name;
+// a non-actionable (calendar) item is left untouched.
+check("setExternalURL: sets, clears, preserves kind + list; calendar untouched") {
+    let (store, _) = try makeStore()
+    let item = newItem(type: .todo,
+                       typeData: .todo(ActionableData(listName: "Errands")))
+    try store.create(item)
+    try store.setExternalURL(id: item.id, to: "https://example.com/x")
+    guard let set = try store.fetch(id: item.id),
+          case .todo(let d) = set.typeData else { return false }
+    try store.setExternalURL(id: item.id, to: "   ")   // blank → cleared
+    guard let cleared = try store.fetch(id: item.id),
+          case .todo(let d2) = cleared.typeData else { return false }
+
+    let cal = newItem(type: .calendar,
+                      typeData: .calendar(CalendarData(externalURL: "https://meet.test/z")),
+                      source: "gcal", externalID: "evt-x")
+    try store.create(cal)
+    try store.setExternalURL(id: cal.id, to: "https://nope.test")
+    guard let calAfter = try store.fetch(id: cal.id),
+          case .calendar(let cd) = calAfter.typeData else { return false }
+
+    return d.externalURL == "https://example.com/x" && d.listName == "Errands"
+        && d2.externalURL == nil && d2.listName == "Errands"
+        && cd.externalURL == "https://meet.test/z"   // calendar URL untouched
+}
+
+// fetchAllActionable returns every non-deleted todo/reminder/explore (incl.
+// iceboxed + resolved), excluding soft-deleted and calendar rows — the
+// `list --state active` source.
+check("fetchAllActionable: all non-deleted actionables, excl. deleted + calendar") {
+    let (store, _) = try makeStore()
+    let open = newItem(type: .todo, typeData: .todo(ActionableData()), title: "open")
+    let iceboxed = newItem(type: .reminder, typeData: .reminder(ActionableData()),
+                           title: "iceboxed", iceboxedAt: Date())
+    let resolved = newItem(type: .explore, typeData: .explore(ActionableData()),
+                           title: "resolved", resolvedAt: Date())
+    let deleted = newItem(type: .todo, typeData: .todo(ActionableData()), title: "deleted")
+    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "evt-1", title: "cal")
+    for i in [open, iceboxed, resolved, deleted, cal] { try store.create(i) }
+    try store.softDelete(id: deleted.id)
+    let ids = Set(try store.fetchAllActionable().map { $0.id })
+    return ids == Set([open.id, iceboxed.id, resolved.id])
+}
+
 // MARK: - Task system (tasks + task_runs)
 
 /// A fresh in-memory tasks store, migrated through the real migrator.

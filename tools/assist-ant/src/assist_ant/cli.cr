@@ -62,7 +62,12 @@ module AssistAnt
                                         upsert as todos + resolve completed.
           actionable-item create        Create one manual to-do / reminder /
                                         explore item (unscheduled → Today).
+          actionable-item list          List items with their ids (JSON;
+                                        --state active|trashed).
           actionable-item list-names    List existing list names (JSON).
+          actionable-item update <id>   Edit a manual item (title/body/schedule/
+                                        list/url/icebox/trash).
+          actionable-item remove <id>   Soft-delete a manual item (→ Trash).
           task add|list|update|remove   Manage tasks (named prompt + trigger):
           task enable|disable           create, list, edit, remove, toggle.
           briefing                      Ask the running app for the startup

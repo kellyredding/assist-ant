@@ -21,8 +21,14 @@ module AssistAnt
           sync(rest)
         when "create"
           create(rest)
+        when "list"
+          list(rest)
         when "list-names"
           list_names(rest)
+        when "update"
+          update(rest)
+        when "remove"
+          remove(rest)
         when nil, "-h", "--help", "help"
           puts group_help
         else
@@ -40,9 +46,12 @@ module AssistAnt
           assist-ant actionable-item <subcommand> [options]
 
         SUBCOMMANDS:
-          sync         Ingest a provider's issue list (Linear) and reconcile.
-          create       Create one manual to-do / reminder / explore item.
-          list-names   List the existing list names (JSON).
+          sync           Ingest a provider's issue list (Linear) and reconcile.
+          create         Create one manual to-do / reminder / explore item.
+          list           List items with their ids (JSON; --state active|trashed).
+          list-names     List the existing list names (JSON).
+          update <id>    Edit a manual item in place.
+          remove <id>    Soft-delete a manual item (→ Trash).
 
         Run 'assist-ant actionable-item <subcommand> --help' for details.
         HELP
@@ -114,11 +123,13 @@ module AssistAnt
       end
 
       # Create ONE manual actionable (todo/reminder/explore) from flags + a
-      # markdown body file. Deterministic and fire-and-forget like `sync` — no
-      # network and no enrichment (the capture skill does that). Validates the
-      # kind/title/date, then publishes an `actionable_item.create` envelope the
-      # app persists via GRDBItemStore.create. The body comes from --body-file so
-      # multi-line markdown survives intact.
+      # markdown body file. Deterministic — no network and no enrichment (the
+      # capture skill does that). Validates the kind/title/date, then
+      # request/replies an `actionable_item.create` envelope the app persists via
+      # GRDBItemStore.create, acking the new item's id so this can print it.
+      # Request/reply (not fire-and-forget) so the id round-trips; capture always
+      # runs with the app up. The body comes from --body-file so multi-line
+      # markdown survives intact.
       private def create(args : Array(String))
         kind = ""
         title = ""
@@ -176,10 +187,8 @@ module AssistAnt
         end
         detail["icebox"] = JSON::Any.new(true) if icebox
 
-        AssistAnt::EventPublisher.publish(
-          event: "actionable_item.create",
-          detail_data: detail,
-        )
+        ack = request_ack("actionable_item.create", detail)
+        id = ack["id"]?.try(&.as_s?) || ""
 
         where =
           if icebox
@@ -189,7 +198,7 @@ module AssistAnt
           else
             "unscheduled → Today"
           end
-        puts "Created #{kind} item: #{title} (#{where})."
+        puts "Created #{kind} item: #{title} (#{id}, #{where})."
       end
 
       # Read: ask the running app for the existing list names and print its JSON
@@ -210,6 +219,183 @@ module AssistAnt
         end
 
         puts reply
+      end
+
+      # Read: enumerate items with their ids so update/remove have a target.
+      # `--state active` (default) lists every non-deleted actionable (incl.
+      # iceboxed/resolved), `source`-flagged so the agent sees which are manual
+      # (editable) vs synced; `--state trashed` lists the soft-deleted set. Each
+      # call returns one homogeneous set. A request/reply read — needs the app up.
+      private def list(args : Array(String))
+        rest = args.dup
+        if rest.first? == "-h" || rest.first? == "--help"
+          puts list_help
+          return
+        end
+
+        state = "active"
+        OptionParser.parse(rest) do |p|
+          p.banner = "Usage: assist-ant actionable-item list [options]"
+          p.on("-h", "--help", "Show this help") { puts list_help; exit 0 }
+          p.on("--state=STATE", "active | trashed (default: active)") { |v| state = v }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item list") }
+        end
+
+        unless {"active", "trashed"}.includes?(state)
+          STDERR.puts "Error: --state must be active or trashed"
+          exit 1
+        end
+
+        reply = AssistAnt::EventPublisher.request(
+          event: "actionable_item.list",
+          detail_data: {"state" => JSON::Any.new(state)},
+        )
+        if reply.nil? || reply.empty?
+          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
+          exit 1
+        end
+
+        puts reply
+      end
+
+      # Edit a manual item in place. Sends only the fields that were passed (set,
+      # explicit-clear, or toggle); the app overlays them and refuses any item
+      # that isn't manual. Local validation catches a bad date, the
+      # mutually-exclusive set/clear pairs, and an empty change before sending.
+      private def update(args : Array(String))
+        rest = args.dup
+        if rest.first? == "-h" || rest.first? == "--help"
+          puts update_help
+          return
+        end
+        id = rest.shift?
+        if id.nil?
+          STDERR.puts "Error: update requires an item id (run 'assist-ant actionable-item list' to find it)"
+          exit 1
+        end
+
+        title : String? = nil
+        body_path : String? = nil
+        scheduled_on : String? = nil
+        unschedule = false
+        list_name : String? = nil
+        clear_list = false
+        url : String? = nil
+        clear_url = false
+        icebox : Bool? = nil
+        trash : Bool? = nil
+
+        OptionParser.parse(rest) do |p|
+          p.banner = "Usage: assist-ant actionable-item update <id> [options]"
+          p.on("-h", "--help", "Show this help") { puts update_help; exit 0 }
+          p.on("--title=TITLE", "New title") { |v| title = v }
+          p.on("--body-file=PATH", "File with the new markdown body") { |v| body_path = v }
+          p.on("--scheduled-on=YYYY-MM-DD", "Reschedule to a day") { |v| scheduled_on = v }
+          p.on("--unschedule", "Clear the schedule (→ Today)") { unschedule = true }
+          p.on("--list=NAME", "Assign to a list") { |v| list_name = v }
+          p.on("--clear-list", "Remove from its list") { clear_list = true }
+          p.on("--url=URL", "Set the external URL") { |v| url = v }
+          p.on("--clear-url", "Clear the external URL") { clear_url = true }
+          p.on("--icebox", "Move to the Icebox") { icebox = true }
+          p.on("--no-icebox", "Remove from the Icebox") { icebox = false }
+          p.on("--trash", "Soft-delete (→ Trash)") { trash = true }
+          p.on("--no-trash", "Restore from the Trash") { trash = false }
+          p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item update") }
+        end
+
+        if d = scheduled_on
+          unless d =~ /\A\d{4}-\d{2}-\d{2}\z/
+            STDERR.puts "Error: --scheduled-on must be YYYY-MM-DD"
+            exit 1
+          end
+        end
+        if scheduled_on && unschedule
+          STDERR.puts "Error: --scheduled-on and --unschedule are mutually exclusive"
+          exit 1
+        end
+        if list_name && clear_list
+          STDERR.puts "Error: --list and --clear-list are mutually exclusive"
+          exit 1
+        end
+        if url && clear_url
+          STDERR.puts "Error: --url and --clear-url are mutually exclusive"
+          exit 1
+        end
+
+        detail = {} of String => JSON::Any
+        detail["id"] = JSON::Any.new(id)
+        if t = title
+          detail["title"] = JSON::Any.new(t)
+        end
+        if bp = body_path
+          unless File.exists?(bp)
+            STDERR.puts "Error: --body-file not found: #{bp}"
+            exit 1
+          end
+          detail["body"] = JSON::Any.new(File.read(bp))
+        end
+        if d = scheduled_on
+          detail["scheduled_on"] = JSON::Any.new(d)
+        end
+        detail["unschedule"] = JSON::Any.new(true) if unschedule
+        if l = list_name
+          detail["list_name"] = JSON::Any.new(l)
+        end
+        detail["clear_list"] = JSON::Any.new(true) if clear_list
+        if u = url
+          detail["external_url"] = JSON::Any.new(u)
+        end
+        detail["clear_url"] = JSON::Any.new(true) if clear_url
+        icebox_value = icebox
+        unless icebox_value.nil?
+          detail["icebox"] = JSON::Any.new(icebox_value)
+        end
+        trash_value = trash
+        unless trash_value.nil?
+          detail["trash"] = JSON::Any.new(trash_value)
+        end
+
+        if detail.size == 1 # only the id
+          STDERR.puts "Error: update needs at least one field to change"
+          exit 1
+        end
+
+        ack = request_ack("actionable_item.update", detail)
+        puts "Updated item: #{ack["name"]?.try(&.as_s?) || id} (#{ack["id"]?.try(&.as_s?) || id})."
+      end
+
+      # Soft-delete a manual item (→ Trash, recoverable via `update --no-trash`).
+      # The simple one-shot delete verb; `update --trash` does the same inline.
+      private def remove(args : Array(String))
+        rest = args.dup
+        if rest.first? == "-h" || rest.first? == "--help"
+          puts remove_help
+          return
+        end
+        id = rest.shift?
+        if id.nil?
+          STDERR.puts "Error: remove requires an item id (run 'assist-ant actionable-item list' to find it)"
+          exit 1
+        end
+        ack = request_ack("actionable_item.delete", {"id" => JSON::Any.new(id)})
+        puts "Removed item #{ack["id"]?.try(&.as_s?) || id}."
+      end
+
+      # Send a request envelope and return the parsed ack, or print an error and
+      # exit. A nil/empty reply means the app isn't running; `{"ok":false}` means
+      # the app refused the write (e.g. unknown id, or a non-manual item).
+      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
+        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
+        if reply.nil? || reply.empty?
+          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
+          exit 1
+        end
+        ack = JSON.parse(reply)
+        unless ack["ok"]?.try(&.as_bool?)
+          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "request failed"}"
+          exit 1
+        end
+        ack
       end
 
       # Serialize the batch the app applies in one transaction: every issue as a
@@ -317,6 +503,80 @@ module AssistAnt
 
         EXAMPLES:
           assist-ant actionable-item list-names
+        HELP
+      end
+
+      private def list_help : String
+        <<-HELP
+        assist-ant actionable-item list — list items with their ids
+
+        USAGE:
+          assist-ant actionable-item list [--state active|trashed]
+
+        OPTIONS:
+          --state STATE          active (default) | trashed
+          -h, --help             Show this help
+
+        DESCRIPTION:
+          Prints items as JSON (`{"items":[{id, kind, title, list_name,
+          scheduled_on, source, iceboxed, resolved, url}, …]}`) so update/remove
+          have a target. `active` is every non-deleted actionable (incl. iceboxed
+          and resolved); `trashed` is the soft-deleted set. The `source` field
+          flags which items are manual (editable) vs synced. A read: requires the
+          app to be running.
+
+        EXAMPLES:
+          assist-ant actionable-item list
+          assist-ant actionable-item list --state trashed
+        HELP
+      end
+
+      private def update_help : String
+        <<-HELP
+        assist-ant actionable-item update — edit a manual item in place
+
+        USAGE:
+          assist-ant actionable-item update <id> [options]
+
+        OPTIONS:
+          --title TITLE          New title
+          --body-file PATH       File with the new markdown body
+          --scheduled-on DATE    Reschedule to a day, YYYY-MM-DD
+          --unschedule           Clear the schedule (→ Today)
+          --list NAME            Assign to a list
+          --clear-list           Remove from its list
+          --url URL              Set the external URL
+          --clear-url            Clear the external URL
+          --icebox               Move to the Icebox
+          --no-icebox            Remove from the Icebox
+          --trash                Soft-delete (→ Trash)
+          --no-trash             Restore from the Trash
+          -h, --help             Show this help
+
+        Only the fields you pass change. The set/clear pairs (--scheduled-on /
+        --unschedule, --list / --clear-list, --url / --clear-url) are mutually
+        exclusive. Only manual items are editable; a synced (Linear/calendar)
+        item is refused. Run 'assist-ant actionable-item list' for ids.
+
+        EXAMPLES:
+          assist-ant actionable-item update 0192abc --title "New title"
+          assist-ant actionable-item update 0192abc --list Errands --scheduled-on 2026-06-20
+          assist-ant actionable-item update 0192abc --clear-list --unschedule
+          assist-ant actionable-item update 0192abc --trash
+          assist-ant actionable-item update 0192abc --no-trash
+        HELP
+      end
+
+      private def remove_help : String
+        <<-HELP
+        assist-ant actionable-item remove — soft-delete a manual item
+
+        USAGE:
+          assist-ant actionable-item remove <id>
+
+        Soft-deletes the item to the Trash (recoverable via
+        'update <id> --no-trash'). Only manual items can be removed. Run
+        'assist-ant actionable-item list' to find the id.
         HELP
       end
 

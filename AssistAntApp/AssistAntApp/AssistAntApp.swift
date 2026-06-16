@@ -229,7 +229,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch e.event {
         case "calendar_item.sync": syncCalendarItems(e)
         case "actionable_item.sync": syncActionableItems(e)
-        case "actionable_item.create": createActionableItem(e)
         case "session:ready":
             guard let id = e.detailValue("session_id", as: String.self) else { break }
             let source = e.detailValue("source", as: String.self) ?? ""
@@ -252,6 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return BriefingSnapshot.replyData()
         case "actionable_item.list_names":
             return listNamesReplyData()
+        case "actionable_item.create":
+            return createActionableItemReply(e)
+        case "actionable_item.update":
+            return updateActionableItemReply(e)
+        case "actionable_item.delete":
+            return deleteActionableItemReply(e)
+        case "actionable_item.list":
+            return actionableListReplyData(e)
         case "task.create":
             return createTaskReplyData(e)
         case "task.update":
@@ -492,17 +499,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Apply an `actionable_item.create` envelope: build one manual actionable
-    /// (todo/reminder/explore) and insert it. The disposition (manual source,
-    /// unscheduled unless a day was named, never iceboxed) lives in
-    /// `CapturedItem.make` so it stays unit-testable; this handler resolves the
-    /// workspace, inserts, and nudges the snapshot views to re-fetch.
-    private func createActionableItem(_ e: EventEnvelope) {
+    // MARK: - Actionable item authoring (request/reply)
+    //
+    // The `assist-ant actionable-item create|update|remove|list` CLI authors
+    // manual items agentically: each is request/reply (not fire-and-forget) so
+    // the new id round-trips on create and the agent gets an ack on every write.
+    // Authoring always happens with the app up (the agent runs inside it). Writes
+    // go through GRDBItemStore on this listener queue (GRDB serializes writes);
+    // the snapshot views are nudged on the main queue after each write. Edits and
+    // deletes are MANUAL-ONLY: a synced (Linear/calendar) item is owned by its
+    // source — the next sync would overwrite an edit or resurrect a delete — so
+    // it is refused here, keeping this path outside the sync reconcile's blast
+    // radius.
+
+    /// `actionable_item.create` (reply): build one manual actionable
+    /// (todo/reminder/explore) via `CapturedItem.make` (manual source,
+    /// unscheduled unless a day was named, Icebox only when asked), insert it,
+    /// nudge the snapshot views, and ack with the new id so the CLI prints it.
+    private func createActionableItemReply(_ e: EventEnvelope) -> Data? {
         let workspaceID: String
         do { workspaceID = try WorkspaceStore.shared.current().id }
         catch {
             NSLog("AssistAnt: actionable_item.create — cannot resolve workspace: \(error)")
-            return
+            return ackData(ok: false, error: "no workspace")
         }
 
         guard let item = CapturedItem.make(
@@ -515,16 +534,141 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             icebox: e.detailValue("icebox", as: Bool.self) ?? false,
             workspaceID: workspaceID
         ) else {
-            NSLog("AssistAnt: actionable_item.create — invalid kind/title, skipping")
-            return
+            return ackData(ok: false, error: "invalid kind/title")
         }
 
         do {
             try GRDBItemStore.shared.create(item)
             NSLog("AssistAnt: actionable_item.create — created \(item.type): \(item.title)")
-            NotificationCenter.default.post(name: .actionableItemsDidChange, object: nil)
+            notifyActionableItemsDidChange()
+            return ackData(ok: true, id: item.id, name: item.title)
         } catch {
             NSLog("AssistAnt: actionable_item.create failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `actionable_item.update` (reply): apply each present field/clear/toggle to
+    /// a manual item. Fetches by id INCLUDING soft-deleted rows so `--no-trash`
+    /// can restore from the Trash. Refuses any non-manual item. Sends back the
+    /// (possibly new) title in the ack.
+    private func updateActionableItemReply(_ e: EventEnvelope) -> Data? {
+        guard let id = e.detailValue("id", as: String.self) else {
+            return ackData(ok: false, error: "missing id")
+        }
+        let store = GRDBItemStore.shared
+        do {
+            guard let item = try store.fetch(id: id) else {
+                return ackData(ok: false, error: "no item with id \(id)")
+            }
+            guard item.source == "manual", item.externalID == nil else {
+                return ackData(ok: false, error: "only manual items can be edited")
+            }
+
+            // title/body: fetch-then-merge (setTitleAndBody writes both at once;
+            // a nil keeps the current value).
+            let newTitle = e.detailValue("title", as: String.self)
+            let newBody = e.detailValue("body", as: String.self)
+            if newTitle != nil || newBody != nil {
+                try store.setTitleAndBody(
+                    id: id, title: newTitle ?? item.title, body: newBody ?? item.body)
+            }
+            // schedule: a day reschedules; the explicit flag unschedules.
+            if let on = e.detailValue("scheduled_on", as: String.self) {
+                guard let day = CivilDate(iso: on) else {
+                    return ackData(ok: false, error: "bad scheduled_on \(on)")
+                }
+                try store.reschedule(id: id, to: day)
+            } else if e.detailValue("unschedule", as: Bool.self) == true {
+                try store.reschedule(id: id, to: nil)
+            }
+            // list
+            if let list = e.detailValue("list_name", as: String.self) {
+                try store.setListName(id: id, to: list)
+            } else if e.detailValue("clear_list", as: Bool.self) == true {
+                try store.setListName(id: id, to: nil)
+            }
+            // url
+            if let url = e.detailValue("external_url", as: String.self) {
+                try store.setExternalURL(id: id, to: url)
+            } else if e.detailValue("clear_url", as: Bool.self) == true {
+                try store.setExternalURL(id: id, to: nil)
+            }
+            // icebox toggle (present only when --icebox/--no-icebox was passed)
+            if let icebox = e.detailValue("icebox", as: Bool.self) {
+                try store.setIceboxed(id: id, icebox)
+            }
+            // trash toggle: --trash soft-deletes, --no-trash restores
+            if let trash = e.detailValue("trash", as: Bool.self) {
+                if trash { try store.softDelete(id: id) }
+                else { try store.undelete(id: id) }
+            }
+
+            notifyActionableItemsDidChange()
+            let after = try store.fetch(id: id)
+            return ackData(ok: true, id: id, name: after?.title)
+        } catch {
+            NSLog("AssistAnt: actionable_item.update failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `actionable_item.delete` (reply): soft-delete a manual item (→ Trash).
+    /// Refuses a non-manual item. The one-shot delete verb; `update --trash`
+    /// reaches the same store call.
+    private func deleteActionableItemReply(_ e: EventEnvelope) -> Data? {
+        guard let id = e.detailValue("id", as: String.self) else {
+            return ackData(ok: false, error: "missing id")
+        }
+        let store = GRDBItemStore.shared
+        do {
+            guard let item = try store.fetch(id: id) else {
+                return ackData(ok: false, error: "no item with id \(id)")
+            }
+            guard item.source == "manual", item.externalID == nil else {
+                return ackData(ok: false, error: "only manual items can be removed")
+            }
+            try store.softDelete(id: id)
+            notifyActionableItemsDidChange()
+            return ackData(ok: true, id: id, name: item.title)
+        } catch {
+            NSLog("AssistAnt: actionable_item.delete failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `actionable_item.list` (reply): items as JSON (`{"items":[…]}`) so the
+    /// agent has ids for update/remove. `state == "trashed"` is the soft-deleted
+    /// set; anything else is every non-deleted actionable. Each row is
+    /// source-flagged so the agent sees which are manual (editable) vs synced.
+    private func actionableListReplyData(_ e: EventEnvelope) -> Data? {
+        let state = e.detailValue("state", as: String.self) ?? "active"
+        let store = GRDBItemStore.shared
+        let items = (try? (state == "trashed"
+            ? store.fetchTrashed()
+            : store.fetchAllActionable())) ?? []
+        let rows: [[String: Any]] = items.map { i in
+            var row: [String: Any] = [
+                "id": i.id, "kind": i.type, "title": i.title,
+                "source": i.source,
+                "iceboxed": i.iceboxedAt != nil,
+                "resolved": i.resolvedAt != nil,
+            ]
+            if let on = i.scheduledOn?.iso { row["scheduled_on"] = on }
+            if let list = i.actionableListName { row["list_name"] = list }
+            if let url = i.actionableExternalURL { row["url"] = url }
+            return row
+        }
+        return try? JSONSerialization.data(
+            withJSONObject: ["items": rows], options: [.sortedKeys])
+    }
+
+    /// Nudge the snapshot views (Icebox / Trash / Today) to re-fetch after an
+    /// actionable write. Posted on the main queue because these handlers run on
+    /// the socket listener queue and the observers touch UI.
+    private func notifyActionableItemsDidChange() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .actionableItemsDidChange, object: nil)
         }
     }
 }
