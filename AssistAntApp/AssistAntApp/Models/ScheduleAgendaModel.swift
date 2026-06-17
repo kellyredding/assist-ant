@@ -3,7 +3,7 @@ import Combine
 
 /// Drives the Schedule tab's agenda. Owns the loaded window and navigation.
 /// Forward data is fully loaded ([windowStart → ∞)); the past edge
-/// (`windowStart`) starts at today and extends a Monday-anchored week at a
+/// (`windowStart`) starts at today and extends one day at a
 /// time via the back chevron. State persists across tab switches (singleton +
 /// the tab view stays mounted); only the first activation jumps to today.
 ///
@@ -79,12 +79,10 @@ final class ScheduleAgendaModel: ObservableObject {
         load(spinner: false)
     }
 
-    /// Back chevron: previous Monday above the top day (snap to this week's
-    /// Monday if mid-week), loading past days if it's before windowStart.
+    /// Back chevron: the day above the top day, extending the past edge by
+    /// that day if it falls before windowStart.
     func goBack() {
-        let top = topVisibleDay
-        let thisMonday = top.mondayOfWeek()
-        let target = (top == thisMonday) ? thisMonday.adding(days: -7) : thisMonday
+        let target = topVisibleDay.adding(days: -1)
         if target < windowStart {
             windowStart = target
             load(spinner: false)   // extends the rendered range into the past
@@ -92,11 +90,11 @@ final class ScheduleAgendaModel: ObservableObject {
         scrollTarget = target
     }
 
-    /// Forward chevron: next Monday below the top day. Forward data is already
+    /// Forward chevron: the day below the top day. Forward data is already
     /// loaded, so this is scroll-only (clamped to the last rendered day).
     func goForward() {
-        let nextMonday = topVisibleDay.mondayOfWeek().adding(days: 7)
-        scrollTarget = min(nextMonday, days.last?.date ?? nextMonday)
+        let target = topVisibleDay.adding(days: 1)
+        scrollTarget = min(target, days.last?.date ?? target)
     }
 
     func goToToday() {

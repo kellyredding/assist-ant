@@ -20,10 +20,10 @@ struct ScheduleControlBar: View {
         HStack(spacing: 12) {
             CapsuleActionButton(title: "Today", action: onToday)
             PointerIconButton(
-                systemName: "chevron.left", help: "Back one week", action: onBack
+                systemName: "chevron.left", help: "Back one day", action: onBack
             )
             PointerIconButton(
-                systemName: "chevron.right", help: "Forward one week",
+                systemName: "chevron.right", help: "Forward one day",
                 action: onForward
             )
             Text(monthYear)
