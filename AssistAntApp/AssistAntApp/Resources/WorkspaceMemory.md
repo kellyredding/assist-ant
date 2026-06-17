@@ -46,9 +46,11 @@ Your persona's Calendar and Linear playbooks carry the exact sync procedure.
 
 ## Tracking spend
 
-The user's Claude Code spend can be captured through the `assist-ant spend`
-CLI — run `assist-ant spend --help` for what it records and how to call it. Like
-the syncs above, reach for it whenever the user asks in plain language.
+To track the user's Claude Code spend, read the figures with the `/spend`
+reports and record them through the `assist-ant spend` CLI (run `assist-ant
+spend --help` for what it captures and how). Which periods to record, and how
+often, live in whatever request or task drives it — not here. Like the syncs
+above, reach for it whenever the user asks in plain language.
 
 ## Capturing items
 
