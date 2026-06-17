@@ -279,6 +279,19 @@ final class AgentSessionController: ObservableObject {
     /// `Session.commandSubmitDelay` (100ms).
     private static let commandSubmitDelay: TimeInterval = 0.1
 
+    /// Delay after a submit CR before the next queued prompt's paste, so the TUI
+    /// finishes accepting one prompt before the next arrives (batched task fires).
+    private static let interPromptDelay: TimeInterval = 0.25
+
+    /// Serial queue of prompts awaiting delivery. Task prompts are multi-line and
+    /// go in as a bracketed paste, which the TUI holds as pending input ("[Pasted
+    /// text]"); the submit CR must arrive as a SEPARATE keystroke after the paste
+    /// registers, or it is swallowed into the paste instead of submitting. Draining
+    /// one prompt at a time (paste → delay → CR → delay) also keeps batched fires
+    /// from colliding in the input buffer.
+    private var promptQueue: [String] = []
+    private var drainingPrompts = false
+
     /// Write text into the running session's PTY. `asPaste` wraps the text
     /// in bracketed-paste sequences when the terminal has bracketed-paste
     /// mode on (the backend handles the wrapping). The single seam every
@@ -296,6 +309,38 @@ final class AgentSessionController: ObservableObject {
     func submit() {
         guard state == .running, let backend else { return }
         backend.send(bytes: [0x0D])
+    }
+
+    /// Enqueue a (possibly multi-line) prompt for delivery, each submitted on its
+    /// own. The task runner's single delivery entry point: it pastes the prompt,
+    /// waits, sends CR to submit, then waits before the next — fixing the bug
+    /// where a CR fired in the same tick as a bracketed paste never submitted, and
+    /// serializing batched fires so prompts don't collide.
+    func enqueuePrompt(_ text: String) {
+        guard state == .running else { return }
+        promptQueue.append(text)
+        drainPromptQueue()
+    }
+
+    private func drainPromptQueue() {
+        guard !drainingPrompts, state == .running, let backend,
+              !promptQueue.isEmpty else { return }
+        drainingPrompts = true
+        let text = promptQueue.removeFirst()
+        backend.send(text: text, asPaste: true)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.commandSubmitDelay
+        ) { [weak self] in
+            guard let self else { return }
+            if self.state == .running { self.backend?.send(bytes: [0x0D]) }
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.interPromptDelay
+            ) { [weak self] in
+                guard let self else { return }
+                self.drainingPrompts = false
+                self.drainPromptQueue()
+            }
+        }
     }
 
     /// Send a slash command and submit it after `commandSubmitDelay`.

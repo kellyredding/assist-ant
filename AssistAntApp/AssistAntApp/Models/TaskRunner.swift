@@ -44,8 +44,10 @@ enum TaskRunner {
 
     private static func deliver(for task: AgentTask) {
         guard AgentSessionController.shared.state == .running else { return }
-        AgentSessionController.shared.send(text: task.prompt, asPaste: true)
-        AgentSessionController.shared.submit()
+        // Enqueue rather than paste+CR inline: the controller submits each prompt
+        // on its own (paste → delay → CR), so a multi-line prompt's Return isn't
+        // swallowed into the bracketed paste, and batched fires don't collide.
+        AgentSessionController.shared.enqueuePrompt(task.prompt)
     }
 
     // MARK: - Logging
