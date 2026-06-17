@@ -44,6 +44,12 @@ not as separate skills, so just ask in plain language.
 
 Your persona's Calendar and Linear playbooks carry the exact sync procedure.
 
+## Tracking spend
+
+The user's Claude Code spend can be captured through the `assist-ant spend`
+CLI — run `assist-ant spend --help` for what it records and how to call it. Like
+the syncs above, reach for it whenever the user asks in plain language.
+
 ## Capturing items
 
 The `/assist-ant-capture-item` skill turns a single note into one to-do,
@@ -66,8 +72,8 @@ through the `assist-ant task` CLI. A task is a named prompt plus a trigger
 (recurring on an interval or daily time, a one-shot, or a manual trigger). Reach
 for it when the user asks to schedule, automate, recur, or stop something. The
 Tasks tab only displays tasks — there's no form, so authoring runs through this
-skill. Tasks don't fire yet; a new task sits enabled but idle until the runner
-ships.
+skill. An enabled task fires on its schedule (or on demand); a disabled task
+stays idle until you enable it.
 
 ## Maintaining this file
 
