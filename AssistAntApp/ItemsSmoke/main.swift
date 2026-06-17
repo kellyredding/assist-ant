@@ -279,6 +279,27 @@ check("workspace store sets persona in place") {
     return after.personaName == "assist-ant-personal" && after.id == before.id
 }
 
+// 13d. Workspace spend config: defaults seed sane, the three setters round-trip,
+//      and the SpendState JSON column survives a write/read cycle.
+check("workspace spend: defaults + setters + SpendState round-trip") {
+    let queue = try DatabaseQueue()
+    try ItemsDatabase.migrator.migrate(queue)
+    let store = WorkspaceStore(dbQueue: queue)
+    let before = try store.current()
+    guard !before.spendShow, before.spendStaleHours == 24, before.spendState == nil
+    else { return false }
+    try store.setSpendShow(true)
+    try store.setSpendStaleHours(6)
+    try store.setSpendState(SpendState(
+        primary: "$392 today", secondary: "$2.7k mo", capturedAt: Date(),
+        variants: [.init(label: "Month to Date", body: "📊 …")]))
+    let after = try store.current()
+    return after.spendShow && after.spendStaleHours == 6
+        && after.spendState?.primary == "$392 today"
+        && after.spendState?.variants.first?.label == "Month to Date"
+        && after.spendState?.variants.count == 1
+}
+
 // 14. A window prune with an empty keep set is refused by default — the guard
 //     against a degraded/empty upstream fetch wiping the window — and proceeds
 //     only with the explicit opt-in.
@@ -1345,17 +1366,22 @@ func newRun(
 }
 
 // T1. A fresh in-memory DB migrated through the real migrator seeds the two
-//     built-in manual sync triggers; the run log starts empty.
-check("tasks: migration seeds the two Today refresh tasks") {
+//     built-in Today sync triggers plus the disabled Spend capture task; the
+//     run log starts empty.
+check("tasks: migration seeds the built-in tasks") {
     let (store, _) = try makeTasksStore()
     let all = try store.allTasks()
     guard let cal = all.first(where: { $0.todayKey == "calendar_refresh" }),
-          let todo = all.first(where: { $0.todayKey == "todo_refresh" })
+          let todo = all.first(where: { $0.todayKey == "todo_refresh" }),
+          let spend = all.first(where: { $0.name == "Spend capture" })
     else { return false }
-    return try all.count == 2
+    return try all.count == 3
         && cal.triggerType == "today" && cal.enabled && cal.prompt == "Sync my calendar"
         && todo.triggerType == "today" && todo.enabled
         && todo.prompt == "Sync my Linear issues"
+        && spend.triggerType == "recurring" && spend.cadenceKind == "interval"
+        && spend.intervalSeconds == 7200 && !spend.enabled
+        && spend.windowStart == "07:05" && spend.windowEnd == "19:05"
         && store.recentRuns().isEmpty
 }
 

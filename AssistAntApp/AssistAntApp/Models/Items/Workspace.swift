@@ -20,6 +20,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
     let id: String
     var name: String
     var personaName: String
+    var spendShow: Bool          // show the title-bar spend pill
+    var spendStaleHours: Int     // hours before the pill flags stale; 0 = never
+    var spendState: SpendState?  // latest captured state (JSON column); nil until first capture
     var createdAt: Date
     var updatedAt: Date
 
@@ -32,6 +35,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
         case id
         case name
         case personaName = "persona_name"
+        case spendShow = "spend_show"
+        case spendStaleHours = "spend_stale_hours"
+        case spendState = "spend_state"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -43,6 +49,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
             id: UUID().uuidString.lowercased(),
             name: defaultName(),
             personaName: defaultPersonaName,
+            spendShow: false,
+            spendStaleHours: 24,
+            spendState: nil,
             createdAt: now,
             updatedAt: now)
     }

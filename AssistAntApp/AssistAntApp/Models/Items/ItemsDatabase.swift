@@ -267,6 +267,56 @@ final class ItemsDatabase {
                 """)
         }
 
+        // Title-bar spend affordance: per-workspace display config + the latest
+        // captured state. `spend_show` gates the pill; `spend_stale_hours` (0 =
+        // never) sets the freshness-warning threshold; `spend_state` is the
+        // agent-composed JSON payload (two pill strings + labeled report-block
+        // cards), nil until first capture. On the workspace record so it travels
+        // with the consistent backup to mobile. NOT-NULL config columns get
+        // constant defaults so the seated row backfills (cf. addWorkspacePersonaName).
+        migrator.registerMigration("addWorkspaceSpendConfig") { db in
+            try db.alter(table: "workspace") { t in
+                t.add(column: "spend_show", .boolean).notNull().defaults(to: false)
+                t.add(column: "spend_stale_hours", .integer).notNull().defaults(to: 24)
+                t.add(column: "spend_state", .jsonText)
+            }
+        }
+
+        // Seed a disabled "Spend capture" task: every 2h within a 07:05–19:05
+        // daily window, fired by the heartbeat once enabled. The :05 offset keeps
+        // captures off the top of the hour. The prompt speaks intent only — it
+        // maps to /spend and the spend CLI at runtime, so no tool/format knowledge
+        // is compiled in. An ordinary row: rename/reschedule/edit/delete freely.
+        migrator.registerMigration("seedSpendCaptureTask") { db in
+            let now = Date()
+            let prompt = """
+                Capture my Claude Code spend for the AssistAnt title-bar widget. Do \
+                the work in a BACKGROUND subagent (launch it with the Task tool, \
+                running in the background) so the main session stays quiet — don't \
+                run the reports or the CLI in the main thread; hand the whole job \
+                to the subagent.
+
+                Tell the subagent to: produce three snapshots — month to date, the \
+                last rolling 30 days, and year to date — by running the /spend \
+                report for each; keep each full report block (totals, sparkline, and \
+                bar graph) verbatim as that card's body, with none of its own \
+                analysis; then record it all in one call with the spend CLI (it can \
+                run `assist-ant spend --help` for the exact flags): set the primary \
+                pill string to today's spend (the latest day in the month-to-date \
+                report, e.g. "$392 today") and the secondary to the month-to-date \
+                total (e.g. "$2.9k mtd"), and pass one --variant per snapshot (label \
+                + the raw block file). Be terse; don't ask questions.
+                """
+            try db.execute(
+                sql: """
+                    INSERT INTO tasks
+                      (id, name, trigger_type, cadence_kind, interval_seconds,
+                       window_start, window_end, prompt, enabled, created_at, updated_at)
+                    VALUES (?, ?, 'recurring', 'interval', 7200, '07:05', '19:05', ?, 0, ?, ?)
+                    """,
+                arguments: [UUIDv7.generate(), "Spend capture", prompt, now, now])
+        }
+
         return migrator
     }
 }

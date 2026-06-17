@@ -274,6 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return deleteTaskReplyData(e)
         case "task.list":
             return tasksListReplyData()
+        case "spend.set":
+            return setSpendReply(e)
         default:
             return nil
         }
@@ -359,6 +361,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let payload = tasks.map { $0.replyDictionary() }
         return try? JSONSerialization.data(
             withJSONObject: ["tasks": payload], options: [.sortedKeys])
+    }
+
+    /// `spend.set` (reply): replace the workspace's captured spend state with the
+    /// agent-composed payload — two free-form pill strings + N labeled report-block
+    /// cards. The app stores it verbatim; it parses nothing. `WorkspaceStore.observe()`
+    /// drives the live pill/popover refresh, so no extra notification is posted.
+    private func setSpendReply(_ e: EventEnvelope) -> Data? {
+        let primary = e.detailValue("primary", as: String.self)
+        let secondary = e.detailValue("secondary", as: String.self)
+        let raw = e.detailValue("variants", as: [[String: Any]].self) ?? []
+        let variants: [SpendState.Variant] = raw.compactMap { row in
+            guard let label = row["label"] as? String,
+                  let body = row["body"] as? String else { return nil }
+            return SpendState.Variant(label: label, body: body)
+        }
+        guard primary != nil || secondary != nil || !variants.isEmpty else {
+            return ackData(ok: false, error: "empty spend payload")
+        }
+        do {
+            try WorkspaceStore.shared.setSpendState(SpendState(
+                primary: primary, secondary: secondary,
+                capturedAt: Date(), variants: variants))
+            return ackData(ok: true)
+        } catch {
+            NSLog("AssistAnt: spend.set failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
     }
 
     /// One consistent ack shape for every task write: `{"ok":…}` plus the id /

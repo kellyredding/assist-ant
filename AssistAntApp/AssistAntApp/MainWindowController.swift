@@ -12,6 +12,22 @@ final class AssistAntWindow: NSWindow {
     }
 }
 
+/// An NSHostingView that keeps its frame width matched to its SwiftUI content's
+/// fitting size, so a title-bar pill grows and shrinks as its text changes
+/// (empty → "$ No spend data" → "$146 today · $2.9k mo"). A leading titlebar
+/// accessory sizes to its view's frame: a frame computed once at creation clips
+/// later growth, and `sizingOptions = .intrinsicContentSize` collapses the
+/// accessory to zero — so we drive the width from `fittingSize` each layout pass.
+final class FittingWidthHostingView<Content: View>: NSHostingView<Content> {
+    override func layout() {
+        super.layout()
+        let w = fittingSize.width
+        if abs(frame.width - w) > 0.5 {
+            setFrameSize(NSSize(width: w, height: frame.height))
+        }
+    }
+}
+
 /// Main AssistAnt window. Hosts ContentView. Restores its frame from
 /// WindowStatePersistence on init and saves on every move/resize. Theme
 /// follows SettingsManager live.
@@ -64,6 +80,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
                 width: max(workspacePillHost.fittingSize.width, 80), height: 22))
         workspacePillVC.view = workspacePillHost
         window.addTitlebarAccessoryViewController(workspacePillVC)
+
+        // Titlebar spend pill, right of the workspace pill. Self-hides unless the
+        // workspace has spend_show set; shows an empty/stale state otherwise.
+        let spendPillVC = NSTitlebarAccessoryViewController()
+        spendPillVC.layoutAttribute = .leading
+        // FittingWidthHostingView keeps the pill's frame width matched to its
+        // content as the text changes; a fixed frame clips later growth and
+        // sizingOptions=.intrinsicContentSize collapses the accessory to zero.
+        let spendPillHost = FittingWidthHostingView(rootView: SpendPill())
+        spendPillHost.frame = NSRect(
+            x: 0, y: 0, width: spendPillHost.fittingSize.width, height: 22)
+        spendPillVC.view = spendPillHost
+        window.addTitlebarAccessoryViewController(spendPillVC)
 
         super.init(window: window)
         window.delegate = self

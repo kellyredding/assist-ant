@@ -75,4 +75,21 @@ describe AssistAnt::CLI do
       end
     end
   end
+
+  describe "#run with spend" do
+    # Routing smoke (in-process): `spend` and `spend set --help` reach
+    # Commands::Spend and return without raising or exiting. Envelope behavior +
+    # exit codes live in spec/integration/spend_spec.cr.
+    it "routes `spend` with no args to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["spend"])
+      end
+    end
+
+    it "routes `spend set --help` to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["spend", "set", "--help"])
+      end
+    end
+  end
 end

@@ -52,6 +52,37 @@ final class WorkspaceStore {
         }
     }
 
+    /// Replace the captured spend state (the atomic `spend set` write). Stamps
+    /// `updatedAt`, so `observe()` re-emits and the pill/popover refresh.
+    func setSpendState(_ state: SpendState) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.spendState = state
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
+    /// Show/hide the title-bar spend pill.
+    func setSpendShow(_ show: Bool) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.spendShow = show
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
+    /// Hours before a snapshot is flagged stale (0 = never). Clamped at 0.
+    func setSpendStaleHours(_ hours: Int) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.spendStaleHours = max(0, hours)
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
     /// Live workspace updates for the settings field and the title-bar pill.
     func observe() -> AnyPublisher<Workspace?, Error> {
         ValueObservation

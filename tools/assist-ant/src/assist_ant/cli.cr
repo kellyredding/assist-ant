@@ -31,6 +31,8 @@ module AssistAnt
         Commands::ActionableItem.new.run(rest)
       when "task"
         Commands::Task.new.run(rest)
+      when "spend"
+        Commands::Spend.new.run(rest)
       when "briefing"
         Commands::Briefing.new.run(rest)
       when "session-event"
@@ -70,6 +72,8 @@ module AssistAnt
           actionable-item remove <id>   Soft-delete a manual item (→ Trash).
           task add|list|update|remove   Manage tasks (named prompt + trigger):
           task enable|disable           create, list, edit, remove, toggle.
+          spend set                     Capture spend snapshots for the
+                                        title-bar widget (pill + popover cards).
           briefing                      Ask the running app for the startup
                                         briefing snapshot (JSON: today, upcoming,
                                         icebox).

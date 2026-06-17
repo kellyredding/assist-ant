@@ -20,6 +20,7 @@ final class EventCoordinator {
         "task.update",
         "task.delete",
         "task.list",
+        "spend.set",
         "session:ready",
     ]
 
