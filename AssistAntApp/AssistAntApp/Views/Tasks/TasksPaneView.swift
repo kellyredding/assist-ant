@@ -34,6 +34,14 @@ struct TasksPaneView: View {
                 tasksContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // The run-log and task-reader overlays float over this content in the
+            // ZStack; disable it whenever either is up so the row affordances'
+            // AppKit cursor tracking (pointerButton, the drag grip) can't bleed
+            // their hand cursor up through the overlay. Mirrors the isEnabled gate
+            // ContentView already applies under the item reader — these overlays
+            // are TasksPaneView-local state, so ContentView's guard misses them.
+            .disabled(showLog || model.openTask != nil)
+
             if showLog { logOverlay }
             // Tapping a row opens its viewer over the pane — the same full-cover
             // reader pattern as the item viewers.
