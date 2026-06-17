@@ -17,13 +17,19 @@ import AppKit
 final class RowFrameAnchor {
     weak var view: NSView?
 
-    /// The row's frame in screen coordinates (bottom-left origin, y-up — the
-    /// same space as `NSWindow.frame`). Returns nil if the view has been
-    /// removed from its window.
-    func currentScreenFrame() -> NSRect? {
+    /// The row's owning window paired with its frame in screen coordinates
+    /// (bottom-left origin, y-up — the same space as `NSWindow.frame`). Both come
+    /// from a single read of the weak view, so the window the tooltip is bounded
+    /// to is always the one that actually hosts the hovered row. Returns nil if
+    /// the view has been removed from its window.
+    ///
+    /// The window must come from the row, not `NSApp.mainWindow`: the Capture
+    /// Popover is a panel that can become main, so an app-global lookup resolves
+    /// to the popover while it's open and strands the tooltip against its frame.
+    func currentWindowAndFrame() -> (window: NSWindow, frame: NSRect)? {
         guard let view, let window = view.window else { return nil }
         let frameInWindow = view.convert(view.bounds, to: nil)
-        return window.convertToScreen(frameInWindow)
+        return (window, window.convertToScreen(frameInWindow))
     }
 }
 

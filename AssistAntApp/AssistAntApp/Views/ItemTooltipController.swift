@@ -122,8 +122,7 @@ final class ItemTooltipController {
     // MARK: - Presentation
 
     private func present(_ item: Item, anchor: RowFrameAnchor, side: Side) {
-        guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
-              let rowFrame = anchor.currentScreenFrame() else { return }
+        guard let (window, rowFrame) = anchor.currentWindowAndFrame() else { return }
         let win = window.frame                      // screen coords, y-up
         let gap = Self.gap, margin = Self.margin
 
