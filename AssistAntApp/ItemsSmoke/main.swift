@@ -1634,6 +1634,73 @@ check("schedule: manual and today never fire on a tick") {
         && !TaskSchedule.isDue(d, now: hbAt(2026, 6, 16, 9, 0))
 }
 
+// ── TaskSchedule.nextRun (row "next" chip) ───────────────────────────────────
+
+// N1. daily (already current on its last slot): next is today's slot when
+//     ahead, else the next day's. A task that hasn't run its due slot reads as
+//     "due" instead — that path is N5; here we exercise the forward math.
+check("nextRun: daily picks today's slot when ahead, else next day") {
+    var ahead = newTask(triggerType: "recurring", cadenceKind: "daily", intervalSeconds: nil,
+                        dailyTime: "08:55", createdAt: hbAt(2026, 6, 10, 0, 0))
+    ahead.lastRunAt = hbAt(2026, 6, 15, 8, 55)        // ran yesterday → not overdue
+    var ranToday = ahead
+    ranToday.lastRunAt = hbAt(2026, 6, 16, 8, 55)     // already ran today
+    return TaskSchedule.nextRun(ahead, after: hbAt(2026, 6, 16, 7, 0)) == hbAt(2026, 6, 16, 8, 55)
+        && TaskSchedule.nextRun(ranToday, after: hbAt(2026, 6, 16, 9, 30)) == hbAt(2026, 6, 17, 8, 55)
+}
+
+// N2. daily weekday: skips disallowed days to the next allowed one.
+check("nextRun: daily skips to the next allowed weekday") {
+    let day = hbAt(2026, 6, 16, 7, 0)
+    let wd = TaskSchedule.isoWeekday(of: day, hbCal)
+    let plus2 = wd + 2 > 7 ? wd + 2 - 7 : wd + 2
+    let t = newTask(triggerType: "recurring", cadenceKind: "daily", intervalSeconds: nil,
+                    dailyTime: "08:55", weekdays: "\(plus2)", createdAt: hbAt(2026, 6, 10, 0, 0))
+    guard let next = TaskSchedule.nextRun(t, after: day) else { return false }
+    return TaskSchedule.isoWeekday(of: next, hbCal) == plus2 && next > day
+}
+
+// N3. continuous interval: next = lastRunAt + interval (future).
+check("nextRun: continuous interval = lastRunAt + interval") {
+    var t = newTask(triggerType: "recurring", cadenceKind: "interval", intervalSeconds: 900)
+    t.lastRunAt = hbAt(2026, 6, 16, 10, 0)
+    return TaskSchedule.nextRun(t, after: hbAt(2026, 6, 16, 10, 5)) == hbAt(2026, 6, 16, 10, 15)
+}
+
+// N4. windowed interval (last slot already ran): next slot inside the window;
+//     past the close → next day's open.
+check("nextRun: windowed interval next slot, then next day's open") {
+    var t = newTask(triggerType: "recurring", cadenceKind: "interval", intervalSeconds: 3600,
+                    windowStart: "08:55", windowEnd: "16:55", createdAt: hbAt(2026, 6, 1, 0, 0))
+    t.lastRunAt = hbAt(2026, 6, 16, 8, 55)   // ran the 08:55 slot → not overdue
+    let mid = TaskSchedule.nextRun(t, after: hbAt(2026, 6, 16, 9, 10))   // → 09:55
+    let past = TaskSchedule.nextRun(t, after: hbAt(2026, 6, 16, 17, 30)) // → tomorrow 08:55
+    return mid == hbAt(2026, 6, 16, 9, 55)
+        && past == hbAt(2026, 6, 17, 8, 55)
+}
+
+// N5. a due task returns ≤ now (the chip reads "due").
+check("nextRun: a due task is imminent (≤ now)") {
+    var t = newTask(triggerType: "recurring", cadenceKind: "interval", intervalSeconds: 900)
+    t.lastRunAt = hbAt(2026, 6, 16, 7, 0)   // 3h overdue
+    let now = hbAt(2026, 6, 16, 10, 0)
+    guard let next = TaskSchedule.nextRun(t, after: now) else { return false }
+    return next <= now
+}
+
+// N6. no forward schedule: manual, today, and disabled return nil.
+check("nextRun: manual / today / disabled have no next run") {
+    let m = newTask(triggerType: "manual", cadenceKind: nil, intervalSeconds: nil)
+    let d = newTask(triggerType: "today", cadenceKind: nil, intervalSeconds: nil,
+                    todayKey: "calendar_refresh")
+    let off = newTask(triggerType: "recurring", cadenceKind: "interval",
+                      intervalSeconds: 900, enabled: false)
+    let now = hbAt(2026, 6, 16, 10, 0)
+    return TaskSchedule.nextRun(m, after: now) == nil
+        && TaskSchedule.nextRun(d, after: now) == nil
+        && TaskSchedule.nextRun(off, after: now) == nil
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

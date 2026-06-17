@@ -15,6 +15,9 @@ struct TasksPaneView: View {
     @ObservedObject private var navigator = MainTabNavigator.shared
     /// Observed so a live 12h/24h clock change re-renders the timestamps.
     @ObservedObject private var settings = SettingsManager.shared
+    /// Observed so the next-run chip stays minute-fresh and rolls to "due" on
+    /// the minute boundary (mirrors SchedulePaneView).
+    @ObservedObject private var clock = ClockService.shared
 
     @State private var pendingDelete: AgentTask?
     /// The run log is an overlay now (a control-bar glyph toggles it) so the
@@ -122,6 +125,7 @@ struct TasksPaneView: View {
                         TaskRowView(
                             task: task,
                             timeFormat: settings.settings.timeFormat,
+                            now: clock.currentTime,
                             onOpen: { model.openViewer(task) },
                             onRunNow: { model.runNow(task) },
                             onToggle: { model.setEnabled(task, $0) },
@@ -211,6 +215,8 @@ struct TasksPaneView: View {
 private struct TaskRowView: View {
     let task: AgentTask
     let timeFormat: TimeFormat
+    /// The current minute, from the pane's clock — drives the next-run chip.
+    let now: Date
     let onOpen: () -> Void
     let onRunNow: () -> Void
     let onToggle: (Bool) -> Void
@@ -250,10 +256,11 @@ private struct TaskRowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .opacity(task.enabled ? 1 : 0.5)
 
-                if let last = TaskFormat.whenText(task, timeFormat) {
-                    Text(last)
-                        .font(.caption).foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                // The when-slot: a single secondary pill reading "{last} → {next}"
+                // (no glyphs). today keeps its key label; manual shows nothing.
+                if let when = TaskFormat.whenChipText(task, timeFormat, now: now) {
+                    TriggerBadge(text: when)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .contentShape(Rectangle())
@@ -483,6 +490,53 @@ enum TaskFormat {
             return "runs \(stamp(at, timeFormat))"
         case "today":
             return todayKeyLabel(task.todayKey)
+        default:
+            return nil
+        }
+    }
+
+    /// The last-run chip text (checkmark chip). Recurring + one_shot only; nil
+    /// hides the chip — a never-run recurring task or an unfired one_shot has no
+    /// last run.
+    static func lastRunText(_ task: AgentTask, _ timeFormat: TimeFormat) -> String? {
+        guard task.triggerType == "recurring" || task.triggerType == "one_shot",
+              let at = task.lastRunAt else { return nil }
+        return stamp(at, timeFormat)
+    }
+
+    /// The next-run chip text (clock chip). nil hides the chip; "next tick" /
+    /// "due" are returned verbatim for the imminent cases.
+    static func nextRunText(_ task: AgentTask, _ timeFormat: TimeFormat, now: Date) -> String? {
+        guard task.enabled else { return nil }
+        switch task.triggerType {
+        case "one_shot":
+            guard let at = task.runAt else { return "next tick" }
+            return at <= now ? "due" : stamp(at, timeFormat)
+        case "recurring":
+            guard let at = TaskSchedule.nextRun(task, after: now) else { return nil }
+            return at <= now ? "due" : stamp(at, timeFormat)
+        default:
+            return nil
+        }
+    }
+
+    /// The row's when-slot text for a single pill: "{last} → {next}" when both
+    /// sides exist, otherwise whichever one does (a disabled task shows just its
+    /// last run; a never-run task just its next). today shows its key label;
+    /// manual shows nothing.
+    static func whenChipText(_ task: AgentTask, _ timeFormat: TimeFormat, now: Date) -> String? {
+        switch task.triggerType {
+        case "recurring", "one_shot":
+            let last = lastRunText(task, timeFormat)
+            let next = nextRunText(task, timeFormat, now: now)
+            switch (last, next) {
+            case let (l?, n?): return "\(l) → \(n)"
+            case let (l?, nil): return l
+            case let (nil, n?): return n
+            default: return nil
+            }
+        case "today":
+            return whenText(task, timeFormat)
         default:
             return nil
         }
