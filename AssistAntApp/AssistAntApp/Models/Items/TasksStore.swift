@@ -13,6 +13,13 @@ import GRDB
 final class TasksStore {
     static let shared = TasksStore()
 
+    /// Run-log retention cap. The log is append-only (recordRun never deletes)
+    /// and the heartbeat writes a row on every fire, so it would grow without
+    /// bound; ~2,500 rows is roughly six weeks at the current firing volume,
+    /// with headroom for added tasks. Enforced by HeartbeatService (at launch
+    /// and once daily), not per insert.
+    static let runLogRetention = 2500
+
     private let dbQueue: DatabaseQueue
 
     private init() {
@@ -145,6 +152,26 @@ final class TasksStore {
                 .order(sql: "fired_at DESC, id DESC")
                 .limit(limit)
                 .fetchAll(db)
+        }
+    }
+
+    /// Trim the run log to the most recent `keeping` rows, deleting the oldest
+    /// beyond that. The log is append-only and the heartbeat appends to it
+    /// continuously, so this is what bounds its growth. The `fired_at` index
+    /// backs the keep-set ordering; called at launch + once daily, not per
+    /// insert (a delete on every fire would be needless write/sync churn).
+    func pruneRuns(keeping limit: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    DELETE FROM task_runs
+                    WHERE id NOT IN (
+                        SELECT id FROM task_runs
+                        ORDER BY fired_at DESC, id DESC
+                        LIMIT ?
+                    )
+                    """,
+                arguments: [limit])
         }
     }
 }

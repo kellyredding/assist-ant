@@ -18,19 +18,31 @@ import Combine
 /// with no suspension points, the session state can't change mid-tick — the
 /// up-front gate guarantees every fire is a `sent` run, so the bookkeeping below
 /// only stamps/consumes things that were actually delivered.
+///
+/// It also owns run-log retention: the log is append-only and the heartbeat
+/// writes to it continuously, so at launch and once per day it trims the log to
+/// `TasksStore.runLogRetention`. That prune is agent-independent, so it runs
+/// ahead of the running-gated tick.
 @MainActor
 final class HeartbeatService {
     static let shared = HeartbeatService()
 
     private var clockObserver: AnyCancellable?
     private var stateObserver: AnyCancellable?
+    /// Start-of-day of the last run-log prune, so retention runs at most once a
+    /// day; the first clock delivery at launch primes it (lastPruneDay = nil).
+    private var lastPruneDay: Date?
 
     private init() {
         // Minute tick + wake realign — the same clock the desk/announce services
         // ride. @Published replays its current value on subscribe, so the first
-        // tick lands at launch (a no-op until the agent is running).
+        // tick (and the launch run-log prune) lands immediately; firing is a
+        // no-op until the agent is running, but the prune is agent-independent.
         clockObserver = ClockService.shared.$currentTime
-            .sink { [weak self] now in self?.tick(at: now) }
+            .sink { [weak self] now in
+                self?.maintainRunLog(at: now)
+                self?.tick(at: now)
+            }
 
         // The instant the session comes up — fresh launch or mid-run restart —
         // sweep for anything overdue instead of waiting up to a minute for the
@@ -65,5 +77,19 @@ final class HeartbeatService {
             }
         }
         TasksModel.shared.refresh()   // reflect deleted one-shots / new last_run_at
+    }
+
+    /// Trim the run log to its retention cap — at launch (the first clock
+    /// delivery) and then at most once per calendar day. Agent-independent pure
+    /// DB maintenance, so it runs ahead of the running-gated tick.
+    private func maintainRunLog(at now: Date) {
+        let day = Calendar.current.startOfDay(for: now)
+        guard lastPruneDay != day else { return }
+        lastPruneDay = day
+        do {
+            try TasksStore.shared.pruneRuns(keeping: TasksStore.runLogRetention)
+        } catch {
+            NSLog("HeartbeatService: pruneRuns failed: \(error)")
+        }
     }
 }

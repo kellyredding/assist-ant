@@ -1541,6 +1541,21 @@ check("tasks: TaskReorder places and renormalizes") {
     return order1 == [x, z, y] && order2 == [z, y, x]
 }
 
+// T13. pruneRuns trims the run log to the most recent N, deleting the oldest.
+check("task_runs: pruneRuns keeps the most recent N") {
+    let (store, _) = try makeTasksStore()
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    for i in 0..<10 {
+        try store.recordRun(newRun(
+            taskName: "t\(i)", firedAt: base.addingTimeInterval(Double(i) * 60)))
+    }
+    try store.pruneRuns(keeping: 4)
+    let remaining = try store.recentRuns(limit: 100)
+    // The 4 newest (i = 9,8,7,6) survive, newest first.
+    return remaining.count == 4
+        && remaining.map { $0.taskName } == ["t9", "t8", "t7", "t6"]
+}
+
 // ── TaskSchedule (Phase 4 due-eval) ──────────────────────────────────────────
 // Weekdays are derived from each test date via isoWeekday, so the cases hold on
 // any calendar/timezone.

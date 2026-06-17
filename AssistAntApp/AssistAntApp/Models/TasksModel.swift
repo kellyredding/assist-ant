@@ -114,7 +114,9 @@ final class TasksModel: ObservableObject {
         if spinner { isLoading = true }
         do {
             tasks = try store.allTasks()
-            runs = try store.recentRuns(limit: 100)
+            // ~450 runs so the log scrolls back a full prior work week even on a
+            // Monday, where two weekend days pad the top before the last weekday.
+            runs = try store.recentRuns(limit: 450)
         } catch {
             NSLog("TasksModel: load failed: \(error)")
         }
