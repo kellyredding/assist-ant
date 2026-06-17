@@ -104,6 +104,7 @@ struct SchedulePaneView: View {
                             .background(dayPositionReader(day.date))
                         }
                     }
+                    .autoScrollDuringDrag()
                 }
                 .coordinateSpace(name: "agenda")
                 .onPreferenceChange(DayTopPreferenceKey.self) { tops in

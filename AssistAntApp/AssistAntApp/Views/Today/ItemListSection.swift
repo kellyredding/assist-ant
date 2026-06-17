@@ -42,6 +42,7 @@ struct ItemListSection<Row: View>: View {
                 ScrollView {
                     rows()
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .autoScrollDuringDrag()
                 }
             }
         }

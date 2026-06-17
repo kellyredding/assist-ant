@@ -146,6 +146,7 @@ struct TasksPaneView: View {
                     }
                 }
                 .padding(.vertical, 2)
+                .autoScrollDuringDrag()
             }
         }
     }

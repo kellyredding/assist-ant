@@ -209,7 +209,12 @@ final class DragGripNSView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
-        MainActor.assumeIsolated { onMoved?(screenPoint) }
+        MainActor.assumeIsolated {
+            onMoved?(screenPoint)
+            // Generic edge auto-scroll — payload-agnostic, so it rides the grip
+            // chokepoint every drag flows through rather than per-surface wiring.
+            AutoScrollController.shared.update(at: screenPoint)
+        }
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint,
@@ -218,7 +223,10 @@ final class DragGripNSView: NSView, NSDraggingSource {
         needsDisplay = true
         // Clear the session on every end — drop OR cancel — so placeholders
         // never linger, and tear down the floating chip.
-        MainActor.assumeIsolated { onEnd?() }
+        MainActor.assumeIsolated {
+            onEnd?()
+            AutoScrollController.shared.stop()
+        }
         if let window,
            bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             NSCursor.openHand.set()

@@ -106,6 +106,7 @@ struct IceboxPaneView: View {
                             )
                         }
                     }
+                    .autoScrollDuringDrag()
                 }
                 // Keep the keyboard-focused row visible as J/K move it.
                 .onChange(of: selection.focusedItemID) { _, id in
