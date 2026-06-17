@@ -242,12 +242,12 @@ private struct TaskRowView: View {
             // Tapping the badge/name/when region opens the task viewer; the
             // trailing verbs below stay independent hit targets.
             HStack(spacing: 8) {
-                // Sizes to its content (≥96 so simple triggers still align),
-                // letting a windowed/weekday summary like
-                // "every 1h · 08:55–16:55 · Mon–Fri" show in full while the name
-                // column absorbs the remaining width.
+                // Hugs its own text and sits as an inline prefix to the name —
+                // no fixed column — so the name follows immediately on every row.
+                // A short trigger ("today") and a long windowed/weekday summary
+                // ("every 1h · 08:55–16:55 · Mon–Fri") both just push the name
+                // along by their own width; the name column absorbs the rest.
                 TriggerBadge(text: TaskFormat.triggerSummary(task))
-                    .frame(minWidth: 96, alignment: .leading)
                     .fixedSize(horizontal: true, vertical: false)
 
                 nameLine
