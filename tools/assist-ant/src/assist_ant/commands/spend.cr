@@ -53,8 +53,8 @@ module AssistAnt
         OptionParser.parse(args) do |p|
           p.banner = "Usage: assist-ant spend set [--primary S] [--secondary S] --variant LABEL=PATH ..."
           p.on("-h", "--help", "Show this help") { puts set_help; exit 0 }
-          p.on("--primary=S", "Left pill string (e.g. \"$392 today\")") { |v| primary = v }
-          p.on("--secondary=S", "Right pill string (e.g. \"$2.7k mo\")") { |v| secondary = v }
+          p.on("--primary=S", "Left pill string (e.g. '$392 today')") { |v| primary = v }
+          p.on("--secondary=S", "Right pill string (e.g. '$2.7k mo')") { |v| secondary = v }
           p.on("--variant=ENTRY", "A card as LABEL=PATH: label + a file with the raw block (repeatable)") do |v|
             label, _, path = v.partition("=")
             if label.empty? || path.empty?
@@ -99,8 +99,8 @@ module AssistAnt
             --variant "Label=/path/to/block.txt" [--variant ...]
 
         OPTIONS:
-          --primary S            Left pill string (free-form, e.g. "$392 today")
-          --secondary S          Right pill string (free-form, e.g. "$2.7k mo")
+          --primary S            Left pill string (free-form, e.g. '$392 today')
+          --secondary S          Right pill string (free-form, e.g. '$2.7k mo')
           --variant LABEL=PATH   A popover card: its label + a file holding the raw
                                  monospaced report block. Repeatable; order is kept.
           -h, --help             Show this help
@@ -108,8 +108,12 @@ module AssistAnt
         The call REPLACES the whole spend state, so pass every variant you want
         shown each time. The app stores it verbatim and parses nothing.
 
+        Single-quote the pill strings: a '$' inside double quotes is expanded by
+        the shell (so "$392 today" reaches the binary as "92 today"). Single
+        quotes pass it through literally.
+
         EXAMPLE:
-          assist-ant spend set --primary "$392 today" --secondary "$2.7k mo" \\
+          assist-ant spend set --primary '$392 today' --secondary '$2.7k mo' \\
             --variant "Month to Date=/tmp/mtd.txt" \\
             --variant "Rolling 30 days=/tmp/30d.txt" \\
             --variant "Year to Date=/tmp/ytd.txt"

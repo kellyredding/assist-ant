@@ -42,12 +42,31 @@ enum TaskRunner {
 
     // MARK: - Delivery
 
+    /// Prepended to every delivered task prompt so the embedded agent hands the
+    /// work to a background subagent instead of running it in the main thread —
+    /// automated tasks must not block the session or flood its context, since
+    /// the user's own requests often run concurrently. Centralizing it here is
+    /// the de-dupe: individual task prompts describe only their work and never
+    /// repeat the "use a background subagent" boilerplate, and the policy is one
+    /// edit. Only delivery is wrapped — `record` still logs the raw prompt.
+    private static let backgroundDirective = """
+        Automated AssistAnt task. Run the whole thing in a background subagent so \
+        this session stays free for other work: launch it with the Task tool using \
+        run_in_background, don't do the work in the main thread or block on it, and \
+        relay only a brief result when it finishes. The task:
+        """
+
+    /// The stored prompt with the background directive prepended, as delivered.
+    private static func backgroundWrapped(_ prompt: String) -> String {
+        "\(backgroundDirective)\n\n\(prompt)"
+    }
+
     private static func deliver(for task: AgentTask) {
         guard AgentSessionController.shared.state == .running else { return }
         // Enqueue rather than paste+CR inline: the controller submits each prompt
         // on its own (paste → delay → CR), so a multi-line prompt's Return isn't
         // swallowed into the bracketed paste, and batched fires don't collide.
-        AgentSessionController.shared.enqueuePrompt(task.prompt)
+        AgentSessionController.shared.enqueuePrompt(backgroundWrapped(task.prompt))
     }
 
     // MARK: - Logging

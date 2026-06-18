@@ -282,37 +282,36 @@ final class ItemsDatabase {
             }
         }
 
-        // Seed a disabled "Spend capture" task: every 2h within a 07:05–19:05
+        // Seed a disabled "Spend capture" task: hourly within a 07:05–19:05
         // daily window, fired by the heartbeat once enabled. The :05 offset keeps
         // captures off the top of the hour. The prompt speaks intent only — it
         // maps to /spend and the spend CLI at runtime, so no tool/format knowledge
-        // is compiled in. An ordinary row: rename/reschedule/edit/delete freely.
+        // is compiled in; the "run in a background subagent" instruction is added
+        // at delivery (TaskRunner), not stored here. An ordinary row:
+        // rename/reschedule/edit/delete freely.
         migrator.registerMigration("seedSpendCaptureTask") { db in
             let now = Date()
             let prompt = """
-                Capture my Claude Code spend for the AssistAnt title-bar widget. Do \
-                the work in a BACKGROUND subagent (launch it with the Task tool, \
-                running in the background) so the main session stays quiet — don't \
-                run the reports or the CLI in the main thread; hand the whole job \
-                to the subagent.
-
-                Tell the subagent to: produce three snapshots — month to date, the \
-                last rolling 30 days, and year to date — by running the /spend \
-                report for each; keep each full report block (totals, sparkline, and \
-                bar graph) verbatim as that card's body, with none of its own \
-                analysis; then record it all in one call with the spend CLI (it can \
-                run `assist-ant spend --help` for the exact flags): set the primary \
-                pill string to today's spend (the latest day in the month-to-date \
-                report, e.g. "$392 today") and the secondary to the month-to-date \
-                total (e.g. "$2.9k mtd"), and pass one --variant per snapshot (label \
-                + the raw block file). Be terse; don't ask questions.
+                Capture my Claude Code spend for the AssistAnt title-bar widget. \
+                Produce three snapshots — month to date, the last rolling 30 days, \
+                and year to date — by running the /spend report for each; keep each \
+                full report block (totals, sparkline, and bar graph) verbatim as \
+                that card's body, with none of your own analysis. Then record it all \
+                in one call with the spend CLI (run `assist-ant spend --help` for the \
+                exact flags): set the primary pill string to today's spend (the \
+                latest day in the month-to-date report, e.g. '$392 today') and the \
+                secondary to the month-to-date total (e.g. '$2.9k mtd'), and pass one \
+                --variant per snapshot (label + the raw block file). Single-quote the \
+                pill strings in the CLI call so the leading $ reaches the binary \
+                literally instead of being expanded by the shell. Be terse; don't ask \
+                questions.
                 """
             try db.execute(
                 sql: """
                     INSERT INTO tasks
                       (id, name, trigger_type, cadence_kind, interval_seconds,
                        window_start, window_end, prompt, enabled, created_at, updated_at)
-                    VALUES (?, ?, 'recurring', 'interval', 7200, '07:05', '19:05', ?, 0, ?, ?)
+                    VALUES (?, ?, 'recurring', 'interval', 3600, '07:05', '19:05', ?, 0, ?, ?)
                     """,
                 arguments: [UUIDv7.generate(), "Spend capture", prompt, now, now])
         }
@@ -332,35 +331,32 @@ final class ItemsDatabase {
             }
         }
 
-        // Seed a disabled "Priority capture" task: every 2h within a 07:15–19:15
+        // Seed a disabled "Priority capture" task: hourly within a 07:15–19:15
         // daily window, fired by the heartbeat once enabled. The :15 offset keeps
         // captures off the hour and clear of the :05 spend capture. The prompt
         // speaks intent only — it maps to /assist-ant-progress and the priority
-        // CLI at runtime, so no tool/format knowledge is compiled in. An ordinary
-        // row: rename/reschedule/edit/delete freely. Mirrors seedSpendCaptureTask.
+        // CLI at runtime, so no tool/format knowledge is compiled in; the "run in
+        // a background subagent" instruction is added at delivery (TaskRunner), not
+        // stored here. An ordinary row: rename/reschedule/edit/delete freely.
+        // Mirrors seedSpendCaptureTask.
         migrator.registerMigration("seedCapturePriorityTask") { db in
             let now = Date()
             let prompt = """
                 Capture my current priorities for the AssistAnt title-bar widget. \
-                Do the work in a BACKGROUND subagent (launch it with the Task tool, \
-                running in the background) so the main session stays quiet — don't \
-                run the skill or the CLI in the main thread; hand the whole job to \
-                the subagent.
-
-                Tell the subagent to: run the /assist-ant-progress skill to produce \
-                a prioritized progress snapshot from my local AssistAnt items (it \
-                reads `assist-ant briefing` — local data only, no calendar/Linear/\
-                MCP), which writes the block to a file; then record that file with \
-                the priority CLI (it can run `assist-ant priority --help` for the \
-                exact flags): `assist-ant priority set --body <that file>`. Be \
-                terse; don't ask questions.
+                Run the /assist-ant-progress skill to produce a prioritized progress \
+                snapshot from my local AssistAnt items (it reads `assist-ant \
+                briefing` — local data only, no calendar/Linear/MCP), which writes \
+                the block to a file; then record that file with the priority CLI \
+                (run `assist-ant priority --help` for the exact flags): \
+                `assist-ant priority set --body <that file>`. Be terse; don't ask \
+                questions.
                 """
             try db.execute(
                 sql: """
                     INSERT INTO tasks
                       (id, name, trigger_type, cadence_kind, interval_seconds,
                        window_start, window_end, prompt, enabled, created_at, updated_at)
-                    VALUES (?, ?, 'recurring', 'interval', 7200, '07:15', '19:15', ?, 0, ?, ?)
+                    VALUES (?, ?, 'recurring', 'interval', 3600, '07:15', '19:15', ?, 0, ?, ?)
                     """,
                 arguments: [UUIDv7.generate(), "Priority capture", prompt, now, now])
         }

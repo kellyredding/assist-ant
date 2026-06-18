@@ -1381,10 +1381,10 @@ check("tasks: migration seeds the built-in tasks") {
         && todo.triggerType == "today" && todo.enabled
         && todo.prompt == "Sync my Linear issues"
         && spend.triggerType == "recurring" && spend.cadenceKind == "interval"
-        && spend.intervalSeconds == 7200 && !spend.enabled
+        && spend.intervalSeconds == 3600 && !spend.enabled
         && spend.windowStart == "07:05" && spend.windowEnd == "19:05"
         && priority.triggerType == "recurring" && priority.cadenceKind == "interval"
-        && priority.intervalSeconds == 7200 && !priority.enabled
+        && priority.intervalSeconds == 3600 && !priority.enabled
         && priority.windowStart == "07:15" && priority.windowEnd == "19:15"
         && store.recentRuns().isEmpty
 }
