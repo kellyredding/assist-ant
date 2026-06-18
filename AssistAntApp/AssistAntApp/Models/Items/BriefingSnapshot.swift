@@ -9,35 +9,52 @@ import Foundation
 struct BriefingSnapshot: Codable, Equatable {
     struct Row: Codable, Equatable {
         let id: String
-        let kind: String            // todo / reminder / explore
+        let kind: String            // todo / reminder / explore / calendar
         let title: String
         let preview: String?
         let scheduledOn: String?    // "YYYY-MM-DD", nil when unscheduled
         let resolvedToday: Bool
         let source: String          // manual / linear / gcal
         let externalID: String?     // e.g. FLEX-3304 — Linear cross-ref
-        let externalURL: String?
+        let externalURL: String?    // actionable link, or a calendar join link
         let listName: String?
         /// Manual drag-reorder rank within the list (lower = higher in the
         /// list). nil when unranked. Comparable within a `listName`, not across.
         let position: Double?
+        /// Calendar-only timing (nil — and omitted from JSON — for actionable
+        /// rows). `startAt`/`endAt` are ISO-8601 instants; the rest of the event
+        /// context (calendar name, RSVP, location, attendees) rides in `preview`,
+        /// the flattened body the calendar sync composed.
+        let startAt: String?
+        let endAt: String?
+        let allDay: Bool?
 
-        /// Map an actionable item to a row; calendar items return nil — the
-        /// briefing's calendar comes from the live MCP pull, not the store.
-        init?(_ item: Item, today: CivilDate) {
-            let kind = item.typeData.kind
-            guard kind != ItemType.calendar.rawValue else { return nil }
+        private static let isoInstant = ISO8601DateFormatter()
+
+        /// Map any item — actionable or calendar — to a row.
+        init(_ item: Item, today: CivilDate) {
             id = item.id
-            self.kind = kind
+            kind = item.typeData.kind
             title = item.title
             preview = item.bodyPlainPreview
             scheduledOn = item.scheduledOn?.iso
             resolvedToday = item.resolvedAt.map { CivilDate($0) == today } ?? false
             source = item.source
             externalID = item.externalID
-            externalURL = item.actionableExternalURL
-            listName = item.actionableListName
             position = item.position
+            if case .calendar(let cal) = item.typeData {
+                externalURL = cal.externalURL
+                listName = nil
+                startAt = cal.startAt.map(Self.isoInstant.string(from:))
+                endAt = cal.endAt.map(Self.isoInstant.string(from:))
+                allDay = cal.allDay
+            } else {
+                externalURL = item.actionableExternalURL
+                listName = item.actionableListName
+                startAt = nil
+                endAt = nil
+                allDay = nil
+            }
         }
     }
 
@@ -55,19 +72,27 @@ struct BriefingSnapshot: Codable, Equatable {
     let generatedOn: String         // "YYYY-MM-DD"
     let lastPriority: PriorityRef?
 
-    /// Assemble from the store: the Today list, the lookahead (tomorrow → end of
-    /// next week, Monday-aligned), and the icebox summary. Calendar items are
-    /// dropped from both lists (the briefing's calendar is the live MCP pull).
+    /// Assemble from the store: the Today list (actionables plus today's calendar
+    /// events), the lookahead (tomorrow → end of next week, Monday-aligned), and
+    /// the icebox summary. Calendar events carry their start/end times; the rest
+    /// of the event context (calendar name, RSVP, attendees) rides in `preview`.
     static func current(
         store: ItemStore, asOf today: CivilDate = .today,
         priority: PriorityState? = nil
     ) throws -> BriefingSnapshot {
         let endOfNextWeek = today.mondayOfWeek().adding(days: 13)
-        let todayRows = try store.fetchTodaySidebar(asOf: today)
-            .compactMap { Row($0, today: today) }
+        // The sidebar request excludes calendar items, so fetch today's events
+        // separately and append them; the lookahead never filtered by type, so
+        // its calendar events simply stop being dropped.
+        let todayActionable = try store.fetchTodaySidebar(asOf: today)
+            .map { Row($0, today: today) }
+        let todayCalendar = try store.fetchActive(
+            type: .calendar, from: today, to: today
+        ).map { Row($0, today: today) }
+        let todayRows = todayActionable + todayCalendar
         let upcomingRows = try store.fetchActive(
             type: nil, from: today.adding(days: 1), to: endOfNextWeek
-        ).compactMap { Row($0, today: today) }
+        ).map { Row($0, today: today) }
         let icebox = try store.iceboxSummary(asOf: today)
         let lastPriority = priority.map {
             PriorityRef(

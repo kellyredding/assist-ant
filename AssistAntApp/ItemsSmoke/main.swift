@@ -1072,9 +1072,9 @@ check("iceboxSummary: counts by kind + aging") {
         && (s.oldestAgeDays ?? 0) >= 49                // oldest ≈ 50d
 }
 
-// 45. BriefingSnapshot.current: the today list (unscheduled + today-scheduled,
-//     calendar dropped, iceboxed excluded), the lookahead window, and the
-//     icebox summary.
+// 45. BriefingSnapshot.current: the today list (unscheduled + today-scheduled +
+//     today's calendar events with their times, iceboxed excluded), the
+//     lookahead window, and the icebox summary.
 check("BriefingSnapshot.current: today / upcoming / icebox slices") {
     let (store, _) = try makeStore()
     let today = CivilDate.today
@@ -1085,16 +1085,18 @@ check("BriefingSnapshot.current: today / upcoming / icebox slices") {
                        title: "later", scheduledOn: today.adding(days: 3))
     let far = newItem(type: .todo, typeData: .todo(ActionableData()),
                       title: "far", scheduledOn: today.adding(days: 60))
-    let cal = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+    let cal = newItem(type: .calendar,
+                      typeData: .calendar(CalendarData(startAt: Date(), allDay: false)),
                       source: "gcal", externalID: "e1", scheduledOn: today)
     let boxed = newItem(type: .todo, typeData: .todo(ActionableData()), iceboxedAt: Date())
     for i in [todo, rem, soon, far, cal, boxed] { try store.create(i) }
 
     let snap = try BriefingSnapshot.current(store: store, asOf: today)
     let upcomingTitles = snap.upcoming.map { $0.title }
+    let calRow = snap.today.first { $0.id == cal.id }
     return snap.today.contains { $0.id == todo.id }        // unscheduled accumulates
         && snap.today.contains { $0.id == rem.id }         // today-scheduled reminder
-        && !snap.today.contains { $0.kind == "calendar" }  // calendar dropped
+        && calRow?.kind == "calendar" && calRow?.startAt != nil  // calendar w/ its time
         && !snap.today.contains { $0.id == boxed.id }      // iceboxed excluded
         && upcomingTitles.contains("later")                // in-window future
         && !upcomingTitles.contains("far")                 // beyond the window
@@ -1385,7 +1387,7 @@ check("tasks: migration seeds the built-in tasks") {
         && spend.windowStart == "07:05" && spend.windowEnd == "19:05"
         && priority.triggerType == "recurring" && priority.cadenceKind == "interval"
         && priority.intervalSeconds == 3600 && !priority.enabled
-        && priority.windowStart == "07:15" && priority.windowEnd == "19:15"
+        && priority.windowStart == "10:15" && priority.windowEnd == "16:30"
         && store.recentRuns().isEmpty
 }
 

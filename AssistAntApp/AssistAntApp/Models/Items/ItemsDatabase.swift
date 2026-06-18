@@ -331,9 +331,10 @@ final class ItemsDatabase {
             }
         }
 
-        // Seed a disabled "Priority capture" task: hourly within a 07:15–19:15
-        // daily window, fired by the heartbeat once enabled. The :15 offset keeps
-        // captures off the hour and clear of the :05 spend capture. The prompt
+        // Seed a disabled "Priority capture" task: hourly within a 10:15–16:30
+        // daily window (mid-morning start; stops an hour before the end-of-day
+        // summary), fired by the heartbeat once enabled. The :15 minute keeps
+        // captures clear of the :05 spend capture. The prompt
         // speaks intent only — it maps to /assist-ant-progress and the priority
         // CLI at runtime, so no tool/format knowledge is compiled in; the "run in
         // a background subagent" instruction is added at delivery (TaskRunner), not
@@ -356,7 +357,7 @@ final class ItemsDatabase {
                     INSERT INTO tasks
                       (id, name, trigger_type, cadence_kind, interval_seconds,
                        window_start, window_end, prompt, enabled, created_at, updated_at)
-                    VALUES (?, ?, 'recurring', 'interval', 3600, '07:15', '19:15', ?, 0, ?, ?)
+                    VALUES (?, ?, 'recurring', 'interval', 3600, '10:15', '16:30', ?, 0, ?, ?)
                     """,
                 arguments: [UUIDv7.generate(), "Priority capture", prompt, now, now])
         }
