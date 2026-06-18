@@ -113,6 +113,11 @@ final class AgentTerminalHostView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             _ = window.makeFirstResponder(self.terminalView)
+            // Friendly re-pin: when the agent terminal regains focus (Agent
+            // tab activation, app refocus, scrollback dismiss) and the user
+            // is following the live tail, snap back to the bottom. No-op when
+            // parked in scrollback — see Galactic's reassertFollowIfIntended.
+            self.backend.reassertFollowIfIntended()
         }
     }
 
