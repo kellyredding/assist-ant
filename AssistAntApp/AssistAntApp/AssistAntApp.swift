@@ -276,6 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return tasksListReplyData()
         case "spend.set":
             return setSpendReply(e)
+        case "priority.set":
+            return setPriorityReply(e)
         default:
             return nil
         }
@@ -386,6 +388,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return ackData(ok: true)
         } catch {
             NSLog("AssistAnt: spend.set failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `priority.set` (reply): replace the workspace's captured priority snapshot
+    /// with the agent-composed body block (one monospaced progress summary). The
+    /// app stores it verbatim and stamps the capture time; it parses nothing.
+    /// `WorkspaceStore.observe()` drives the live pill/popover refresh, so no
+    /// extra notification is posted.
+    private func setPriorityReply(_ e: EventEnvelope) -> Data? {
+        guard let body = e.detailValue("body", as: String.self),
+              !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ackData(ok: false, error: "empty priority payload")
+        }
+        do {
+            try WorkspaceStore.shared.setPriorityState(
+                PriorityState(body: body, capturedAt: Date()))
+            return ackData(ok: true)
+        } catch {
+            NSLog("AssistAnt: priority.set failed: \(error)")
             return ackData(ok: false, error: "store write failed")
         }
     }

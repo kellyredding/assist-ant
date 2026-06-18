@@ -33,6 +33,8 @@ module AssistAnt
         Commands::Task.new.run(rest)
       when "spend"
         Commands::Spend.new.run(rest)
+      when "priority"
+        Commands::Priority.new.run(rest)
       when "briefing"
         Commands::Briefing.new.run(rest)
       when "session-event"
@@ -74,6 +76,8 @@ module AssistAnt
           task enable|disable           create, list, edit, remove, toggle.
           spend set                     Capture spend snapshots for the
                                         title-bar widget (pill + popover cards).
+          priority set                  Capture a priority snapshot for the
+                                        title-bar widget (one monospaced block).
           briefing                      Ask the running app for the startup
                                         briefing snapshot (JSON: today, upcoming,
                                         icebox).

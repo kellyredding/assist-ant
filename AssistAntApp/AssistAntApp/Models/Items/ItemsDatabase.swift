@@ -317,6 +317,54 @@ final class ItemsDatabase {
                 arguments: [UUIDv7.generate(), "Spend capture", prompt, now, now])
         }
 
+        // Title-bar priority affordance: per-workspace display config + the
+        // latest captured snapshot. `priority_show` gates the pill;
+        // `priority_stale_hours` (0 = never) sets the freshness-warning
+        // threshold; `priority_state` is the agent-composed JSON payload (one
+        // monospaced summary block + capture time), nil until first capture. On
+        // the workspace record so it travels with the consistent backup to
+        // mobile. Mirrors addWorkspaceSpendConfig.
+        migrator.registerMigration("addWorkspacePriorityConfig") { db in
+            try db.alter(table: "workspace") { t in
+                t.add(column: "priority_show", .boolean).notNull().defaults(to: false)
+                t.add(column: "priority_stale_hours", .integer).notNull().defaults(to: 24)
+                t.add(column: "priority_state", .jsonText)
+            }
+        }
+
+        // Seed a disabled "Priority capture" task: every 2h within a 07:15–19:15
+        // daily window, fired by the heartbeat once enabled. The :15 offset keeps
+        // captures off the hour and clear of the :05 spend capture. The prompt
+        // speaks intent only — it maps to /assist-ant-progress and the priority
+        // CLI at runtime, so no tool/format knowledge is compiled in. An ordinary
+        // row: rename/reschedule/edit/delete freely. Mirrors seedSpendCaptureTask.
+        migrator.registerMigration("seedCapturePriorityTask") { db in
+            let now = Date()
+            let prompt = """
+                Capture my current priorities for the AssistAnt title-bar widget. \
+                Do the work in a BACKGROUND subagent (launch it with the Task tool, \
+                running in the background) so the main session stays quiet — don't \
+                run the skill or the CLI in the main thread; hand the whole job to \
+                the subagent.
+
+                Tell the subagent to: run the /assist-ant-progress skill to produce \
+                a prioritized progress snapshot from my local AssistAnt items (it \
+                reads `assist-ant briefing` — local data only, no calendar/Linear/\
+                MCP), which writes the block to a file; then record that file with \
+                the priority CLI (it can run `assist-ant priority --help` for the \
+                exact flags): `assist-ant priority set --body <that file>`. Be \
+                terse; don't ask questions.
+                """
+            try db.execute(
+                sql: """
+                    INSERT INTO tasks
+                      (id, name, trigger_type, cadence_kind, interval_seconds,
+                       window_start, window_end, prompt, enabled, created_at, updated_at)
+                    VALUES (?, ?, 'recurring', 'interval', 7200, '07:15', '19:15', ?, 0, ?, ?)
+                    """,
+                arguments: [UUIDv7.generate(), "Priority capture", prompt, now, now])
+        }
+
         return migrator
     }
 }

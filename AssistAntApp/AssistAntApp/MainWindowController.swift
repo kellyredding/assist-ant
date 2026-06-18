@@ -13,18 +13,25 @@ final class AssistAntWindow: NSWindow {
 }
 
 /// An NSHostingView that keeps its frame width matched to its SwiftUI content's
-/// fitting size, so a title-bar pill grows and shrinks as its text changes
-/// (empty → "$ No spend data" → "$146 today · $2.9k mo"). A leading titlebar
-/// accessory sizes to its view's frame: a frame computed once at creation clips
-/// later growth, and `sizingOptions = .intrinsicContentSize` collapses the
-/// accessory to zero — so we drive the width from `fittingSize` each layout pass.
+/// intrinsic width, so a title-bar pill hugs its text — growing and shrinking as
+/// the text changes (empty → "$ No spend data" → "$146 today · $2.9k mo") with no
+/// slack on either side.
+///
+/// A leading titlebar accessory takes its width from its view's frame, and since
+/// the accessory is positioned by frame rather than Auto Layout, the hosting
+/// view's `fittingSize` reports the width it was handed, not the width its content
+/// needs. Driving the frame from `fittingSize` echoes that allocation back, and
+/// the content — which AppKit centers when the frame is wider than required — ends
+/// up with slack on both sides. `intrinsicContentSize` is derived straight from
+/// the SwiftUI content, so we size to it instead: ceiling it so a sub-point width
+/// can't shave the trailing glyph, and skipping the invalid value the view reports
+/// before its first layout pass.
 final class FittingWidthHostingView<Content: View>: NSHostingView<Content> {
     override func layout() {
         super.layout()
-        let w = fittingSize.width
-        if abs(frame.width - w) > 0.5 {
-            setFrameSize(NSSize(width: w, height: frame.height))
-        }
+        let w = ceil(intrinsicContentSize.width)
+        guard w > 0, abs(frame.width - w) > 0.5 else { return }
+        setFrameSize(NSSize(width: w, height: frame.height))
     }
 }
 
@@ -85,14 +92,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         // workspace has spend_show set; shows an empty/stale state otherwise.
         let spendPillVC = NSTitlebarAccessoryViewController()
         spendPillVC.layoutAttribute = .leading
-        // FittingWidthHostingView keeps the pill's frame width matched to its
-        // content as the text changes; a fixed frame clips later growth and
-        // sizingOptions=.intrinsicContentSize collapses the accessory to zero.
+        // FittingWidthHostingView matches the pill's frame to its content's
+        // intrinsic width so it hugs the captured text as that text changes.
         let spendPillHost = FittingWidthHostingView(rootView: SpendPill())
         spendPillHost.frame = NSRect(
-            x: 0, y: 0, width: spendPillHost.fittingSize.width, height: 22)
+            x: 0, y: 0, width: spendPillHost.intrinsicContentSize.width, height: 22)
         spendPillVC.view = spendPillHost
         window.addTitlebarAccessoryViewController(spendPillVC)
+
+        // Titlebar priority pill, right of the spend pill. Self-hides unless the
+        // workspace has priority_show set; shows an empty/stale state otherwise.
+        // FittingWidthHostingView keeps the pill's width matched to its content
+        // as the relative-time label changes.
+        let priorityPillVC = NSTitlebarAccessoryViewController()
+        priorityPillVC.layoutAttribute = .leading
+        let priorityPillHost = FittingWidthHostingView(rootView: PriorityPill())
+        priorityPillHost.frame = NSRect(
+            x: 0, y: 0, width: priorityPillHost.intrinsicContentSize.width, height: 22)
+        priorityPillVC.view = priorityPillHost
+        window.addTitlebarAccessoryViewController(priorityPillVC)
 
         super.init(window: window)
         window.delegate = self

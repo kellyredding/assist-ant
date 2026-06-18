@@ -21,6 +21,7 @@ final class EventCoordinator {
         "task.delete",
         "task.list",
         "spend.set",
+        "priority.set",
         "session:ready",
     ]
 

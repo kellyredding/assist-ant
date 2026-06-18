@@ -39,10 +39,25 @@ struct WorkspaceSettingsTab: View {
                     staleAfterRow
                 }
             }
+            SettingsCard(title: "Priority") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Show in title bar", isOn: Binding(
+                        get: { model.priorityShow },
+                        set: { model.setPriorityShow($0) }
+                    ))
+                    .toggleStyle(.checkbox)
+
+                    priorityStaleAfterRow
+                }
+            }
             Spacer()
         }
         .padding(20)
-        .onDisappear { model.commit(); model.commitSpendStaleHours() }
+        .onDisappear {
+            model.commit()
+            model.commitSpendStaleHours()
+            model.commitPriorityStaleHours()
+        }
     }
 
     /// A type-or-step stale-threshold field, mirroring the Desk timer's minute
@@ -72,11 +87,44 @@ struct WorkspaceSettingsTab: View {
             }
         }
     }
+
+    /// The priority widget's stale-after field — parallel to `staleAfterRow`,
+    /// backed by the priority threshold so the two pills age independently.
+    private var priorityStaleAfterRow: some View {
+        let value = Binding<Int>(
+            get: { model.priorityStaleDisplayValue },
+            set: { model.setPriorityStaleDisplayValue($0) }
+        )
+        return SettingsRow(label: "Stale after") {
+            HStack(spacing: 6) {
+                TextField("", value: value, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 52)
+                Picker("", selection: $model.priorityStaleUnit) {
+                    Text("hours").tag(PriorityStaleUnit.hours)
+                    Text("days").tag(PriorityStaleUnit.days)
+                }
+                .labelsHidden()
+                .frame(width: 84)
+                Stepper("", value: value, in: 0...Int.max, step: 1)
+                    .labelsHidden()
+            }
+        }
+    }
 }
 
 /// The unit the stale-after threshold is edited in. Storage is always hours;
 /// `days` is a display convenience (×24).
 enum SpendStaleUnit {
+    case hours
+    case days
+}
+
+/// The priority widget's stale-after unit. Parallel to SpendStaleUnit so the two
+/// pills' settings stay independent.
+enum PriorityStaleUnit {
     case hours
     case days
 }
@@ -92,6 +140,9 @@ final class WorkspaceSettingsModel: ObservableObject {
     @Published var spendShow: Bool
     @Published var spendStaleHours: Int
     @Published var staleUnit: SpendStaleUnit
+    @Published var priorityShow: Bool
+    @Published var priorityStaleHours: Int
+    @Published var priorityStaleUnit: PriorityStaleUnit
     let availablePersonas: [String]
     private var bag = Set<AnyCancellable>()
 
@@ -106,6 +157,10 @@ final class WorkspaceSettingsModel: ObservableObject {
         // Open in days when the stored hours are a whole number of days (≥ 1 day),
         // else hours — so 24h shows as "1 day", 6h as "6 hours".
         self.staleUnit = (hrs >= 24 && hrs % 24 == 0) ? .days : .hours
+        self.priorityShow = current?.priorityShow ?? false
+        let phrs = current?.priorityStaleHours ?? 24
+        self.priorityStaleHours = phrs
+        self.priorityStaleUnit = (phrs >= 24 && phrs % 24 == 0) ? .days : .hours
 
         // Enumerate personas by globbing the persona dir (mirrors Galaxy's new
         // session picker). Keep the stored selection in the list even if its
@@ -131,6 +186,12 @@ final class WorkspaceSettingsModel: ObservableObject {
                 }
                 if workspace.spendStaleHours != self.spendStaleHours {
                     self.spendStaleHours = workspace.spendStaleHours
+                }
+                if workspace.priorityShow != self.priorityShow {
+                    self.priorityShow = workspace.priorityShow
+                }
+                if workspace.priorityStaleHours != self.priorityStaleHours {
+                    self.priorityStaleHours = workspace.priorityStaleHours
                 }
             }
             .store(in: &bag)
@@ -189,5 +250,29 @@ final class WorkspaceSettingsModel: ObservableObject {
         let clamped = max(0, value)
         spendStaleHours = staleUnit == .days ? clamped * 24 : clamped
         commitSpendStaleHours()
+    }
+
+    /// Toggle the title-bar priority pill; writes through immediately.
+    func setPriorityShow(_ show: Bool) {
+        priorityShow = show
+        try? WorkspaceStore.shared.setPriorityShow(show)
+    }
+
+    /// Persist the priority stale-after threshold (hours; clamped at 0 = never).
+    func commitPriorityStaleHours() {
+        try? WorkspaceStore.shared.setPriorityStaleHours(max(0, priorityStaleHours))
+    }
+
+    /// The priority stale threshold expressed in the currently-selected unit.
+    var priorityStaleDisplayValue: Int {
+        priorityStaleUnit == .days ? priorityStaleHours / 24 : priorityStaleHours
+    }
+
+    /// Set the priority threshold from a value in the selected unit, store it in
+    /// hours, and persist. Floors at 0 (= never).
+    func setPriorityStaleDisplayValue(_ value: Int) {
+        let clamped = max(0, value)
+        priorityStaleHours = priorityStaleUnit == .days ? clamped * 24 : clamped
+        commitPriorityStaleHours()
     }
 }

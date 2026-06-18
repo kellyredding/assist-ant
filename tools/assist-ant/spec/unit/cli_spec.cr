@@ -92,4 +92,21 @@ describe AssistAnt::CLI do
       end
     end
   end
+
+  describe "#run with priority" do
+    # Routing smoke (in-process): `priority` and `priority set --help` reach
+    # Commands::Priority and return without raising or exiting. Envelope behavior
+    # + exit codes live in spec/integration/priority_spec.cr.
+    it "routes `priority` with no args to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["priority"])
+      end
+    end
+
+    it "routes `priority set --help` to the command" do
+      with_sandbox do
+        AssistAnt::CLI.new.run(["priority", "set", "--help"])
+      end
+    end
+  end
 end

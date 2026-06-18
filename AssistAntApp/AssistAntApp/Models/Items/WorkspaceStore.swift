@@ -83,6 +83,37 @@ final class WorkspaceStore {
         }
     }
 
+    /// Replace the captured priority snapshot (the atomic `priority set` write).
+    /// Stamps `updatedAt`, so `observe()` re-emits and the pill/popover refresh.
+    func setPriorityState(_ state: PriorityState) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.priorityState = state
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
+    /// Show/hide the title-bar priority pill.
+    func setPriorityShow(_ show: Bool) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.priorityShow = show
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
+    /// Hours before a snapshot is flagged stale (0 = never). Clamped at 0.
+    func setPriorityStaleHours(_ hours: Int) throws {
+        try dbQueue.write { db in
+            guard var workspace = try Workspace.fetchOne(db) else { return }
+            workspace.priorityStaleHours = max(0, hours)
+            workspace.updatedAt = Date()
+            try workspace.update(db)
+        }
+    }
+
     /// Live workspace updates for the settings field and the title-bar pill.
     func observe() -> AnyPublisher<Workspace?, Error> {
         ValueObservation

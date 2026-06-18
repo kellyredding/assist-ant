@@ -23,6 +23,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
     var spendShow: Bool          // show the title-bar spend pill
     var spendStaleHours: Int     // hours before the pill flags stale; 0 = never
     var spendState: SpendState?  // latest captured state (JSON column); nil until first capture
+    var priorityShow: Bool          // show the title-bar priority pill
+    var priorityStaleHours: Int     // hours before the pill flags stale; 0 = never
+    var priorityState: PriorityState?  // latest captured snapshot (JSON column); nil until first capture
     var createdAt: Date
     var updatedAt: Date
 
@@ -38,6 +41,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
         case spendShow = "spend_show"
         case spendStaleHours = "spend_stale_hours"
         case spendState = "spend_state"
+        case priorityShow = "priority_show"
+        case priorityStaleHours = "priority_stale_hours"
+        case priorityState = "priority_state"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -52,6 +58,9 @@ struct Workspace: Codable, Equatable, FetchableRecord, PersistableRecord {
             spendShow: false,
             spendStaleHours: 24,
             spendState: nil,
+            priorityShow: false,
+            priorityStaleHours: 24,
+            priorityState: nil,
             createdAt: now,
             updatedAt: now)
     }

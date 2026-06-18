@@ -1366,22 +1366,26 @@ func newRun(
 }
 
 // T1. A fresh in-memory DB migrated through the real migrator seeds the two
-//     built-in Today sync triggers plus the disabled Spend capture task; the
-//     run log starts empty.
+//     built-in Today sync triggers plus the disabled Spend capture and Priority
+//     capture tasks; the run log starts empty.
 check("tasks: migration seeds the built-in tasks") {
     let (store, _) = try makeTasksStore()
     let all = try store.allTasks()
     guard let cal = all.first(where: { $0.todayKey == "calendar_refresh" }),
           let todo = all.first(where: { $0.todayKey == "todo_refresh" }),
-          let spend = all.first(where: { $0.name == "Spend capture" })
+          let spend = all.first(where: { $0.name == "Spend capture" }),
+          let priority = all.first(where: { $0.name == "Priority capture" })
     else { return false }
-    return try all.count == 3
+    return try all.count == 4
         && cal.triggerType == "today" && cal.enabled && cal.prompt == "Sync my calendar"
         && todo.triggerType == "today" && todo.enabled
         && todo.prompt == "Sync my Linear issues"
         && spend.triggerType == "recurring" && spend.cadenceKind == "interval"
         && spend.intervalSeconds == 7200 && !spend.enabled
         && spend.windowStart == "07:05" && spend.windowEnd == "19:05"
+        && priority.triggerType == "recurring" && priority.cadenceKind == "interval"
+        && priority.intervalSeconds == 7200 && !priority.enabled
+        && priority.windowStart == "07:15" && priority.windowEnd == "19:15"
         && store.recentRuns().isEmpty
 }
 

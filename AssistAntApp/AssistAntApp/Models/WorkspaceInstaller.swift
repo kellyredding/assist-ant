@@ -19,6 +19,7 @@ enum WorkspaceInstaller {
         ("WorkspaceMemory", "CLAUDE.md"),
         ("CaptureItemSkill", ".claude/skills/assist-ant-capture-item/SKILL.md"),
         ("ManageTasksSkill", ".claude/skills/assist-ant-manage-tasks/SKILL.md"),
+        ("ProgressSkill", ".claude/skills/assist-ant-progress/SKILL.md"),
     ]
 
     static func installIfNeeded() {

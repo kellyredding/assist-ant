@@ -41,16 +41,26 @@ struct BriefingSnapshot: Codable, Equatable {
         }
     }
 
+    /// The previously captured priority snapshot, surfaced so the progress skill
+    /// can note movement since last time. `capturedAt` is ISO-8601; null until
+    /// the first `priority set`.
+    struct PriorityRef: Codable, Equatable {
+        let capturedAt: String
+        let body: String
+    }
+
     let today: [Row]
     let upcoming: [Row]
     let icebox: IceboxSummary
     let generatedOn: String         // "YYYY-MM-DD"
+    let lastPriority: PriorityRef?
 
     /// Assemble from the store: the Today list, the lookahead (tomorrow → end of
     /// next week, Monday-aligned), and the icebox summary. Calendar items are
     /// dropped from both lists (the briefing's calendar is the live MCP pull).
     static func current(
-        store: ItemStore, asOf today: CivilDate = .today
+        store: ItemStore, asOf today: CivilDate = .today,
+        priority: PriorityState? = nil
     ) throws -> BriefingSnapshot {
         let endOfNextWeek = today.mondayOfWeek().adding(days: 13)
         let todayRows = try store.fetchTodaySidebar(asOf: today)
@@ -59,9 +69,14 @@ struct BriefingSnapshot: Codable, Equatable {
             type: nil, from: today.adding(days: 1), to: endOfNextWeek
         ).compactMap { Row($0, today: today) }
         let icebox = try store.iceboxSummary(asOf: today)
+        let lastPriority = priority.map {
+            PriorityRef(
+                capturedAt: ISO8601DateFormatter().string(from: $0.capturedAt),
+                body: $0.body)
+        }
         return BriefingSnapshot(
             today: todayRows, upcoming: upcomingRows,
-            icebox: icebox, generatedOn: today.iso)
+            icebox: icebox, generatedOn: today.iso, lastPriority: lastPriority)
     }
 
     /// Encode to one compact JSON line for the socket reply. On any failure,
@@ -70,7 +85,9 @@ struct BriefingSnapshot: Codable, Equatable {
         store: ItemStore = GRDBItemStore.shared, asOf today: CivilDate = .today
     ) -> Data {
         do {
-            return try JSONEncoder().encode(current(store: store, asOf: today))
+            let priority = try? WorkspaceStore.shared.current().priorityState
+            return try JSONEncoder().encode(
+                current(store: store, asOf: today, priority: priority))
         } catch {
             let payload = ["error": String(describing: error)]
             return (try? JSONEncoder().encode(payload))
