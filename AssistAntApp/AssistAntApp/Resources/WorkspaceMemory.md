@@ -52,6 +52,15 @@ spend --help` for what it captures and how). Which periods to record, and how
 often, live in whatever request or task drives it — not here. Like the syncs
 above, reach for it whenever the user asks in plain language.
 
+## Tracking progress
+
+To capture where the user stands and what to do next, produce a prioritized
+snapshot with the `/assist-ant-progress` skill — it reads the local items only
+(no calendar/Linear/MCP) — and pin it to the title-bar widget through the
+`assist-ant priority` CLI (run `assist-ant priority --help` for how). What
+drives it, and how often, live in whatever request or task fires it — not here.
+Reach for it whenever the user asks what to work on or for a progress check.
+
 ## Capturing items
 
 The `/assist-ant-capture-item` skill turns a single note into one to-do,
