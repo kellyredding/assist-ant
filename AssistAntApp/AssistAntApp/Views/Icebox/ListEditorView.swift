@@ -322,10 +322,14 @@ struct RescheduleEditorView: View {
 
             VStack(spacing: 2) {
                 ForEach(Array(model.presets.enumerated()), id: \.element) { idx, opt in
+                    // Single-click selects the option; double-click submits it
+                    // outright, mirroring a calendar day's click-to-pick.
                     optionRow(title: opt.title,
                               detail: Self.medium(opt.resolved(from: model.today)),
                               active: model.activeIndex == idx)
-                        .onTapGesture { model.activate(idx) }
+                        .pointerButton(
+                            action: { model.activate(idx) },
+                            doubleAction: { onPick(opt.resolved(from: model.today)) })
                 }
                 pickRow
             }
@@ -358,8 +362,16 @@ struct RescheduleEditorView: View {
 
     private var pickRow: some View {
         HStack {
+            // The label is the clickable region: single-click enters "Pick a
+            // date…", double-click submits the date currently set for it —
+            // mirroring the presets and the calendar. The stepper stays OUTSIDE
+            // this region so the click overlay doesn't swallow its own clicks.
             Text("Pick a date…")
-            Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .pointerButton(
+                    action: { model.activate(model.pickIndex) },
+                    doubleAction: { onPick(model.pickedDate) })
             DatePicker(
                 "",
                 selection: Binding(
@@ -375,8 +387,6 @@ struct RescheduleEditorView: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
         .background(selectionFill(model.isPick))
-        .contentShape(Rectangle())
-        .onTapGesture { model.activate(model.pickIndex) }
     }
 
     private func selectionFill(_ active: Bool) -> some View {
