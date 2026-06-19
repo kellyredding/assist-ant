@@ -17,10 +17,27 @@ struct ContentView: View {
     @ObservedObject private var tabs = MainTabNavigator.shared
     @ObservedObject private var viewer = ItemViewerModel.shared
 
+    /// Active state of the window hosting this view. ContentView is only ever
+    /// hosted in the main window, so this tracks the main window specifically.
+    /// `.inactive` means the app is not the frontmost application — distinct
+    /// from `.active` (app frontmost, but another of its own windows is key,
+    /// e.g. Settings or the capture panel), so the right pane dims only when
+    /// the app itself loses focus, not when focus moves to a sibling window.
+    @Environment(\.controlActiveState) private var controlActiveState
+
     /// Live width (pixels) while a resize drag is in flight; nil otherwise, at
     /// which point the width is derived from the persisted fraction × the
     /// current window width.
     @State private var draggingWidth: CGFloat? = nil
+
+    /// Right-pane opacity while the app is inactive. Only the right pane dims:
+    /// it owns the keyboard-driven surfaces (schedule shortcuts, etc.), so the
+    /// dim doubles as an at-a-glance "are shortcuts live?" cue. The today
+    /// sidebar stays full-bright so it remains readable as a reference even on
+    /// an unfocused side monitor. A touch stronger than the unfocused dimming
+    /// Galaxy applies to its panes (0.55–0.70) so the unfocused state is
+    /// unmistakable at a glance.
+    private static let inactiveDimOpacity: CGFloat = 0.4
 
     var body: some View {
         GeometryReader { geo in
@@ -77,6 +94,8 @@ struct ContentView: View {
             tabContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(controlActiveState == .inactive ? Self.inactiveDimOpacity : 1)
+        .animation(.easeInOut(duration: 0.18), value: controlActiveState)
     }
 
     /// Flat tab strip centered over the right pane, with a hairline bottom
