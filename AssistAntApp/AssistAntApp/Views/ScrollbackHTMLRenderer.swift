@@ -834,6 +834,14 @@ enum ScrollbackHTMLRenderer {
             padding: 4px 12px;
             border-radius: 4px;
             cursor: pointer;
+            /* The body sets `-webkit-user-select: text` + `cursor: text`,
+               which inherit here. WebKit then renders the text I-beam on
+               hover and lets it win over `cursor: pointer` whenever the
+               button's text is selectable — the pointer only shows mid
+               mouse-press. Opting the button out of selection keeps the
+               pointer consistent, drag or no drag. */
+            user-select: none;
+            -webkit-user-select: none;
             font-weight: 600;
             font-size: 13px;
             position: relative; /* anchor for tooltip ::after */
