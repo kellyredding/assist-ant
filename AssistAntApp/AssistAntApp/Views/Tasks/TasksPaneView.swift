@@ -275,11 +275,9 @@ private struct TaskRowView: View {
             // Stays enabled while the agent is down — it logs a skipped run.
             PointerIconButton(systemName: "play.fill", help: "Run now", action: onRunNow)
 
-            Toggle("", isOn: Binding(get: { task.enabled }, set: onToggle))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .controlSize(.mini)
-                .help(task.enabled ? "Disable task" : "Enable task")
+            SwitchButton(
+                isOn: task.enabled, onChange: onToggle,
+                help: task.enabled ? "Disable task" : "Enable task")
 
             PointerIconButton(systemName: "trash", help: "Delete task", action: onDelete)
         }
