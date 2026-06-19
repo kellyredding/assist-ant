@@ -108,7 +108,7 @@ struct SchedulePaneView: View {
                 }
                 .coordinateSpace(name: "agenda")
                 .onPreferenceChange(DayTopPreferenceKey.self) { tops in
-                    if let top = Self.topmost(tops) { model.topVisibleDay = top }
+                    if let top = Self.topmost(tops) { model.updateTopVisibleDay(top) }
                 }
                 .onChange(of: model.scrollTarget) { _, target in
                     guard let target else { return }

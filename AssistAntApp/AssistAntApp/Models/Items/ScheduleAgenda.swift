@@ -13,8 +13,13 @@ struct AgendaDay: Identifiable, Equatable {
 
 /// Pure derivation of the agenda's day sections. No SwiftUI, no I/O.
 enum ScheduleAgenda {
-    /// Every day from `start` through the last day carrying an item (or `start`/
-    /// `today`, whichever is later, if none), inclusive — empty days included.
+    /// Every day from `start` through the forward edge, inclusive — empty days
+    /// included. When `through` is given it is a hard forward cap: materialization
+    /// stops there even if a later item exists, so a single far-future item can't
+    /// generate one empty section per day out to it (that item renders once the
+    /// window extends to cover it). When `through` is `nil` the edge falls on the
+    /// last day carrying an item (the unbounded form, used by tests). In both
+    /// cases the edge is never earlier than `start` or `today`.
     /// Each day splits its items into calendar events (time-sorted) and
     /// actionables (grouped into sublists). `items` is the already-range-fetched
     /// set; resolved actionables are kept so they render struck as history.
@@ -23,10 +28,13 @@ enum ScheduleAgenda {
     /// actionables roll onto `today` (mirroring the Today sidebar), while
     /// resolved and future-scheduled actionables — and all calendar events —
     /// anchor to their own scheduled day.
-    static func days(items: [Item], from start: CivilDate, today: CivilDate) -> [AgendaDay] {
+    static func days(
+        items: [Item], from start: CivilDate, through: CivilDate? = nil,
+        today: CivilDate
+    ) -> [AgendaDay] {
         let grouped = Dictionary(grouping: items) { bucket(for: $0, today: today) }
-        let lastDay = grouped.keys.max() ?? start
-        let end = [lastDay, start, today].max()!
+        let forwardEdge = through ?? (grouped.keys.max() ?? start)
+        let end = [forwardEdge, start, today].max()!
 
         var out: [AgendaDay] = []
         var cursor = start

@@ -948,6 +948,30 @@ check("ScheduleAgenda.days: unscheduled/overdue open actionables surface on toda
     return onToday && onFuture && resolvedHidden
 }
 
+// 41c. ScheduleAgenda.days hard-caps the materialized range at `through`. A
+//      single far-future item must not generate one empty section per
+//      intervening day — the unbounded fill that pinned SwiftUI's layout pass
+//      and beach-balled the agenda. Days stop at the horizon; the far item
+//      renders only once the window extends to cover it.
+check("ScheduleAgenda.days: `through` hard-caps the materialized range") {
+    let today = CivilDate(year: 2026, month: 6, day: 13)
+    let through = today.adding(days: 10)
+    let near = newItem(type: .todo, typeData: .todo(ActionableData()),
+                       title: "near", scheduledOn: today.adding(days: 3))
+    let far = newItem(type: .calendar, typeData: .calendar(CalendarData()),
+                      source: "gcal", externalID: "far",
+                      scheduledOn: CivilDate(year: 2027, month: 6, day: 13))
+    let days = ScheduleAgenda.days(
+        items: [near, far], from: today, through: through, today: today)
+    // Bounded to today…through inclusive (11 days), not ~365 days out.
+    let cappedAtHorizon = days.last?.date == through && days.count == 11
+    let nearShown = days.contains {
+        $0.actionableGroups.flatMap(\.items).contains { $0.id == near.id }
+    }
+    let farOmitted = !days.contains { $0.events.contains { $0.id == far.id } }
+    return cappedAtHorizon && nearShown && farOmitted
+}
+
 // 42. CapturedItem.make: a bare capture lands unscheduled on Today; a dated
 //     capture carries its day; calendar/blank are rejected.
 check("CapturedItem.make: manual disposition + validation") {

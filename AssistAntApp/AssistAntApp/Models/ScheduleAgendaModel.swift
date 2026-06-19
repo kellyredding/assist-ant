@@ -2,10 +2,15 @@ import Foundation
 import Combine
 
 /// Drives the Schedule tab's agenda. Owns the loaded window and navigation.
-/// Forward data is fully loaded ([windowStart → ∞)); the past edge
-/// (`windowStart`) starts at today and extends one day at a
-/// time via the back chevron. State persists across tab switches (singleton +
-/// the tab view stays mounted); only the first activation jumps to today.
+/// Both edges are bounded and grow on demand: the past edge (`windowStart`)
+/// starts at today and extends via the back chevron; the forward edge
+/// (`windowEnd`) starts a fixed horizon ahead and extends as the user scrolls
+/// or steps toward it. A bounded forward edge is essential — loading to the
+/// furthest future item materializes one empty section per intervening day,
+/// and that unbounded row count drowns SwiftUI's layout pass (the agenda
+/// beach-balled on accounts with a far-future scheduled item). State persists
+/// across tab switches (singleton + the tab view stays mounted); only the
+/// first activation jumps to today.
 ///
 /// Each day carries its calendar events and its actionables grouped into
 /// sublists. Actionable rows reuse the shared list machinery: selection/focus
@@ -16,7 +21,7 @@ import Combine
 final class ScheduleAgendaModel: ObservableObject {
     static let shared = ScheduleAgendaModel()
 
-    /// Rendered day sections (windowStart … last item day).
+    /// Rendered day sections (windowStart … windowEnd, empty days included).
     @Published private(set) var days: [AgendaDay] = []
     /// First-load spinner. Back-load / refresh use `isWorking` so the existing
     /// content stays on screen.
@@ -34,12 +39,27 @@ final class ScheduleAgendaModel: ObservableObject {
     /// J/K and a batch span days. Observed directly by the rows + control bar.
     let selection = ActionableSelection()
 
+    /// Days materialized ahead of today on first load / today-jump. Large
+    /// enough to fill any reasonable viewport without the user hitting an empty
+    /// forward edge, small enough that a full layout pass stays cheap.
+    private static let forwardHorizon = 45
+    /// Days added each time the forward edge is neared, amortizing extension
+    /// reloads while keeping the window bounded.
+    private static let forwardStep = 45
+    /// Start extending when the top visible day is within this many days of the
+    /// forward edge, so new sections are ready before the user scrolls to them.
+    private static let forwardBuffer = 14
+
     private let store: ItemStore
     private var windowStart: CivilDate = .today
+    /// Forward edge of the materialized range; see the type doc for why it must
+    /// stay bounded. Initialized a horizon ahead of today in `init`.
+    private var windowEnd: CivilDate = .today
     private var hasActivatedOnce = false
 
     init(store: ItemStore = GRDBItemStore.shared) {
         self.store = store
+        windowEnd = CivilDate.today.adding(days: Self.forwardHorizon)
         // Re-fetch the window when a sync commits calendar data...
         NotificationCenter.default.addObserver(
             forName: .calendarItemsDidChange, object: nil, queue: .main
@@ -66,6 +86,7 @@ final class ScheduleAgendaModel: ObservableObject {
         if !hasActivatedOnce {
             hasActivatedOnce = true
             windowStart = .today
+            windowEnd = CivilDate.today.adding(days: Self.forwardHorizon)
             load(spinner: true)
             scrollTarget = .today
         } else {
@@ -73,7 +94,7 @@ final class ScheduleAgendaModel: ObservableObject {
         }
     }
 
-    /// Re-fetch the current range [windowStart → ∞) and regroup, keeping the
+    /// Re-fetch the current range [windowStart … windowEnd] and regroup, keeping the
     /// scroll position. Also the control-bar refresh glyph's action.
     func refresh() {
         load(spinner: false)
@@ -90,15 +111,40 @@ final class ScheduleAgendaModel: ObservableObject {
         scrollTarget = target
     }
 
-    /// Forward chevron: the day below the top day. Forward data is already
-    /// loaded, so this is scroll-only (clamped to the last rendered day).
+    /// Forward chevron: the day below the top day. Extends the forward edge
+    /// first if the step lands near it, so stepping never stalls against a
+    /// clamped window; otherwise scroll-only within the loaded range.
     func goForward() {
         let target = topVisibleDay.adding(days: 1)
+        extendForwardIfNeeded(toShow: target)
         scrollTarget = min(target, days.last?.date ?? target)
     }
 
     func goToToday() {
         scrollTarget = .today
+    }
+
+    /// Called by the agenda's scroll tracker with the topmost-visible day.
+    /// Coalesced and guarded: republishes only on an actual day change (so a
+    /// stream of near-identical scroll-frame values can't re-trigger layout),
+    /// and schedules any forward-edge growth on the next runloop tick rather
+    /// than inside the layout pass that produced the value — keeping the
+    /// scroll→preference→relayout path from compounding into a hang.
+    func updateTopVisibleDay(_ day: CivilDate) {
+        guard day != topVisibleDay else { return }
+        topVisibleDay = day
+        guard day.adding(days: Self.forwardBuffer) >= windowEnd else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.extendForwardIfNeeded(toShow: day)
+        }
+    }
+
+    /// Grow the forward edge so `day` keeps a buffer of loaded days ahead of it,
+    /// then reload the (still bounded) range. A no-op away from the edge.
+    private func extendForwardIfNeeded(toShow day: CivilDate) {
+        guard day.adding(days: Self.forwardBuffer) >= windowEnd else { return }
+        windowEnd = day.adding(days: Self.forwardStep)
+        load(spinner: false)
     }
 
     func toggleCollapse(_ listName: String) {
@@ -308,10 +354,11 @@ final class ScheduleAgendaModel: ObservableObject {
             // actionables that surface on Today but carry no in-window
             // scheduled_on — so the today column mirrors the Today list.
             // ScheduleAgenda routes each (merged, deduped) item to its day.
-            let windowed = try store.fetchActive(type: nil, from: windowStart, to: nil)
+            let windowed = try store.fetchActive(type: nil, from: windowStart, to: windowEnd)
             let todaySurface = try store.fetchTodaySidebar(asOf: .today)
             let merged = Self.mergeByID(windowed, todaySurface)
-            days = ScheduleAgenda.days(items: merged, from: windowStart, today: .today)
+            days = ScheduleAgenda.days(
+                items: merged, from: windowStart, through: windowEnd, today: .today)
         } catch {
             NSLog("ScheduleAgendaModel: load failed: \(error)")
         }
