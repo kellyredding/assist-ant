@@ -105,47 +105,30 @@ struct ContentView: View {
     /// ZStack of one; each future case adds one stacked view + its toggles.
     private var tabContent: some View {
         ZStack {
+            // The agent terminal manages its own active state and has no bleeding
+            // affordances, so it stays enabled while hidden — disabled only under
+            // the reader (gateWhenHidden: false). The other panes quiet while
+            // hidden so their drag-grip / pointer-cursor tracking — which ignores
+            // opacity and hit-testing — can't bleed through the pane on top.
             AgentPaneView()
-                .opacity(tabs.selectedTab == .agent ? 1 : 0)
-                .allowsHitTesting(tabs.selectedTab == .agent)
-                .zIndex(tabs.selectedTab == .agent ? 1 : 0)
-                .disabled(viewer.openItem != nil)
+                .tabPane(.agent, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil, gateWhenHidden: false)
 
             SchedulePaneView()
-                .opacity(tabs.selectedTab == .schedule ? 1 : 0)
-                .allowsHitTesting(tabs.selectedTab == .schedule)
-                .zIndex(tabs.selectedTab == .schedule ? 1 : 0)
-                // Disable while hidden so its drag-grip tracking areas — which
-                // ignore opacity/hit-testing — can't bleed their cursor through
-                // the pane on top; still disabled under the reader as before.
-                .disabled(viewer.openItem != nil || tabs.selectedTab != .schedule)
+                .tabPane(.schedule, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil)
 
             TasksPaneView()
-                .opacity(tabs.selectedTab == .tasks ? 1 : 0)
-                .allowsHitTesting(tabs.selectedTab == .tasks)
-                .zIndex(tabs.selectedTab == .tasks ? 1 : 0)
-                // Disable while hidden so its controls' pointer-cursor tracking
-                // can't bleed through the pane on top; still disabled under the
-                // reader, matching the other panes.
-                .disabled(viewer.openItem != nil || tabs.selectedTab != .tasks)
+                .tabPane(.tasks, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil)
 
             IceboxPaneView()
-                .opacity(tabs.selectedTab == .icebox ? 1 : 0)
-                .allowsHitTesting(tabs.selectedTab == .icebox)
-                .zIndex(tabs.selectedTab == .icebox ? 1 : 0)
-                // Disable while hidden so its drag-grip tracking areas — which
-                // ignore opacity/hit-testing — can't bleed their cursor through
-                // the pane on top; still disabled under the reader as before.
-                .disabled(viewer.openItem != nil || tabs.selectedTab != .icebox)
+                .tabPane(.icebox, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil)
 
             TrashPaneView()
-                .opacity(tabs.selectedTab == .trash ? 1 : 0)
-                .allowsHitTesting(tabs.selectedTab == .trash)
-                .zIndex(tabs.selectedTab == .trash ? 1 : 0)
-                // Disable while hidden so its drag-grip tracking areas — which
-                // ignore opacity/hit-testing — can't bleed their cursor through
-                // the pane on top; still disabled under the reader as before.
-                .disabled(viewer.openItem != nil || tabs.selectedTab != .trash)
+                .tabPane(.trash, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil)
 
             // The item reader is presented once here, above whichever tab is
             // selected, so it can be launched from any tab and float over it.

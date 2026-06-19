@@ -156,3 +156,53 @@ private struct PointerControlOverlay: NSViewRepresentable {
         }
     }
 }
+
+// MARK: - Covering-overlay cursor gating
+
+// Two view modifiers that make "an overlay quiets the affordances it covers" a
+// structural guarantee instead of a hand-maintained pairing. The tracking areas
+// above update the cursor from pointer position alone — ignoring opacity and
+// hit-testing — so a covered-but-enabled affordance keeps asserting its cursor
+// up through whatever is drawn on top. The only reliable quiet is
+// `isEnabled = false`, which these affordances (and the drag grips) honor by
+// dropping their tracking areas. Wiring that disable in by hand per overlay or
+// per tab is the footgun these modifiers remove: the quiet travels with the
+// layer.
+
+extension View {
+    /// Stacks `overlay` above this content and disables the content while
+    /// `isPresented` is true, so the covered affordances drop their cursor
+    /// tracking rather than bleeding it through the overlay. The disable is part
+    /// of the construct — an overlay added this way cannot omit it. Compose more
+    /// than one by chaining; later layers sit higher and also quiet those below.
+    func coveredBy<Overlay: View>(
+        _ isPresented: Bool,
+        @ViewBuilder _ overlay: () -> Overlay
+    ) -> some View {
+        ZStack {
+            disabled(isPresented)
+            if isPresented { overlay() }
+        }
+    }
+
+    /// One pane in a tab ZStack: visible and interactive only as the selected
+    /// tab, layered above the others, and quieted whenever it is not the
+    /// frontmost interactive layer — behind another tab, or under `covered` (the
+    /// item reader) — so its cursor-tracking affordances can't bleed through what
+    /// sits on top. `gateWhenHidden: false` opts a pane out of the
+    /// behind-another-tab quiet: the agent terminal tracks its own active state
+    /// and carries no bleeding affordances, so it stays enabled while hidden
+    /// (disabled only under the reader).
+    func tabPane(
+        _ tab: MainTab,
+        selected: MainTab,
+        covered: Bool,
+        gateWhenHidden: Bool = true
+    ) -> some View {
+        let isSelected = selected == tab
+        return opacity(isSelected ? 1 : 0)
+            .allowsHitTesting(isSelected)
+            .zIndex(isSelected ? 1 : 0)
+            .disabled(covered || (gateWhenHidden && !isSelected))
+    }
+}

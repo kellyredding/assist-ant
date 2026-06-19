@@ -25,24 +25,20 @@ struct TasksPaneView: View {
     @State private var showLog = false
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                controlBar
-                Divider()
-                // The task list now owns the full pane height and scrolls; the
-                // run log lives in an overlay toggled from the control bar.
-                tasksContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            // The run-log and task-reader overlays float over this content in the
-            // ZStack; disable it whenever either is up so the row affordances'
-            // AppKit cursor tracking (pointerButton, the drag grip) can't bleed
-            // their hand cursor up through the overlay. Mirrors the isEnabled gate
-            // ContentView already applies under the item reader — these overlays
-            // are TasksPaneView-local state, so ContentView's guard misses them.
-            .disabled(showLog || model.openTask != nil)
-
-            if showLog { logOverlay }
+        // The task list is the base; the run log and the task reader are
+        // covering overlays that quiet it while up, so the rows' pointerButton
+        // and drag-grip cursors can't bleed through. The quiet travels with each
+        // overlay via `coveredBy`, so adding another overlay here can't forget it.
+        VStack(spacing: 0) {
+            controlBar
+            Divider()
+            // The task list owns the full pane height and scrolls; the run log
+            // lives in an overlay toggled from the control bar.
+            tasksContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .coveredBy(showLog) { logOverlay }
+        .coveredBy(model.openTask != nil) {
             // Tapping a row opens its viewer over the pane — the same full-cover
             // reader pattern as the item viewers.
             if let task = model.openTask {
