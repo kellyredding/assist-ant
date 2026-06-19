@@ -148,13 +148,16 @@ protocol ItemStore {
     /// counts, and aging — without materializing the items. For the briefing.
     func iceboxSummary(asOf today: CivilDate) throws -> IceboxSummary
 
-    /// Complete an actionable: stamp resolved_at = now and scheduled_on = the
-    /// completion day, leaving iceboxed_at untouched so the completion stays
+    /// Complete an actionable: stamp resolved_at = now and always set
+    /// scheduled_on to today (the completion day), overwriting any prior day — the
+    /// date is the honest record of when it was finished, so a resolved item never
+    /// sits on another day. iceboxed_at is left untouched so the completion stays
     /// reversible from the icebox. The general mark-done / mark-dismissed path.
     func completeActionable(id: String) throws
 
-    /// Reverse a completion: clear resolved_at, and clear scheduled_on when the
-    /// item is iceboxed (an active iceboxed item carries no schedule). The undo
+    /// Reverse a completion: clear resolved_at only. scheduled_on (today, stamped
+    /// at completion) and iceboxed_at are preserved, so an item reopened after an
+    /// accidental complete returns to the icebox at its original position. The undo
     /// for an accidental complete.
     func reopenActionable(id: String) throws
 

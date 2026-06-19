@@ -492,10 +492,13 @@ final class GRDBItemStore: ItemStore {
             guard var item = try Item.fetchOne(db, key: id) else { return }
             let now = Date()
             item.resolvedAt = now
-            // Give an unscheduled item a definite day (the day it was finished)
-            // so resolved items have a stable home and never accumulate; an item
-            // that already carries a day keeps it.
-            if item.scheduledOn == nil { item.scheduledOn = CivilDate(now) }
+            // Resolving always re-homes the item to today, overwriting any past or
+            // future day: the completion date is the honest record of when it was
+            // finished, so a resolved item never sits on another day (it can't show
+            // as "completed" on a future date that hasn't arrived). iceboxed_at is
+            // left untouched — a reopen reverts cleanly back into the icebox, so the
+            // resolution and icebox membership are reversible, but the date is not.
+            item.scheduledOn = CivilDate(now)
             item.updatedAt = now
             item.pending = true
             try item.update(db)
@@ -506,8 +509,10 @@ final class GRDBItemStore: ItemStore {
     func reopenActionable(id: String) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
-            // Resolution is the only state cleared; scheduled_on is durable, so
-            // the row returns to whatever day it carried (icebox or schedule).
+            // Resolution is the only state cleared; scheduled_on and iceboxed_at
+            // are durable. Completion stamped scheduled_on to that day, so a reopen
+            // leaves the item on today and — if it was iceboxed — back in the icebox
+            // at its original position.
             item.resolvedAt = nil
             item.updatedAt = Date()
             item.pending = true

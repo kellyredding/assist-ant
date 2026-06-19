@@ -650,11 +650,13 @@ check("fetchIceboxed: iceboxed actionables only, newest first") {
     return ids == [new.id, old.id]                              // newest first
 }
 
-// 27. completeActionable stamps resolved_at; it stamps today only when the item
-//     is unscheduled, never overriding an existing day. Keeps iceboxed_at and
-//     drops resolved rows from fetchIceboxed.
-check("completeActionable: preserves a set day, stamps today when unscheduled") {
+// 27. completeActionable stamps resolved_at and always re-homes scheduled_on to
+//     today, overwriting any prior day (a previously set day or none alike). Keeps
+//     iceboxed_at so the completion stays reversible from the icebox, and drops
+//     resolved rows from fetchIceboxed.
+check("completeActionable: always stamps today, keeps iceboxed") {
     let (store, _) = try makeStore()
+    let today = CivilDate(Date())
     let day = CivilDate(year: 2026, month: 6, day: 20)
     let dated = newItem(type: .todo, typeData: .todo(ActionableData()),
                         scheduledOn: day, iceboxedAt: Date())
@@ -665,20 +667,21 @@ check("completeActionable: preserves a set day, stamps today when unscheduled") 
     guard let d = try store.fetch(id: dated.id),
           let b = try store.fetch(id: bare.id) else { return false }
     let gone = try store.fetchIceboxed().isEmpty            // both resolved → excluded
-    return d.resolvedAt != nil && d.scheduledOn == day && d.iceboxedAt != nil
-        && b.resolvedAt != nil && b.scheduledOn == CivilDate(Date())
+    return d.resolvedAt != nil && d.scheduledOn == today && d.iceboxedAt != nil
+        && b.resolvedAt != nil && b.scheduledOn == today && b.iceboxedAt != nil
         && gone
 }
 
-// 28. reopenActionable clears resolved_at only; scheduled_on is durable, so a
-//     row returns to whatever day it carried and back into fetchIceboxed.
+// 28. reopenActionable clears resolved_at only; scheduled_on and iceboxed_at are
+//     durable, so a row returns to the day it carried and back into fetchIceboxed.
+//     Built resolved directly so this exercises reopen in isolation, independent of
+//     completeActionable's today-stamp.
 check("reopenActionable: clears resolution, preserves schedule") {
     let (store, _) = try makeStore()
     let day = CivilDate(year: 2026, month: 6, day: 20)
     let item = newItem(type: .todo, typeData: .todo(ActionableData()),
-                       scheduledOn: day, iceboxedAt: Date())
+                       scheduledOn: day, iceboxedAt: Date(), resolvedAt: Date())
     try store.create(item)
-    try store.completeActionable(id: item.id)   // resolved; day preserved (20th)
     try store.reopenActionable(id: item.id)
     guard let after = try store.fetch(id: item.id) else { return false }
     let back = try store.fetchIceboxed().contains { $0.id == item.id }
@@ -893,18 +896,20 @@ check("ScheduleAgenda.days: splits events + actionables, time-sorts, groups") {
     return eventsSorted && noEventsInGroups && groupNames == [nil, "Errands"]
 }
 
-// 41. The schedule's fetch surfaces scheduled actionables alongside events,
-//     keeps resolved ones (struck history, day preserved), excludes iceboxed.
+// 41. The schedule's fetch surfaces scheduled actionables alongside events, keeps
+//     resolved ones (struck history on their day), excludes iceboxed. The resolved
+//     row is built directly on `day` so it stays in-window — completion itself
+//     re-homes to today, a separate concern covered by #27.
 check("fetchActive(from:to:): scheduled actionables incl. resolved, excl. iceboxed") {
     let (store, _) = try makeStore()
     let day = CivilDate(year: 2026, month: 6, day: 15)
     let todo = newItem(type: .todo, typeData: .todo(ActionableData()), title: "todo", scheduledOn: day)
     let event = newItem(type: .calendar, typeData: .calendar(CalendarData()),
                         source: "gcal", externalID: "e", scheduledOn: day)
-    let done = newItem(type: .todo, typeData: .todo(ActionableData()), title: "done", scheduledOn: day)
+    let done = newItem(type: .todo, typeData: .todo(ActionableData()), title: "done",
+                       scheduledOn: day, resolvedAt: Date())
     let boxed = newItem(type: .todo, typeData: .todo(ActionableData()), title: "boxed", scheduledOn: day)
     for i in [todo, event, done, boxed] { try store.create(i) }
-    try store.completeActionable(id: done.id)     // resolved; day preserved (15th)
     try store.setIceboxed(id: boxed.id, true)     // iceboxed; hidden from the schedule
 
     let ids = Set(try store.fetchActive(type: nil, from: day, to: day).map { $0.id })
