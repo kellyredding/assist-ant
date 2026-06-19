@@ -229,3 +229,250 @@ enum ListFuzzy {
         return qi == q.endIndex
     }
 }
+
+/// State for the Reschedule panel, shared between the SwiftUI view (presentation
+/// + mouse + the typed M/D/Y field) and the window controller's key monitor
+/// (Tab/arrows/Return/Esc). Keeping the keyboard model in the controller means
+/// the view needs no focus ring of its own. Touched only on the main thread.
+final class RescheduleEditorModel: ObservableObject {
+    let today: CivilDate
+    let presets = RescheduleOption.allCases
+
+    /// 0..<presets.count → a preset is active; == presets.count → "Pick a date…".
+    @Published private(set) var activeIndex = 0
+    /// The day for "Pick a date…" mode (driven by arrows / the field / clicks).
+    @Published private(set) var pickedDate: CivilDate
+    /// The month the calendar is showing (first of that month).
+    @Published private(set) var displayedMonth: CivilDate
+    /// "Pick a date…" resets to today on its FIRST entry only, then remembers.
+    private var pickVisited = false
+
+    init(today: CivilDate) {
+        self.today = today
+        self.pickedDate = today
+        self.displayedMonth = RescheduleOption.allCases[0].resolved(from: today).firstOfMonth()
+    }
+
+    var pickIndex: Int { presets.count }
+    var isPick: Bool { activeIndex == pickIndex }
+    /// The day Enter / the Reschedule button applies.
+    var resolvedDate: CivilDate {
+        isPick ? pickedDate : presets[activeIndex].resolved(from: today)
+    }
+    /// The calendar can't page before the current month (no past).
+    var atEarliestMonth: Bool { displayedMonth <= today.firstOfMonth() }
+
+    /// Select an option row (clamped). Entering "Pick a date…" the first time
+    /// resets it to today. The calendar follows the active date's month.
+    func activate(_ index: Int) {
+        let i = max(0, min(pickIndex, index))
+        if i == pickIndex, !pickVisited { pickVisited = true; pickedDate = today }
+        activeIndex = i
+        displayedMonth = resolvedDate.firstOfMonth()
+    }
+
+    func moveSelection(_ delta: Int) { activate(activeIndex + delta) }
+
+    /// Arrow nav on the calendar — only in "Pick a date…". ↑↓ = ±1 week, ←→ =
+    /// ±1 day; never before today.
+    func nudgeDay(_ days: Int) {
+        guard isPick else { return }
+        var d = pickedDate.adding(days: days)
+        if d < today { d = today }
+        pickedDate = d
+        displayedMonth = d.firstOfMonth()
+    }
+
+    /// Page the displayed month, clamped at the current month.
+    func page(_ months: Int) {
+        displayedMonth = max(displayedMonth.addingMonths(months), today.firstOfMonth())
+    }
+
+    /// Click a day (or type one) — switches to "Pick a date…" and selects it.
+    func selectDay(_ date: CivilDate) {
+        guard date >= today else { return }
+        pickVisited = true
+        pickedDate = date
+        activeIndex = pickIndex
+        displayedMonth = date.firstOfMonth()
+    }
+}
+
+/// The Reschedule panel body (hosted in RescheduleEditorWindowController): a
+/// preset list + an always-visible calendar that previews the highlighted option
+/// and goes live on "Pick a date…" (with a typed M/D/Y field). Tab / arrows /
+/// Return are driven by the controller's key monitor; this view is presentation,
+/// mouse, and the typed field. Monday-first, matching the announce-settings
+/// schedule.
+struct RescheduleEditorView: View {
+    @ObservedObject var model: RescheduleEditorModel
+    let onPick: (CivilDate) -> Void
+    let onCancel: () -> Void
+
+    private static let weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    /// The day under the pointer, for a secondary-shade hover highlight.
+    @State private var hoveredDay: CivilDate?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Reschedule to…")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+
+            VStack(spacing: 2) {
+                ForEach(Array(model.presets.enumerated()), id: \.element) { idx, opt in
+                    optionRow(title: opt.title,
+                              detail: Self.medium(opt.resolved(from: model.today)),
+                              active: model.activeIndex == idx)
+                        .onTapGesture { model.activate(idx) }
+                }
+                pickRow
+            }
+
+            calendar
+
+            HStack {
+                Spacer()
+                Button("Cancel") { onCancel() }
+                Button("Reschedule") { onPick(model.resolvedDate) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 300)
+    }
+
+    // MARK: - Option rows
+
+    private func optionRow(title: String, detail: String, active: Bool) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(detail).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(selectionFill(active))
+        .contentShape(Rectangle())
+    }
+
+    private var pickRow: some View {
+        HStack {
+            Text("Pick a date…")
+            Spacer()
+            DatePicker(
+                "",
+                selection: Binding(
+                    get: { model.pickedDate.noon },
+                    set: { model.selectDay(CivilDate($0)) }),
+                in: Calendar.current.startOfDay(for: model.today.noon)...,
+                displayedComponents: .date
+            )
+            .labelsHidden()
+            .datePickerStyle(.stepperField)
+            .disabled(!model.isPick)
+            .opacity(model.isPick ? 1 : 0.4)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(selectionFill(model.isPick))
+        .contentShape(Rectangle())
+        .onTapGesture { model.activate(model.pickIndex) }
+    }
+
+    private func selectionFill(_ active: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(active ? Color.accentColor.opacity(0.20) : Color.clear)
+    }
+
+    // MARK: - Calendar
+
+    private var calendar: some View {
+        VStack(spacing: 6) {
+            HStack {
+                chevron("chevron.left", disabled: model.atEarliestMonth) { model.page(-1) }
+                Spacer()
+                Text(Self.monthYear(model.displayedMonth))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                chevron("chevron.right", disabled: false) { model.page(1) }
+            }
+            HStack(spacing: 0) {
+                ForEach(Self.weekdays, id: \.self) { d in
+                    Text(d).font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            ForEach(Array(gridWeeks.enumerated()), id: \.offset) { _, week in
+                HStack(spacing: 0) {
+                    ForEach(week, id: \.self) { day in dayCell(day) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chevron(_ name: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        let img = Image(systemName: name)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(disabled ? Color.secondary.opacity(0.4) : Color.primary)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+        if disabled { img } else { img.pointerButton(action: action) }
+    }
+
+    @ViewBuilder
+    private func dayCell(_ date: CivilDate) -> some View {
+        let inMonth = date.month == model.displayedMonth.month && date.year == model.displayedMonth.year
+        let isPast = date < model.today
+        let isSel = date == model.resolvedDate
+        let isToday = date == model.today
+        let isHover = hoveredDay == date
+        let label = Text("\(date.day)")
+            .font(.system(size: 12))
+            .foregroundStyle(isSel ? Color.white
+                             : (isPast || !inMonth ? Color.secondary : Color.primary))
+            .frame(maxWidth: .infinity, minHeight: 26)
+            .background(
+                ZStack {
+                    if isSel {
+                        Circle().fill(Color.accentColor).frame(width: 24, height: 24)
+                    } else {
+                        if isHover {
+                            Circle().fill(Color.primary.opacity(0.18)).frame(width: 24, height: 24)
+                        }
+                        if isToday {
+                            Circle().strokeBorder(Color.accentColor, lineWidth: 1)
+                                .frame(width: 24, height: 24)
+                        }
+                    }
+                })
+            .contentShape(Rectangle())
+        if isPast {
+            label
+        } else {
+            // Single-click selects (updates the field + selection); double-click
+            // submits the reschedule for this day.
+            label.pointerButton(
+                onHoverChange: { hovering in
+                    hoveredDay = hovering ? date : (hoveredDay == date ? nil : hoveredDay)
+                },
+                action: { model.selectDay(date) },
+                doubleAction: { onPick(date) })
+        }
+    }
+
+    private var gridWeeks: [[CivilDate]] {
+        let start = model.displayedMonth.firstOfMonth().mondayOfWeek()
+        let days = (0..<42).map { start.adding(days: $0) }
+        return stride(from: 0, to: 42, by: 7).map { Array(days[$0..<$0 + 7]) }
+    }
+
+    private static func medium(_ date: CivilDate) -> String {
+        let f = DateFormatter(); f.dateFormat = "EEE, MMM d"
+        return f.string(from: date.noon)
+    }
+    private static func monthYear(_ date: CivilDate) -> String {
+        let f = DateFormatter(); f.dateFormat = "MMMM yyyy"
+        return f.string(from: date.noon)
+    }
+}

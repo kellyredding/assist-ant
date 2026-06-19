@@ -285,6 +285,11 @@ final class ItemViewerModel: ObservableObject {
         case ("l", "r"): updated = a.reclassify(one, .reminder)
         case ("l", "e"): updated = a.reclassify(one, .explore)
         case ("l", "l"): presentListEditor(for: item); return true
+        case ("l", "s") where RescheduleEligibility.canReschedule(item):
+            if case let .date(day) = RescheduleEditorWindowController.present() {
+                if let u = actions.reschedule([item], day).first { updateOpenItem(u) }
+            }
+            return true
         case ("l", "d") where openedOverTab != .trash:
             updated = a.delete(item.isSynced ? [] : one)   // synced: sync owns it (no-op)
         case ("l", "p") where openedOverTab != .trash:

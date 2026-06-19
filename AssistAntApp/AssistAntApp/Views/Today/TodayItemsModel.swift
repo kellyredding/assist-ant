@@ -136,6 +136,10 @@ final class TodayItemsModel: ObservableObject {
             removeFromIcebox: { self.apply($0, hold: false) { try self.store.setIceboxed(id: $0, false) } },
             reclassify: { items, type in self.apply(items, hold: nil) { try self.store.reclassify(id: $0, to: type) } },
             setListName: { items, name in self.apply(items, hold: nil) { try self.store.setListName(id: $0, to: name) } },
+            // A reschedule is a structural move (like a drag), not a hold: let
+            // the live feed move/drop the row at once rather than dimming it in
+            // place. `apply` also refreshes the snapshot tabs.
+            reschedule: { items, day in self.apply(items, hold: nil) { try self.store.reschedule(id: $0, to: day) } },
             delete: { self.apply($0, hold: true) { try self.store.softDelete(id: $0) } },
             putBack: { self.apply($0, hold: false) { try self.store.undelete(id: $0) } })
     }

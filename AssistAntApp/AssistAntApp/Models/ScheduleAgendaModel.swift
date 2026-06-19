@@ -134,6 +134,7 @@ final class ScheduleAgendaModel: ObservableObject {
             removeFromIcebox: { items in self.mutateMany(items) { try self.store.setIceboxed(id: $0, false) } },
             reclassify: { items, type in self.mutateMany(items) { try self.store.reclassify(id: $0, to: type) } },
             setListName: { items, name in self.setListName(items, to: name) },
+            reschedule: { items, day in self.reschedule(items, to: day) },
             delete: { items in self.mutateMany(items) { try self.store.softDelete(id: $0) } },
             putBack: { items in self.mutateMany(items) { try self.store.undelete(id: $0) } })
     }
@@ -218,6 +219,26 @@ final class ScheduleAgendaModel: ObservableObject {
         regroupInPlace()
         selection.deselect(updated.map(\.id))
         if !updated.isEmpty { ActionableSnapshots.refresh(except: .schedule) }
+        return updated
+    }
+
+    /// Reschedule a set onto `day` — a structural move, like a drag: write each,
+    /// end the batch, then a FULL refresh so every surface (this Schedule
+    /// included) re-buckets the rows to their new day. Mirrors `performDrop`'s
+    /// reload rather than the in-place undo-until-refresh path the toggles use.
+    @discardableResult
+    private func reschedule(_ items: [Item], to day: CivilDate) -> [Item] {
+        var updated: [Item] = []
+        for item in items {
+            do {
+                try store.reschedule(id: item.id, to: day)
+                if let u = try store.fetch(id: item.id) { updated.append(u) }
+            } catch {
+                NSLog("ScheduleAgendaModel: reschedule failed for \(item.id): \(error)")
+            }
+        }
+        selection.deselect(updated.map(\.id))
+        ActionableSnapshots.refresh()
         return updated
     }
 

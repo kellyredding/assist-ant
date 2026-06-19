@@ -175,7 +175,16 @@ struct ActionableItemViewer: View {
             } else if let at = item.iceboxedAt {
                 IceboxedBadge(date: at)
             } else {
+                // The scheduled-date badge is itself a button → opens the
+                // reschedule panel for this item. It only shows when the item is
+                // actually scheduled (not deleted / not iceboxed), i.e. exactly
+                // when it is reschedulable, so it's always valid when visible.
                 ScheduledBadge(date: item.scheduledOn ?? .today)
+                    .pointerButton {
+                        if case let .date(day) = RescheduleEditorWindowController.present() {
+                            if let u = actions.reschedule([item], day).first { onItemChange(u) }
+                        }
+                    }
             }
             Spacer(minLength: 12)
             // The actions cluster moved here from the title row so long titles

@@ -12,6 +12,7 @@ struct ActionableActions {
     var removeFromIcebox: ([Item]) -> [Item]
     var reclassify: ([Item], ItemType) -> [Item]
     var setListName: ([Item], String?) -> [Item]
+    var reschedule: ([Item], CivilDate) -> [Item]
     var delete: ([Item]) -> [Item]
     var putBack: ([Item]) -> [Item]
 }

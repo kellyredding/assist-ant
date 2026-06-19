@@ -140,6 +140,21 @@ struct ItemActions: View {
             reclassify: { its, kind in apply(its) { actions.reclassify($0, kind) } },
             setListName: { its, name in apply(its) { actions.setListName($0, name) } })
 
+        // Reschedule…: present the date panel and apply the chosen day to the
+        // set. Shown when ANY target is reschedulable (actionable, not iceboxed,
+        // not trashed); a batch then sets the day on every member, including a
+        // held iceboxed/trashed row swept into a Schedule selection.
+        if items.contains(where: RescheduleEligibility.canReschedule) {
+            menu.addItem(ClosureMenuItem(
+                title: "Reschedule…",
+                mnemonic: showsMnemonics ? "s" : nil
+            ) {
+                if case let .date(day) = RescheduleEditorWindowController.present() {
+                    apply(items) { actions.reschedule($0, day) }
+                }
+            })
+        }
+
         // Delete: bottom item, divider above, trash glyph, underline D. Targets
         // the local members; synced items are skipped and the item is disabled
         // (with a tooltip) when every target is synced — sync owns their delete.

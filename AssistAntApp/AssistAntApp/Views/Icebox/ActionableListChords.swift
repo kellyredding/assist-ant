@@ -56,6 +56,10 @@ final class ActionableListChords {
         // the list chords, or every key (j/k included) bubbles to the no-op beep.
         guard MainTabNavigator.shared.selectedTab == ctx.tab,
               ItemViewerModel.shared.openItem == nil,
+              // Bail whenever an app-modal panel (the reschedule picker, the
+              // change-list editor, any future popover) is key, so it owns the
+              // keystrokes as first responder — mirrors the reader's own monitor.
+              NSApp.keyWindow is AssistAntWindow,
               (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 
@@ -112,6 +116,10 @@ final class ActionableListChords {
         case ("l", "r"): _ = ctx.actions.reclassify(selected, .reminder)
         case ("l", "e"): _ = ctx.actions.reclassify(selected, .explore)
         case ("l", "l"): presentListEditor(for: selected, ctx)
+        case ("l", "s") where selected.contains(where: RescheduleEligibility.canReschedule):
+            if case let .date(day) = RescheduleEditorWindowController.present() {
+                _ = ctx.actions.reschedule(selected, day)
+            }
         case ("l", "d") where ctx.tab != .trash:
             _ = ctx.actions.delete(selected.filter { !$0.isSynced })    // skip synced
         case ("l", "p") where ctx.tab != .trash:

@@ -78,6 +78,7 @@ final class IceboxModel: ObservableObject {
             removeFromIcebox: { self.removeFromIcebox($0) },
             reclassify: { self.reclassify($0, to: $1) },
             setListName: { self.setListName($0, to: $1) },
+            reschedule: { self.reschedule($0, to: $1) },
             delete: { self.delete($0) },
             putBack: { self.putBack($0) })
     }
@@ -156,6 +157,10 @@ final class IceboxModel: ObservableObject {
     @discardableResult
     func reclassify(_ items: [Item], to type: ItemType) -> [Item] {
         mutateMany(items) { try store.reclassify(id: $0, to: type) }
+    }
+    @discardableResult
+    func reschedule(_ items: [Item], to day: CivilDate) -> [Item] {
+        mutateMany(items) { try store.reschedule(id: $0, to: day) }
     }
 
     /// Save an edited title + body for one item (the reader's edit). Not

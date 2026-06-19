@@ -48,3 +48,18 @@ struct ItemActionState {
         }
     }
 }
+
+/// Reschedule eligibility. An item is reschedulable on its own only when it's an
+/// actionable kind (not a calendar event), not soft-deleted, and not iceboxed —
+/// scheduling an icebox item makes no sense (take it out first). The cluster
+/// offers reschedule when ANY target qualifies; a batch then applies the date to
+/// every selected actionable, including a held iceboxed/trashed member swept into
+/// a Schedule selection (it keeps its state and gains the future day — the fields
+/// are orthogonal).
+enum RescheduleEligibility {
+    static func canReschedule(_ item: Item) -> Bool {
+        guard item.deletedAt == nil, item.iceboxedAt == nil else { return false }
+        if case .calendar = item.typeData { return false }
+        return true
+    }
+}

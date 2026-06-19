@@ -27,10 +27,12 @@ extension View {
     /// Animate a sibling/background layer instead.
     func pointerButton(
         onHoverChange: @escaping (Bool) -> Void = { _ in },
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        doubleAction: (() -> Void)? = nil
     ) -> some View {
         overlay(
-            PointerControlOverlay(onHoverChange: onHoverChange, action: action)
+            PointerControlOverlay(onHoverChange: onHoverChange, action: action,
+                                  doubleAction: doubleAction)
         )
     }
 }
@@ -38,11 +40,15 @@ extension View {
 private struct PointerControlOverlay: NSViewRepresentable {
     let onHoverChange: (Bool) -> Void
     let action: () -> Void
+    /// Optional double-click handler (e.g. a calendar day: single-click selects,
+    /// double-click submits). Nil → a double-click is just two single clicks.
+    var doubleAction: (() -> Void)?
 
     func makeNSView(context: Context) -> NSView {
         let view = TrackingView()
         view.onHoverChange = onHoverChange
         view.action = action
+        view.doubleAction = doubleAction
         view.isActive = context.environment.isEnabled
         return view
     }
@@ -51,6 +57,7 @@ private struct PointerControlOverlay: NSViewRepresentable {
         guard let view = nsView as? TrackingView else { return }
         view.onHoverChange = onHoverChange
         view.action = action
+        view.doubleAction = doubleAction
         // Mirror SwiftUI's `.disabled(...)`: an occluded affordance (e.g. a row
         // behind an open reader) goes inactive so it stops tracking the cursor.
         view.isActive = context.environment.isEnabled
@@ -59,6 +66,7 @@ private struct PointerControlOverlay: NSViewRepresentable {
     final class TrackingView: NSView {
         var onHoverChange: ((Bool) -> Void)?
         var action: (() -> Void)?
+        var doubleAction: (() -> Void)?
 
         /// Mirrors SwiftUI's `isEnabled` environment. When inactive the view
         /// installs no tracking areas and ignores clicks — so an affordance
@@ -152,7 +160,9 @@ private struct PointerControlOverlay: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             guard isActive else { return }
             let point = convert(event.locationInWindow, from: nil)
-            if bounds.contains(point) { action?() }
+            guard bounds.contains(point) else { return }
+            if event.clickCount >= 2, let doubleAction { doubleAction() }
+            else { action?() }
         }
     }
 }
