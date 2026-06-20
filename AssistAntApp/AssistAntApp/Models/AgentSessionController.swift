@@ -471,9 +471,6 @@ final class AgentSessionController: ObservableObject {
 
         self.backend = backend
 
-        // Build the environment.
-        let environment = Self.buildEnvironment()
-
         // Build args: claude-persona <persona> --session-id|--resume <id>.
         // No --vibe (the persona's permission mode covers it). No
         // CLAUDE_CLI_SESSION_ID in the env (claude-persona injects it via
@@ -486,14 +483,10 @@ final class AgentSessionController: ObservableObject {
         }
         args.append(sessionId)
 
-        backend.startProcess(
-            executable: execPath,
-            args: args,
-            environment: environment,
-            execName: "claude-persona",
-            currentDirectory: cwd
-        )
-
+        // Mark running synchronously so the Agent pane swaps to the terminal
+        // now; the PTY spawn happens on the main-thread hop below once the
+        // environment is captured. The resume reflow gating below also reads
+        // this state, so it must be set before that runs.
         state = .running
 
         // On resume the freshly-built backend can show a resize artifact until
@@ -502,7 +495,9 @@ final class AgentSessionController: ObservableObject {
         // SessionStart hook fires once the resumed TUI is up, matching Galaxy's
         // session:ready gating. A longer fallback timer covers a lost or
         // never-delivered event so the screen can never stay garbled. A fresh
-        // start needs no reflow — it opens on a clean screen.
+        // start needs no reflow — it opens on a clean screen. The 3s window
+        // comfortably outlasts the off-main env capture (~0.2-0.3s) plus the
+        // spawn below.
         if resume {
             awaitingResumeReady = true
             DispatchQueue.main.asyncAfter(
@@ -519,6 +514,27 @@ final class AgentSessionController: ObservableObject {
             resume ? "Resuming" : "Starting",
             Self.personaName, sessionId, cwd
         )
+
+        // Capturing the login-shell environment sources the user's profile
+        // (~0.2-0.3s), so build it off the main thread and spawn back on
+        // main. This gives the session the same environment a terminal gets
+        // — profile secrets, full PATH, locale — instead of launchd's
+        // minimal env.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard self != nil else { return }
+            let environment = Self.buildEnvironment()
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let backend = self.backend else { return }
+                backend.startProcess(
+                    executable: execPath,
+                    args: args,
+                    environment: environment,
+                    execName: "claude-persona",
+                    currentDirectory: cwd
+                )
+            }
+        }
     }
 
     private func teardown() {
@@ -530,13 +546,23 @@ final class AgentSessionController: ObservableObject {
 
     // MARK: - Environment
 
-    /// Build the child environment. Strips vars that interfere with a
-    /// nested Claude session, forces a known-good TERM/LANG, and ensures
-    /// ~/.local/bin is on PATH so claude-persona can find `claude`.
+    /// Build the child environment. Runs OFF the main thread because the
+    /// login-shell capture sources the user's profile (~0.2-0.3s).
+    ///
+    /// Base is the user's login-shell environment so the session matches a
+    /// terminal — profile-exported secrets, the full PATH, locale. Falls
+    /// back to this process's own (launchd-minimal) environment if the
+    /// capture fails, so the session can always start. On top of the base it
+    /// strips vars that interfere with a nested Claude session, forces a
+    /// known-good TERM/LANG, and ensures ~/.local/bin is on PATH so
+    /// claude-persona can find `claude`.
     private static func buildEnvironment() -> [String] {
-        var env: [String] = ProcessInfo.processInfo.environment.map {
-            "\($0.key)=\($0.value)"
-        }
+        // Base: the login shell's environment; fall back to this process's
+        // own environment if the capture fails.
+        var env: [String] = ShellEnvironment.loginShellEnvironment()
+            ?? ProcessInfo.processInfo.environment.map {
+                "\($0.key)=\($0.value)"
+            }
 
         // Strip vars that interfere with a child Claude session:
         // - TERM/COLORTERM/LANG: overridden below.
