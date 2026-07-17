@@ -94,6 +94,13 @@ struct ContentView: View {
             tabContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Flatten the pane stack before dimming. tabContent is a ZStack where
+        // the open item reader floats over the selected pane, which stays at
+        // full opacity beneath it. Without a compositing group, .opacity fades
+        // each layer independently, so the reader's background turns
+        // translucent and the index pane behind it bleeds through; grouping
+        // first dims the composited result as one, preserving the occlusion.
+        .compositingGroup()
         .opacity(controlActiveState == .inactive ? Self.inactiveDimOpacity : 1)
         .animation(.easeInOut(duration: 0.18), value: controlActiveState)
     }
