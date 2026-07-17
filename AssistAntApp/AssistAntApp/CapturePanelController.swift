@@ -141,11 +141,11 @@ final class CapturePanelController {
         // panel is actually key, then stop. The become-key observer and initial
         // first responder put the cursor in the field once key lands.
         activateAndFocus(panel, attempt: 0)
-        // Auto-arm Wispr hands-free once the field is focused — but only for a
-        // direct Ask summon, and only if the user left it enabled. Switching
-        // kinds inside an open popover routes through summon(kind:), never
-        // here, so it can't arm.
-        if kind == .ask, SettingsManager.shared.settings.captureAutoArmWisprOnAsk {
+        // Auto-arm Wispr hands-free once the field is focused, for a direct
+        // summon of any kind, if the user left it enabled. Switching kinds
+        // inside an open popover routes through summon(kind:), never here, so
+        // it can't re-arm — dictation starts on the summon, not on tab flips.
+        if SettingsManager.shared.settings.captureAutoArmWispr {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard self?.panel != nil else { return }
                 WisprArmer.arm()

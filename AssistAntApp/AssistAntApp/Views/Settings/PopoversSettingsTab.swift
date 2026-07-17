@@ -24,22 +24,8 @@ struct PopoversSettingsTab: View {
 
             SettingsCard(title: "Capture") {
                 VStack(alignment: .leading, spacing: 12) {
-                    // Ask + its auto-start sub-option, grouped (tighter spacing)
-                    // so the checkbox reads as belonging to the Ask shortcut.
-                    VStack(alignment: .leading, spacing: 8) {
-                        SettingsRow(label: "Ask") {
-                            KeyboardShortcuts.Recorder("", name: .captureAsk)
-                        }
-
-                        // Standard left checkbox + trailing label, tabbed in
-                        // under Ask. Scoped to Ask: only a direct Ask summon
-                        // auto-arms Wispr.
-                        Toggle(
-                            "Auto-start Wispr hands-free",
-                            isOn: $settingsManager.settings.captureAutoArmWisprOnAsk
-                        )
-                        .toggleStyle(.checkbox)
-                        .padding(.leading, 22)
+                    SettingsRow(label: "Ask") {
+                        KeyboardShortcuts.Recorder("", name: .captureAsk)
                     }
 
                     SettingsRow(label: "To-do") {
@@ -57,15 +43,26 @@ struct PopoversSettingsTab: View {
                     SettingsRow(label: "Task") {
                         KeyboardShortcuts.Recorder("", name: .captureTask)
                     }
+
+                    // Applies to every kind: a direct summon of any capture tab
+                    // auto-starts Wispr hands-free dictation. Full-width (no
+                    // indent) so it reads as a card-level option rather than a
+                    // child of the Task row above it.
+                    Toggle(
+                        "Auto-start Wispr hands-free",
+                        isOn: $settingsManager.settings.captureAutoArmWispr
+                    )
+                    .toggleStyle(.checkbox)
                 }
             }
 
             Text(
                 "Capture shortcuts open Quick Capture preset to that kind; "
-                    + "auto-start applies only when Ask is summoned directly by "
-                    + "its shortcut. The status shortcut floats the clock, mute "
-                    + "state, and standing-desk controls over any app — the desk "
-                    + "controls are keyboard-navigable (arrows, space/return, esc)."
+                    + "auto-start applies to a direct summon of any kind, not to "
+                    + "switching kinds inside an open popover. The status shortcut "
+                    + "floats the clock, mute state, and standing-desk controls "
+                    + "over any app — the desk controls are keyboard-navigable "
+                    + "(arrows, space/return, esc)."
             )
             .font(.caption)
             .foregroundColor(.secondary)

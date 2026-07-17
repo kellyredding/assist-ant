@@ -38,9 +38,9 @@ struct AppSettings: Codable, Equatable {
 
     // Quick Capture. The per-kind summon shortcuts persist through the
     // KeyboardShortcuts library (not here); this is the one capture knob the
-    // library doesn't own — whether a direct Ask summon auto-starts Wispr
-    // hands-free dictation.
-    var captureAutoArmWisprOnAsk: Bool
+    // library doesn't own — whether directly summoning a capture popover (any
+    // kind) auto-starts Wispr hands-free dictation.
+    var captureAutoArmWispr: Bool
 
     static let current = AppSettings(
         version: 1,
@@ -56,7 +56,7 @@ struct AppSettings: Codable, Equatable {
         terminalFontFamily: "SF Mono",
         defaultTerminalFontSize: 13.0,
         terminalScrollbackLines: 10_000,
-        captureAutoArmWisprOnAsk: true
+        captureAutoArmWispr: true
     )
 
     // Constraints for the Agent settings tab fields (the tab clamps typed
@@ -138,9 +138,18 @@ struct AppSettings: Codable, Equatable {
         self.terminalScrollbackLines = try container.decodeIfPresent(
             Int.self, forKey: .terminalScrollbackLines
         ) ?? AppSettings.current.terminalScrollbackLines
-        self.captureAutoArmWisprOnAsk = try container.decodeIfPresent(
-            Bool.self, forKey: .captureAutoArmWisprOnAsk
-        ) ?? AppSettings.current.captureAutoArmWisprOnAsk
+        // Migrate the former Ask-scoped key: this toggle was
+        // `captureAutoArmWisprOnAsk` when it applied only to the Ask summon.
+        // Read it as a fallback so an existing prefs.json keeps the user's
+        // choice now that it governs every capture kind.
+        var legacyAutoArmWispr: Bool?
+        if let legacy = try? decoder.container(keyedBy: LegacyCaptureKeys.self) {
+            legacyAutoArmWispr = try? legacy.decodeIfPresent(
+                Bool.self, forKey: .captureAutoArmWisprOnAsk)
+        }
+        self.captureAutoArmWispr = try container.decodeIfPresent(
+            Bool.self, forKey: .captureAutoArmWispr
+        ) ?? legacyAutoArmWispr ?? AppSettings.current.captureAutoArmWispr
     }
 
     init(
@@ -157,7 +166,7 @@ struct AppSettings: Codable, Equatable {
         terminalFontFamily: String,
         defaultTerminalFontSize: CGFloat,
         terminalScrollbackLines: Int,
-        captureAutoArmWisprOnAsk: Bool
+        captureAutoArmWispr: Bool
     ) {
         self.version = version
         self.themePreference = themePreference
@@ -172,7 +181,7 @@ struct AppSettings: Codable, Equatable {
         self.terminalFontFamily = terminalFontFamily
         self.defaultTerminalFontSize = defaultTerminalFontSize
         self.terminalScrollbackLines = terminalScrollbackLines
-        self.captureAutoArmWisprOnAsk = captureAutoArmWisprOnAsk
+        self.captureAutoArmWispr = captureAutoArmWispr
     }
 
     /// Whether audible announcements (time or desk) may play right now:
@@ -213,7 +222,7 @@ struct AppSettings: Codable, Equatable {
         case terminalFontFamily
         case defaultTerminalFontSize
         case terminalScrollbackLines
-        case captureAutoArmWisprOnAsk
+        case captureAutoArmWispr
     }
 
     /// Legacy keys for reading the announcement hours + muteWhileMicInUse out
@@ -222,6 +231,13 @@ struct AppSettings: Codable, Equatable {
     private enum LegacyAnnouncementKeys: String, CodingKey {
         case schedule
         case muteWhileMicInUse
+    }
+
+    /// Legacy key for the Wispr auto-start toggle, read during one-time
+    /// migration. It persisted under `captureAutoArmWisprOnAsk` back when the
+    /// setting governed only the Ask summon.
+    private enum LegacyCaptureKeys: String, CodingKey {
+        case captureAutoArmWisprOnAsk
     }
 }
 
