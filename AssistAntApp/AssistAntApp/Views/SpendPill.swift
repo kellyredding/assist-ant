@@ -1,11 +1,13 @@
 import SwiftUI
 import Combine
 
-/// Title-bar pill showing two agent-composed spend strings ("$392 today ·
-/// $2.7k mo"). Hidden unless `spend_show` is on; shows an empty state when on
-/// but uncaptured, and an amber ⚠ when the latest capture is older than the
-/// configured stale window. Click opens the variant-cards popover. Renders only
-/// what the agent stored — no parsing, no formatting. Mirrors WorkspacePill.
+/// Title-bar pill showing two agent-composed spend strings plus how long ago the
+/// snapshot was captured ("$392 today · $2.7k mo · 2h ago"). Hidden unless
+/// `spend_show` is on; shows an empty state when on but uncaptured, and an amber ⚠
+/// when the latest capture is older than the configured stale window. Click opens
+/// the variant-cards popover. Renders only what the agent stored — no parsing, no
+/// formatting. Mirrors WorkspacePill, and the relative capture time mirrors
+/// PriorityPill.
 struct SpendPill: View {
     @StateObject private var model = SpendPillModel()
 
@@ -44,6 +46,9 @@ struct SpendPill: View {
                     Image(systemName: "dollarsign").imageScale(.medium)
                 } else {
                     Text(model.pillText).lineLimit(1)
+                }
+                if let ago = model.capturedAgo {
+                    Text("· \(ago)").lineLimit(1)
                 }
             }
             .foregroundStyle(model.isStale ? Color.orange : Color.primary)
@@ -98,6 +103,14 @@ final class SpendPillModel: ObservableObject {
         return parts.joined(separator: " · ")
     }
 
+    /// How long ago the snapshot was captured ("2h ago"), advancing each minute
+    /// off the shared clock. Mirrors PriorityPill's relative capture time. nil
+    /// only when nothing has been captured yet.
+    var capturedAgo: String? {
+        guard let captured = state?.capturedAt else { return nil }
+        return Self.relative.localizedString(for: captured, relativeTo: now)
+    }
+
     /// True once any spend has been captured (pill strings or variant cards).
     var hasCapture: Bool {
         guard let s = state else { return false }
@@ -120,4 +133,10 @@ final class SpendPillModel: ObservableObject {
         guard staleHours > 0, let captured = state?.capturedAt else { return false }
         return now.timeIntervalSince(captured) > Double(staleHours) * 3600
     }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
 }
