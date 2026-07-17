@@ -47,6 +47,14 @@ struct DeskSettings: Codable, Equatable {
     /// ("away from desk") until they return. Not time-bound.
     var isAway: Bool
 
+    /// Why the current away episode began: `true` if it was triggered
+    /// automatically (screen lock / system sleep), `false` if the user
+    /// stepped away manually. Set on the transition into away and read only
+    /// while `isAway`. It gates the unlock auto-return: a manual step-away
+    /// must survive a lock/unlock cycle, so only an automatic away returns
+    /// you when the screen unlocks.
+    var awayWasAutomatic: Bool
+
     // Audio outputs (independent of time announcements).
     var playSound: Bool
     var sound: AnnouncementSound
@@ -60,6 +68,7 @@ struct DeskSettings: Codable, Equatable {
         currentPosition: .sitting,
         positionStartedAt: nil,
         isAway: false,
+        awayWasAutomatic: false,
         playSound: true,
         sound: .funk,
         speakAlert: true,
@@ -110,8 +119,8 @@ struct DeskSettings: Codable, Equatable {
 extension DeskSettings {
     private enum CodingKeys: String, CodingKey {
         case enabled, sitMinutes, standMinutes, currentPosition,
-             positionStartedAt, isAway, playSound, sound, speakAlert,
-             voiceIdentifier
+             positionStartedAt, isAway, awayWasAutomatic, playSound, sound,
+             speakAlert, voiceIdentifier
     }
 
     /// Custom decoder so an existing prefs.json `desk` block written
@@ -140,6 +149,9 @@ extension DeskSettings {
         self.isAway = try c.decodeIfPresent(
             Bool.self, forKey: .isAway
         ) ?? d.isAway
+        self.awayWasAutomatic = try c.decodeIfPresent(
+            Bool.self, forKey: .awayWasAutomatic
+        ) ?? d.awayWasAutomatic
         self.playSound = try c.decodeIfPresent(
             Bool.self, forKey: .playSound
         ) ?? d.playSound

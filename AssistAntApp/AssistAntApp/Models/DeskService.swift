@@ -89,8 +89,17 @@ final class DeskService {
     /// announcements (and pauses the timer if it is running) until the user
     /// returns. Works whether or not the desk timer is enabled — away is a
     /// global concept. Not time-bound; there is no auto-return.
-    func goAway() {
+    ///
+    /// `auto` records why this away episode began — `true` for a lock/sleep
+    /// trigger, `false` (the default) for a manual step-away. The source is
+    /// recorded only on the transition into away, so a lock that lands while
+    /// you are already manually away does not relabel it as automatic; that
+    /// keeps a manual away from being cleared by the unlock auto-return.
+    func goAway(auto: Bool = false) {
         var desk = SettingsManager.shared.settings.desk
+        if !desk.isAway {
+            desk.awayWasAutomatic = auto
+        }
         desk.isAway = true
         SettingsManager.shared.settings.desk = desk
         evaluateNudge()
@@ -101,6 +110,7 @@ final class DeskService {
     func returnToDesk() {
         var desk = SettingsManager.shared.settings.desk
         desk.isAway = false
+        desk.awayWasAutomatic = false
         desk.currentPosition = .sitting
         desk.positionStartedAt = Date()
         SettingsManager.shared.settings.desk = desk
