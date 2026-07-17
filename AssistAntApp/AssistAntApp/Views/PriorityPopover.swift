@@ -83,7 +83,13 @@ private struct PriorityBlockCard: View {
     var body: some View {
         ScrollView(.vertical) {
             Text(text)
-                .font(.system(.caption, design: .monospaced))
+                // A single full-width block, so it has the horizontal room to
+                // run larger than the spend cards for lean-back readability.
+                .font(.system(size: 12, design: .monospaced))
+                // Open the leading up: this is prose, not column-aligned like
+                // the spend bars, so extra line spacing aids readability
+                // without an empty-line hack and without shifting alignment.
+                .lineSpacing(6)
                 .fixedSize(horizontal: true, vertical: false)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

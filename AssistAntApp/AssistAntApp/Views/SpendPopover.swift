@@ -88,7 +88,10 @@ private struct SpendVariantCard: View {
             Text(variant.label).font(.headline)
             ScrollView(.vertical) {
                 Text(variant.body)
-                    .font(.system(.caption, design: .monospaced))
+                    // Held smaller than the priority block: these cards sit
+                    // three-across, so a larger size would widen the row past
+                    // narrower screens.
+                    .font(.system(size: 11, design: .monospaced))
                     .fixedSize(horizontal: true, vertical: false)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
