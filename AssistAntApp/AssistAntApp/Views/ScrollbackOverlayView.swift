@@ -13,6 +13,11 @@ class ScrollbackOverlayView: NSView {
     let scrollbackView: ScrollbackWebView
     private let pillLabel: NSTextField
 
+    /// Width of the accent border drawn around the overlay. The web
+    /// view is inset by this amount so the border frames the content
+    /// rather than covering its edge.
+    static let borderWidth: CGFloat = 2
+
     init(
         frame: NSRect,
         scrollbackView: ScrollbackWebView
@@ -22,17 +27,22 @@ class ScrollbackOverlayView: NSView {
         super.init(frame: frame)
         wantsLayer = true
 
-        // Add scrollback web view filling the entire frame
-        scrollbackView.frame = bounds
+        // Add scrollback web view, inset by the border width so the
+        // accent border frames the content instead of painting over
+        // its first/last row and column. The fixed-margin autoresize
+        // mask preserves that inset as the overlay resizes.
+        scrollbackView.frame = bounds.insetBy(
+            dx: Self.borderWidth, dy: Self.borderWidth
+        )
         scrollbackView.autoresizingMask = [.width, .height]
         addSubview(scrollbackView)
 
         // Configure pill indicator
         configurePill()
 
-        // Draw 2px accent-color border (applied via applyAccentTint so
+        // Draw the accent-color border (applied via applyAccentTint so
         // appearance changes re-tint it too).
-        layer?.borderWidth = 2
+        layer?.borderWidth = Self.borderWidth
         applyAccentTint()
     }
 

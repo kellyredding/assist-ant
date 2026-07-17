@@ -43,6 +43,13 @@ final class AgentTerminalHostView: NSView {
     private static let padding: CGFloat = 4
     private var didSetUp = false
 
+    /// Galactic-owned container that hosts the terminal full-bleed
+    /// inside a `padding` inset. SwiftTerm clips its leftmost column
+    /// whenever the terminal view's own frame origin is offset from
+    /// (0,0) of its superview, so the inset lives on the container,
+    /// never on the terminal itself.
+    private var terminalContainer: GalacticTerminalContainerView?
+
     /// The live scrollback overlay, or nil when not in scrollback mode.
     private var scrollbackOverlay: ScrollbackOverlayView?
     /// The frozen snapshot backing the open overlay; released on teardown.
@@ -71,16 +78,24 @@ final class AgentTerminalHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if !didSetUp && window != nil {
-            terminalView.frame = paddedBounds()
-            terminalView.autoresizingMask = []
-            addSubview(terminalView)
+            // Host the terminal full-bleed inside the Galactic inset
+            // container so SwiftTerm never sees an offset frame (which
+            // clips its left column); the container carries the padding.
+            let container = GalacticTerminalContainerView(
+                terminalView: terminalView,
+                inset: Self.padding
+            )
+            container.frame = bounds
+            container.autoresizingMask = []
+            addSubview(container)
+            terminalContainer = container
             // Mount the drag-highlight overlay above the terminal surface
             // (hidden until a file drag enters) and register for file drops
             // now that we're in a window. Mirrors Galaxy's DragHighlightView
             // mount + dynamic drag registration.
             let highlight = DragHighlightView(frame: paddedBounds())
             highlight.autoresizingMask = []
-            addSubview(highlight, positioned: .above, relativeTo: terminalView)
+            addSubview(highlight, positioned: .above, relativeTo: container)
             dragHighlightView = highlight
             refreshDragRegistration()
             didSetUp = true
@@ -95,7 +110,9 @@ final class AgentTerminalHostView: NSView {
     override func layout() {
         super.layout()
         let inner = paddedBounds()
-        terminalView.frame = inner
+        // Container fills the host and lays the terminal out full-bleed
+        // inside the inset; overlays align to that inset (= paddedBounds).
+        terminalContainer?.frame = bounds
         dragHighlightView?.frame = inner
     }
 
