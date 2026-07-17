@@ -1,16 +1,28 @@
 import KeyboardShortcuts
 import SwiftUI
 
-/// Capture settings tab. One recorder row per `CaptureKind` (label left,
-/// recorder flush right) plus the Ask-scoped Wispr auto-start toggle directly
-/// beneath the Ask row. The recorders persist through the KeyboardShortcuts
-/// library; the toggle persists through AppSettings.
-struct CaptureSettingsTab: View {
+/// Popovers settings tab. Groups the shortcuts for AssistAnt's two global,
+/// summon-from-any-app popovers into labeled cards:
+///
+/// - **Capture** — one recorder per `CaptureKind` (label left, recorder flush
+///   right) plus the Ask-scoped Wispr auto-start toggle beneath the Ask row.
+/// - **Status** — a single recorder that opens the Status popover (the clock /
+///   timezone / mute / keyboard-navigable desk controls column).
+///
+/// The recorders persist through the KeyboardShortcuts library; the Wispr toggle
+/// persists through AppSettings.
+struct PopoversSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
 
     var body: some View {
         VStack(spacing: 16) {
-            SettingsCard(title: "Shortcuts") {
+            SettingsCard(title: "Status") {
+                SettingsRow(label: "Open status") {
+                    KeyboardShortcuts.Recorder("", name: .statusPopover)
+                }
+            }
+
+            SettingsCard(title: "Capture") {
                 VStack(alignment: .leading, spacing: 12) {
                     // Ask + its auto-start sub-option, grouped (tighter spacing)
                     // so the checkbox reads as belonging to the Ask shortcut.
@@ -49,9 +61,11 @@ struct CaptureSettingsTab: View {
             }
 
             Text(
-                "Each shortcut opens Quick Capture preset to that kind. "
-                    + "Auto-start applies only when Ask is summoned directly by "
-                    + "its shortcut — not when switching to Ask inside an open popover."
+                "Capture shortcuts open Quick Capture preset to that kind; "
+                    + "auto-start applies only when Ask is summoned directly by "
+                    + "its shortcut. The status shortcut floats the clock, mute "
+                    + "state, and standing-desk controls over any app — the desk "
+                    + "controls are keyboard-navigable (arrows, space/return, esc)."
             )
             .font(.caption)
             .foregroundColor(.secondary)

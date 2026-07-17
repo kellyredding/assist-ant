@@ -16,16 +16,17 @@ enum ClockMetrics {
 }
 
 /// Big digital clock at the center of the main window. Date line above,
-/// clock in the middle, timezone label below. Pulls the current time from
-/// ClockService and the format preference from SettingsManager. Re-renders
-/// when either source changes, so toggling 12-hour / 24-hour in Settings
-/// updates the display in the same frame.
+/// clock in the middle, timezone label below (the `ClockHeaderView`), then the
+/// standing-desk status row. Pulls the current time from ClockService and the
+/// format preference from SettingsManager. Re-renders when either source
+/// changes, so toggling 12-hour / 24-hour in Settings updates the display in
+/// the same frame.
 ///
-/// When announcements are muted, a status row renders below the timezone
-/// in system orange — matching the corner `AnnounceStatusButton`'s
-/// muted-state color so the two surfaces read as one connected
-/// indicator. For a manual mute the row carries an inline "Unmute now"
-/// button. The row fades in/out as the mute toggles.
+/// When announcements are muted, a status row renders below the desk row in
+/// system orange — matching the corner `AnnounceStatusButton`'s muted-state
+/// color so the two surfaces read as one connected indicator. For a manual mute
+/// the row carries an inline "Unmute now" button. The row fades in/out as the
+/// mute toggles.
 struct ClockView: View {
     @ObservedObject private var clock = ClockService.shared
     @ObservedObject private var settings = SettingsManager.shared
@@ -49,7 +50,7 @@ struct ClockView: View {
         )
     }
 
-    /// Status row text under the timezone when muted, or nil when not
+    /// Status row text under the desk row when muted, or nil when not
     /// muted. Each mute names its reason.
     private var mutedStatusText: String? {
         switch iconState {
@@ -67,24 +68,9 @@ struct ClockView: View {
     var body: some View {
         let scale = ClockMetrics.scale(forWidth: measuredWidth)
         VStack(spacing: 12 * scale) {
-            Text(formattedDate)
-                .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
-                .foregroundStyle(.secondary)
-            // Time + announcement status icon as a centered unit. The
-            // icon sits inline after the time, sized as a visual peer
-            // to the clock, so the [time + icon] group centers together
-            // rather than the icon floating in a window corner.
-            HStack(spacing: 12 * scale) {
-                Text(formattedTime)
-                    .font(.system(size: 80 * scale, weight: .light, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
-                AnnounceStatusButton(scale: scale)
-            }
-            Text(timezoneName)
-                .font(.system(size: 15 * scale))
-                .foregroundStyle(.secondary)
+            // Date, time + announcement status icon, and timezone — shared with
+            // the Status popover so both surfaces render the same header.
+            ClockHeaderView(scale: scale)
 
             // Standing-desk status (countdown / switch nudge). Renders
             // nothing when the desk timer is disabled or unstarted, so
@@ -125,6 +111,45 @@ struct ClockView: View {
             }
         )
         .animation(.easeInOut(duration: 0.25), value: iconState)
+    }
+}
+
+/// The clock header: the date line, the time + inline announcement status icon,
+/// and the timezone label — the top band of `ClockView`.
+///
+/// Extracted so the Status popover can present the same header above its own
+/// keyboard-navigable desk controls, without the sidebar's mouse-only desk row.
+/// Observes the same shared `ClockService` + `SettingsManager`, so the sidebar
+/// and the popover always render the same date/time/format and advance together
+/// on the minute tick. `scale` is supplied by the host (the sidebar scales to
+/// its measured width; the popover passes a fixed compact scale).
+struct ClockHeaderView: View {
+    var scale: CGFloat = 1
+
+    @ObservedObject private var clock = ClockService.shared
+    @ObservedObject private var settings = SettingsManager.shared
+
+    var body: some View {
+        VStack(spacing: 12 * scale) {
+            Text(formattedDate)
+                .font(.system(size: 24 * scale, weight: .regular, design: .rounded))
+                .foregroundStyle(.secondary)
+            // Time + announcement status icon as a centered unit. The
+            // icon sits inline after the time, sized as a visual peer
+            // to the clock, so the [time + icon] group centers together
+            // rather than the icon floating in a window corner.
+            HStack(spacing: 12 * scale) {
+                Text(formattedTime)
+                    .font(.system(size: 80 * scale, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                AnnounceStatusButton(scale: scale)
+            }
+            Text(timezoneName)
+                .font(.system(size: 15 * scale))
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Full weekday, full month name, day of month, and year. Renders as

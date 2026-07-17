@@ -12,7 +12,7 @@ enum SettingsTab: String, CaseIterable {
     case calendar
     case desk
     case agent
-    case capture
+    case popovers
 
     var title: String {
         switch self {
@@ -23,7 +23,7 @@ enum SettingsTab: String, CaseIterable {
         case .calendar: return "Calendar"
         case .desk: return "Desk"
         case .agent: return "Agent"
-        case .capture: return "Capture"
+        case .popovers: return "Popovers"
         }
     }
 
@@ -36,7 +36,7 @@ enum SettingsTab: String, CaseIterable {
         case .calendar: return "calendar"
         case .desk: return "chair.fill"
         case .agent: return "apple.terminal"
-        case .capture: return "text.viewfinder"
+        case .popovers: return "text.viewfinder"
         }
     }
 }

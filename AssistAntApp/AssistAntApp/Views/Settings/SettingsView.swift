@@ -55,8 +55,8 @@ struct SettingsView: View {
                     DeskSettingsTab(settingsManager: settingsManager)
                 case .agent:
                     AgentSettingsTab(settingsManager: settingsManager)
-                case .capture:
-                    CaptureSettingsTab(settingsManager: settingsManager)
+                case .popovers:
+                    PopoversSettingsTab(settingsManager: settingsManager)
                 }
             }
         }

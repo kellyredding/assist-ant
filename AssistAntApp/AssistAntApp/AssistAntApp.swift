@@ -150,6 +150,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // independent of the main window and the embedded agent.
         CapturePanelController.shared.installCaptureShortcuts()
 
+        // Status popover: register the global shortcut that floats the status
+        // column (clock, timezone, mute state, keyboard-navigable desk controls)
+        // over any app. Additive and independent of the capture popover.
+        StatusPanelController.shared.installStatusShortcut()
+
         // Auto-open the main window on launch. WindowStatePersistence
         // restores the previous frame/screen if one was saved.
         openMainWindow()
