@@ -691,8 +691,13 @@ enum ScrollbackHTMLRenderer {
         .note-card-actions:has(.confirming) .note-btn-edit {
             display: none;
         }
+        /* Hidden rather than removed: the action buttons are the
+           tallest thing in the header, so dropping them from
+           layout shortened the header and pulled the note text up
+           as soon as editing began. Reserving the box keeps the
+           chrome still. */
         .note-card:has(.note-edit-textarea) .note-card-actions {
-            display: none;
+            visibility: hidden;
         }
 
         /* Copy-lines affordance — sits inline next to the
@@ -781,6 +786,16 @@ enum ScrollbackHTMLRenderer {
         .note-card-content.collapsed {
             max-height: var(--note-one-line);
             overflow: hidden;
+        }
+        /* Editing mounts the textarea inside this element rather
+           than in place of it, so its own padding and border would
+           stack with the textarea's and push the text down and to
+           the right. Give up the box while it is only a host —
+           the textarea supplies the same inset itself, so the text
+           lands where the card body had it. */
+        .note-card-content:has(.note-edit-textarea) {
+            padding: 0;
+            border-width: 0;
         }
         \(verbatimCardCSS)
         .note-expand-hint {
@@ -936,7 +951,6 @@ enum ScrollbackHTMLRenderer {
             resize: none;
             outline: none;
             box-sizing: border-box;
-            margin-top: 6px;
         }
         .note-edit-textarea:focus {
             border-color: rgba(88, 166, 255, 0.5);
