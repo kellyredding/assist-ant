@@ -195,6 +195,7 @@ enum ScrollbackHTMLRenderer {
             --annotation-active-border: rgba(255, 220, 50, 0.5);
             --annotation-active-bg: rgba(255, 255, 120, 0.12);
         }
+        \(noteUXTokens(textSize: "var(--font-size)"))
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: var(--bg);
@@ -565,31 +566,33 @@ enum ScrollbackHTMLRenderer {
             position: relative;
             margin: 4px 24px;
             z-index: 100;
-            padding: 8px 12px;
+            padding: var(--note-box-pad-y) var(--note-box-pad-x);
             border: 1px solid \(formBorder);
             border-radius: 6px;
             background: \(formBg);
+            font-family: var(--note-chrome-font);
+            font-size: var(--note-chrome-size);
             box-sizing: border-box;
             display: none;
             white-space: normal;
         }
         .note-form-header {
-            font-size: 11px;
+            font-size: var(--note-meta-size);
             color: \(textColor);
-            margin-bottom: 4px;
-            font-family: var(--font-family);
+            margin-bottom: var(--note-header-gap);
+            font-family: var(--note-text-font);
         }
         .note-textarea {
             width: 100%;
-            min-height: 1.6em;
-            padding: 6px 8px;
+            min-height: var(--note-one-line);
+            padding: var(--note-text-pad-y) var(--note-text-pad-x);
             border: 1px solid \(inputBorder);
             border-radius: 4px;
             background: var(--bg);
             color: var(--fg);
-            font-family: var(--font-family);
-            font-size: 12px;
-            line-height: 1.5;
+            font-family: var(--note-text-font);
+            font-size: var(--note-text-size);
+            line-height: var(--note-text-line-height);
             resize: none;
             overflow: hidden;
             box-sizing: border-box;
@@ -608,7 +611,11 @@ enum ScrollbackHTMLRenderer {
             opacity: 1;
         }
 
-        /* Note cards — positioned in flow after their target line */
+        /* Note cards — positioned in flow after their target line.
+           font-size is explicit: without it the card inherited
+           through pre#terminal-content to the terminal point size,
+           which is what made a saved note grow away from the 12px
+           textarea it was typed in. */
         .note-card {
             position: relative;
             margin: 4px 24px;
@@ -616,8 +623,9 @@ enum ScrollbackHTMLRenderer {
             background: \(cardBg);
             border: 1px solid \(cardBorder);
             border-radius: 6px;
-            padding: 6px 10px;
-            font-family: -apple-system, system-ui, sans-serif;
+            padding: var(--note-box-pad-y) var(--note-box-pad-x);
+            font-family: var(--note-chrome-font);
+            font-size: var(--note-chrome-size);
             cursor: pointer;
             box-sizing: border-box;
             white-space: normal;
@@ -633,8 +641,10 @@ enum ScrollbackHTMLRenderer {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 11px;
+            font-size: var(--note-meta-size);
             color: \(textColor);
+            margin-bottom: var(--note-header-gap);
+            font-family: var(--note-text-font);
         }
         .note-card-ref { font-weight: 500; }
         .note-card-meta { color: \(textColorFaint); }
@@ -737,19 +747,18 @@ enum ScrollbackHTMLRenderer {
             opacity: 1;
         }
         .note-card-content {
-            margin-top: 4px;
-            font-size: 12px;
-            line-height: 1.5;
+            font-size: var(--note-text-size);
+            line-height: var(--note-text-line-height);
             color: var(--fg);
         }
         .note-card-content.collapsed {
-            max-height: 1.5em;
+            max-height: var(--note-one-line);
             overflow: hidden;
         }
         \(verbatimCardCSS)
         .note-expand-hint {
             display: block;
-            font-size: 11px;
+            font-size: var(--note-meta-size);
             color: \(textColorFaint);
             opacity: 0.5;
             margin-top: 2px;
@@ -888,15 +897,15 @@ enum ScrollbackHTMLRenderer {
         /* Edit textarea in card */
         .note-edit-textarea {
             width: 100%;
-            min-height: 36px;
+            min-height: var(--note-one-line);
             background: \(inputBg);
             border: 1px solid \(inputBorder);
             border-radius: 4px;
             color: var(--fg);
-            font-family: var(--font-family);
-            font-size: 12px;
-            line-height: 1.4;
-            padding: 6px 8px;
+            font-family: var(--note-text-font);
+            font-size: var(--note-text-size);
+            line-height: var(--note-text-line-height);
+            padding: var(--note-text-pad-y) var(--note-text-pad-x);
             resize: none;
             outline: none;
             box-sizing: border-box;
