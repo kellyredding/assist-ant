@@ -1833,13 +1833,6 @@ enum ScrollbackHTMLRenderer {
             });
         },
 
-
-        escapeHTML(str) {
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML.replace(/\\n/g, '<br>');
-        },
-
         hasUnsavedWork() {
             // Submitted notes that haven't been sent to Claude
             if (this.items.length > 0) return true;
