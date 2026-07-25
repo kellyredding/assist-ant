@@ -673,7 +673,8 @@ enum ScrollbackHTMLRenderer {
             margin-bottom: var(--note-header-gap);
             font-family: var(--note-text-font);
         }
-        .note-card-ref { font-weight: 500; }
+        .note-card-ref,
+        .note-expand-hint { font-weight: 500; }
         .note-card-meta { color: \(textColorFaint); }
         .note-card-actions {
             margin-left: auto;
@@ -798,15 +799,28 @@ enum ScrollbackHTMLRenderer {
             border-width: 0;
         }
         \(verbatimCardCSS)
+        /* Sits in the header row at the end of the label group,
+           rather than below the card body where appearing and
+           disappearing changed the card's height — a one-line
+           note would shrink as it expanded and grow back as it
+           collapsed, nudging every card below it. Nothing
+           follows it in that group and the action buttons are
+           pinned right by their own auto margin, so it can leave
+           the flow without moving anything, in either
+           direction. */
+        /* Font, size and colour are left to the header, and the
+           weight is shared with the line reference below, so the
+           hint reads as the same kind of label as the reference
+           beside it and follows it if that treatment changes. */
         .note-expand-hint {
-            display: block;
-            font-size: var(--note-meta-size);
-            color: \(textColorFaint);
-            opacity: 0.5;
-            margin-top: 2px;
             cursor: pointer;
+            white-space: nowrap;
         }
-        .note-card.expanded .note-expand-hint { display: none; }
+        .note-card.expanded .note-expand-hint,
+        .note-card:has(.note-edit-textarea)
+            .note-expand-hint {
+            display: none;
+        }
 
         /* Edit/delete buttons — match snapshot annotation style exactly */
         .note-card-actions button {
@@ -1521,6 +1535,7 @@ enum ScrollbackHTMLRenderer {
                     '<span class="note-card-meta">#' + note.number + '</span>' +
                     cardCopyHTML +
                     cardSuggestHTML +
+                    '<span class="note-expand-hint">Click to expand</span>' +
                     '<span class="note-card-actions">' +
                         '<button class="note-btn-edit" title="Edit">' +
                             self.editIconSVG + '</button>' +
@@ -1530,8 +1545,7 @@ enum ScrollbackHTMLRenderer {
                 '</div>' +
                 '<pre class="note-card-content verbatim-card-content collapsed">' +
                     note.renderedHTML +
-                '</pre>' +
-                '<span class="note-expand-hint">Click to expand</span>';
+                '</pre>';
 
             // Click to expand/collapse
             card.addEventListener('click', (e) => {
