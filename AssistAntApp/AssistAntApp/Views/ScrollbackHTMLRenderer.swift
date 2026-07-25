@@ -525,10 +525,12 @@ enum ScrollbackHTMLRenderer {
             : "rgba(255, 255, 255, 0.3)"
 
         return """
-        /* Note line highlights — use box-shadow for left border so
-           padding/margin don't shift the absolutely-positioned spans
-           inside .tl divs. The .tl overflow:hidden clips painting,
-           so we temporarily override it on highlighted lines. */
+        /* Note line highlights. The left marker is an absolutely
+           positioned ::before rather than a border or padding, which
+           would shift the absolutely-positioned spans inside a .tl
+           line. It is inset 6px from the left edge, well within the
+           overflow:hidden that .tl applies, so nothing has to relax
+           that clipping. */
         .note-highlight {
             background-color: \(highlightBg) !important;
         }
@@ -961,6 +963,9 @@ enum ScrollbackHTMLRenderer {
         items: [],
         nextNumber: 1,
         formElement: null,
+        // Card registry keyed by note id. The name predates the
+        // in-flow card layout — note cards need no spacer
+        // elements, so each entry holds only { card }.
         cardSpacers: {},
         editingId: null,
         expandedId: null,
@@ -1152,7 +1157,7 @@ enum ScrollbackHTMLRenderer {
             this.formElement = document.createElement('div');
             this.formElement.className = 'note-form';
             // The form is display:none until a selection
-            // is made (see startNoteAt → updateFormRef →
+            // is made (showNoteForm sets
             // formElement.style.display = 'block'), so the
             // copy button is naturally invisible until
             // there's a range to copy.

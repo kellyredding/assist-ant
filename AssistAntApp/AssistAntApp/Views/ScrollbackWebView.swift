@@ -268,11 +268,13 @@ class ScrollbackWebView: NSView {
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
-        // Pre-render markdown to HTML on the Swift side using the
-        // same pipeline as artifact/snapshot annotations. The JS
-        // splices `renderedHTML` directly into the note card body;
-        // raw `content` is still shipped so the edit textarea has
-        // the markdown source to populate.
+        // Escape the note body on the Swift side with the same
+        // helper artifact and snapshot annotations use. Notes render
+        // verbatim — there is no markdown parsing here — so this
+        // only makes the text safe to splice into the card body. The
+        // JS splices `renderedHTML` there directly; raw `content`
+        // ships alongside it so the edit textarea can be seeded with
+        // exactly what the user typed.
         let escapedRenderedHTML = escapeAnnotationContent(note.content)
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
