@@ -561,6 +561,33 @@ enum ScrollbackHTMLRenderer {
             border-radius: 1px;
         }
 
+        /* Neutralize host document rules that match injected note
+           UI by element name. The host `pre` rule below declares
+           `font-size: inherit` on every <pre>, which the card body
+           is; these selectors are (0,1,0) and outrank it at
+           (0,0,1). They tie with the note rules that follow, which
+           win on source order — so this block must stay first. */
+        .note-card, .note-card *,
+        .note-form, .note-form * {
+            background: none;
+            border: 0;
+            border-radius: 0;
+            padding: 0;
+            margin: 0;
+            overflow: visible;
+            box-shadow: none;
+            max-width: none;
+            min-width: 0;
+            float: none;
+            text-align: left;
+            text-indent: 0;
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: normal;
+            font-style: normal;
+            list-style: none;
+        }
+
         /* Note form — in flow, matches snapshot annotation form styling */
         .note-form {
             position: relative;
