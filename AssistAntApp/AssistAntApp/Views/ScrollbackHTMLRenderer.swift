@@ -1798,8 +1798,20 @@ enum ScrollbackHTMLRenderer {
             }
         },
 
-        sendToClaude() {
+        sendToClaude(force) {
             if (this.items.length === 0) return;
+
+            // Guard: an open note form or in-progress edit holds
+            // comment text that Send would silently drop (only
+            // committed notes ship). Ask Swift to confirm before
+            // discarding it, mirroring the drag-replace guard.
+            if (!force && this.hasOpenUnsavedComment()) {
+                window.webkit.messageHandlers.scrollback
+                    .postMessage({
+                        action: 'confirmSendWithUnsavedComment'
+                    });
+                return;
+            }
 
             const sorted = [...this.items].sort((a, b) =>
                 a.endLine - b.endLine || a.startLine - b.startLine);
@@ -1826,6 +1838,14 @@ enum ScrollbackHTMLRenderer {
         hasUnsavedWork() {
             // Submitted notes that haven't been sent to Claude
             if (this.items.length > 0) return true;
+            return this.hasOpenUnsavedComment();
+        },
+
+        // True only for comment text that Send to Claude would
+        // silently drop: an open note form with typed text, or an
+        // in-progress edit with unsaved changes. Excludes committed
+        // notes (this.items) — those ARE what Send ships.
+        hasOpenUnsavedComment() {
             // New note form open with content
             if (this.formElement
                 && this.formElement.style.display !== 'none') {

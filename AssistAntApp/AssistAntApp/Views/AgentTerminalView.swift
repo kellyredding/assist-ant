@@ -251,6 +251,9 @@ final class AgentTerminalHostView: NSView {
                 startLine: startLine, endLine: endLine
             )
         }
+        webView.onConfirmSendWithUnsavedComment = { [weak self] in
+            self?.showSendWithUnsavedCommentConfirmation()
+        }
 
         let overlay = ScrollbackOverlayView(
             frame: paddedBounds(),
@@ -362,6 +365,28 @@ final class AgentTerminalHostView: NSView {
                     "ScrollbackManager.notes.focusForm()"
                 )
             }
+        )
+    }
+
+    /// Confirm sending when an open note form or in-progress edit still
+    /// holds comment text that Send would drop — only committed notes
+    /// ship. On confirm, force the send past the JS guard; the open
+    /// comment is discarded as teardown destroys the web view. Mirrors
+    /// Galaxy `showSendWithUnsavedCommentConfirmation`.
+    private func showSendWithUnsavedCommentConfirmation() {
+        guard let overlay = scrollbackOverlay, let window else { return }
+        SheetAlert.confirm(
+            in: window,
+            message: "Send without unsaved comment?",
+            detail: "You have unsaved text in a comment that "
+                + "won't be included. It will be lost if you send.",
+            confirm: "Send",
+            onConfirm: {
+                overlay.scrollbackView.webView.evaluateJavaScript(
+                    "ScrollbackManager.notes.sendToClaude(true)"
+                )
+            },
+            onCancel: { [weak self] in self?.requestFocus() }
         )
     }
 
