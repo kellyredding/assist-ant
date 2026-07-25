@@ -8,14 +8,22 @@ USER_APPS_DIR  := $(HOME)/Applications
 BUILT_APP      := $(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/$(APP_NAME).app
 USER_APP_LINK  := $(USER_APPS_DIR)/$(APP_NAME).app
 
-.PHONY: all generate build release install uninstall clean smoke check
+.PHONY: all generate validate-js build release install uninstall clean smoke check
 
 all: build
 
 generate:
 	xcodegen generate
 
-build: generate
+# Syntax-check the JavaScript that ships inside the app — standalone
+# Resources/*.js plus JS embedded in Swift """ literals marked with a
+# `// js-validate` comment. xcodebuild treats embedded JS as opaque
+# string data, so this gate catches syntax errors that would otherwise
+# compile clean and only fail at runtime in the WebView.
+validate-js:
+	node scripts/validate-js.mjs
+
+build: generate validate-js
 	xcodebuild \
 	  -project AssistAntApp.xcodeproj \
 	  -scheme $(SCHEME) \
@@ -38,7 +46,7 @@ smoke: generate
 # Build the app and run the smoke check — the pre-commit gate.
 check: build smoke
 
-release: generate
+release: generate validate-js
 	xcodebuild \
 	  -project AssistAntApp.xcodeproj \
 	  -scheme $(SCHEME) \
