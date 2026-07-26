@@ -125,6 +125,9 @@ final class TerminalHostView: NSView {
         }
         firstResponderObservation?.invalidate()
         TerminalPanes.shared.unregisterFocusRestorer(ObjectIdentifier(self))
+        TerminalPanes.shared.unregisterUnsavedWorkChecker(
+            ObjectIdentifier(self)
+        )
     }
 
     override func viewDidMoveToWindow() {
@@ -161,6 +164,17 @@ final class TerminalHostView: NSView {
                 ObjectIdentifier(self), kind: paneKind
             ) { [weak self] in
                 self?.requestFocus()
+            }
+            // Let close and quit ask this pane whether discarding its
+            // scrollback would lose anything.
+            TerminalPanes.shared.registerUnsavedWorkChecker(
+                ObjectIdentifier(self), kind: paneKind
+            ) { [weak self] completion in
+                guard let self = self else {
+                    completion(false)
+                    return
+                }
+                self.checkScrollbackUnsavedWork(completion: completion)
             }
             didSetUp = true
             // Defer focus a runloop turn so the responder chain has settled
@@ -250,6 +264,29 @@ final class TerminalHostView: NSView {
             || (responder as? NSView)?.isDescendant(of: self) == true
         guard holdsFocus else { return }
         window.makeFirstResponder(nil)
+    }
+
+    // MARK: - Unsaved scrollback work
+
+    /// Ask this pane's open scrollback whether it holds work that closing
+    /// would discard. No overlay means nothing to lose. The answer lives in
+    /// the page's own note state, so it has to be fetched from JavaScript —
+    /// which is why the whole checker chain is asynchronous.
+    private func checkScrollbackUnsavedWork(
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let overlay = scrollbackOverlay else {
+            completion(false)
+            return
+        }
+        overlay.scrollbackView.webView.evaluateJavaScript(
+            "ScrollbackManager.notes.hasUnsavedWork()"
+        ) { result, _ in
+            let hasWork = result as? Bool ?? false
+            DispatchQueue.main.async {
+                completion(hasWork)
+            }
+        }
     }
 
     // MARK: - Focus state

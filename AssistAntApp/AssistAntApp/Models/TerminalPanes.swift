@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Which of the Terminal tab's two panes a host is showing.
 enum TerminalPaneKind {
@@ -88,5 +88,92 @@ final class TerminalPanes {
         focusRestorers.values
             .first(where: { $0.kind == .shell })?
             .restore()
+    }
+
+    // MARK: - Unsaved scrollback work
+
+    /// Per-host checks for unsaved scrollback work — committed notes not yet
+    /// sent, an open note form with text, an edit in progress.
+    ///
+    /// Asynchronous because the answer lives in the scrollback overlay's web
+    /// view and has to be fetched from JavaScript. Tagged by pane kind so a
+    /// caller can ask about the panes whose loss actually matters to it.
+    private var unsavedWorkCheckers:
+        [ObjectIdentifier: (
+            kind: TerminalPaneKind,
+            check: (@escaping (Bool) -> Void) -> Void
+        )] = [:]
+
+    func registerUnsavedWorkChecker(
+        _ key: ObjectIdentifier,
+        kind: TerminalPaneKind,
+        checker: @escaping (@escaping (Bool) -> Void) -> Void
+    ) {
+        unsavedWorkCheckers[key] = (kind: kind, check: checker)
+    }
+
+    func unregisterUnsavedWorkChecker(_ key: ObjectIdentifier) {
+        unsavedWorkCheckers.removeValue(forKey: key)
+    }
+
+    /// Ask the matching panes whether they hold unsaved work and report back
+    /// the subset that does, so a caller can name them. Checks run
+    /// concurrently; the completion lands on main.
+    func checkUnsavedWork(
+        kinds: Set<TerminalPaneKind>,
+        completion: @escaping (Set<TerminalPaneKind>) -> Void
+    ) {
+        let entries = unsavedWorkCheckers.values
+            .filter { kinds.contains($0.kind) }
+        guard !entries.isEmpty else {
+            // Deliberately asynchronous even though the answer is known. The
+            // quit path returns `terminateLater` and then replies from this
+            // completion; replying synchronously, before that return, would
+            // answer a question AppKit has not finished asking.
+            DispatchQueue.main.async { completion([]) }
+            return
+        }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var panesWithWork: Set<TerminalPaneKind> = []
+
+        for entry in entries {
+            group.enter()
+            entry.check { hasWork in
+                if hasWork {
+                    lock.lock()
+                    panesWithWork.insert(entry.kind)
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            completion(panesWithWork)
+        }
+    }
+
+    /// Close the shell pane, confirming first when its scrollback holds notes
+    /// that closing would discard. Unlike stopping the agent, there is no
+    /// in-flight work to worry about here — unsaved notes are the only thing
+    /// a shell close can destroy.
+    func confirmAndCloseShellPane(onConfirm: @escaping () -> Void) {
+        checkUnsavedWork(kinds: [.shell]) { panesWithWork in
+            guard !panesWithWork.isEmpty else {
+                onConfirm()
+                return
+            }
+            guard let window = NSApp.keyWindow else { return }
+            SheetAlert.confirm(
+                in: window,
+                message: "Close shell pane with unsaved scrollback notes?",
+                detail: "Unsaved notes will be lost when the shell pane "
+                    + "closes.",
+                confirm: "Close",
+                onConfirm: onConfirm
+            )
+        }
     }
 }

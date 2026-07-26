@@ -179,6 +179,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("AssistAnt: ready (socket=\(AssistAntPaths.socketPath.path))")
     }
 
+    /// Warn before quitting when a terminal pane's scrollback holds notes
+    /// that quitting would discard. Both panes count: quitting takes the
+    /// shell down along with the agent, so notes in either are lost.
+    ///
+    /// Answering requires a round trip into the scrollback page's own state,
+    /// so the decision can't be made synchronously — hence `terminateLater`
+    /// and the explicit reply on every path out. Missing a reply would hang
+    /// the quit, so the no-work and no-window cases reply immediately.
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        TerminalPanes.shared.checkUnsavedWork(
+            kinds: [.session, .shell]
+        ) { panesWithWork in
+            guard !panesWithWork.isEmpty else {
+                sender.reply(toApplicationShouldTerminate: true)
+                return
+            }
+            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                sender.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            // Listed in pane order — agent above, shell below — rather than
+            // whatever order the set iterates in.
+            let names: [String] = [TerminalPaneKind.session, .shell]
+                .filter { panesWithWork.contains($0) }
+                .map { $0 == .session ? "agent" : "shell" }
+            let subject = names.count == 1
+                ? "The \(names[0]) pane has"
+                : "The \(names.joined(separator: " and ")) panes have"
+
+            SheetAlert.confirm(
+                in: window,
+                message: "Quit with unsaved scrollback notes?",
+                detail: "\(subject) unsaved scrollback notes. "
+                    + "They will be lost if you quit.",
+                confirm: "Quit",
+                onConfirm: {
+                    sender.reply(toApplicationShouldTerminate: true)
+                },
+                onCancel: {
+                    sender.reply(toApplicationShouldTerminate: false)
+                }
+            )
+        }
+
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Terminate the embedded agent's child process tree at a controlled
         // point so it doesn't outlive the app or leave a lingering process

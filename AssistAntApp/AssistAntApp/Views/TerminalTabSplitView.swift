@@ -99,7 +99,13 @@ struct TerminalTabSplitView: View {
             TerminalPanes.shared.restoreSessionPaneFocus()
         }
         .onReceive(TerminalTabCommands.shared.closeFocusedShell) { _ in
-            state.shellPane?.requestClose()
+            guard let pane = state.shellPane else { return }
+            // Gate the close on a confirmation when the shell's scrollback
+            // holds notes. The helper closes straight through when there is
+            // nothing to lose, so the common case is unchanged.
+            TerminalPanes.shared.confirmAndCloseShellPane {
+                pane.requestClose()
+            }
         }
     }
 
