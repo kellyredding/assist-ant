@@ -16,10 +16,13 @@ final class MainTabNavigator: ObservableObject {
 
     private init() {
         // Restore the persisted tab; fall back to the first case if absent or
-        // unrecognized (e.g. a tab that no longer exists).
-        let restored = WindowStatePersistence.shared.loadSelectedMainTab()
-            .flatMap(MainTab.init(rawValue:))
-        selectedTab = restored ?? MainTab.allCases.first ?? .agent
+        // unrecognized (e.g. a tab that no longer exists). Resolution goes
+        // through `fromPersisted` so the terminal tab's pre-rename value still
+        // maps onto it.
+        let restored = MainTab.fromPersisted(
+            WindowStatePersistence.shared.loadSelectedMainTab()
+        )
+        selectedTab = restored ?? MainTab.allCases.first ?? .terminal
     }
 
     /// Previous tab, stopping at the first (no wrap) — matches Galaxy.

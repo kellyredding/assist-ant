@@ -53,8 +53,8 @@ struct SettingsView: View {
                     CalendarSettingsTab(settingsManager: settingsManager)
                 case .desk:
                     DeskSettingsTab(settingsManager: settingsManager)
-                case .agent:
-                    AgentSettingsTab(settingsManager: settingsManager)
+                case .terminal:
+                    TerminalSettingsTab(settingsManager: settingsManager)
                 case .popovers:
                     PopoversSettingsTab(settingsManager: settingsManager)
                 }

@@ -39,7 +39,7 @@ final class ItemViewerModel: ObservableObject {
 
     /// The tab the reader sits over. While open this always equals the
     /// navigator's selected tab — a switch away closes the reader.
-    private var openedOverTab: MainTab = .agent
+    private var openedOverTab: MainTab = .terminal
     private var keyMonitor: Any?
     /// The `a` / `l` leader sequence for the reader's keyboard chords.
     private let leader = LeaderChord()

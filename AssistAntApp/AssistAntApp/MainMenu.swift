@@ -54,18 +54,19 @@ final class MainMenu: NSObject {
         mainMenu.addItem(viewMenuItem)
         buildViewMenu(viewMenu)
 
-        // Agent menu — terminal font zoom plus the session-acting Clear /
+        // Terminal menu — terminal font zoom plus the session-acting Clear /
         // Compact commands sent to the embedded session's PTY. AssistAnt's
-        // analog of Galaxy's Sessions menu. Font items gate on the terminal
-        // holding focus; Clear / Compact gate on the session running (both
-        // via validateMenuItem).
-        let agentMenu = NSMenu(title: "Agent")
-        let agentMenuItem = NSMenuItem(
-            title: "Agent", action: nil, keyEquivalent: ""
+        // analog of Galaxy's Sessions menu, named for the tab it acts on
+        // (singular here, since exactly one session is embedded). Font items
+        // gate on the terminal holding focus; Clear / Compact gate on the
+        // session running (both via validateMenuItem).
+        let terminalMenu = NSMenu(title: "Terminal")
+        let terminalMenuItem = NSMenuItem(
+            title: "Terminal", action: nil, keyEquivalent: ""
         )
-        agentMenuItem.submenu = agentMenu
-        mainMenu.addItem(agentMenuItem)
-        buildAgentMenu(agentMenu)
+        terminalMenuItem.submenu = terminalMenu
+        mainMenu.addItem(terminalMenuItem)
+        buildTerminalMenu(terminalMenu)
 
         // Window menu — AppKit auto-populates with Minimize, Zoom, Bring
         // All to Front, and the list of open windows when we set
@@ -210,7 +211,7 @@ final class MainMenu: NSObject {
 
     // MARK: - Agent menu
 
-    private func buildAgentMenu(_ menu: NSMenu) {
+    private func buildTerminalMenu(_ menu: NSMenu) {
         // Terminal font size on top. Enable state is computed dynamically
         // by validateMenuItem — gated on the agent terminal holding first
         // responder. No explicit modifier mask: the items take AppKit's
@@ -355,8 +356,8 @@ final class MenuActions: NSObject {
 
     /// Whether the agent terminal currently holds first responder. Collapses
     /// Galaxy's `focusedTerminalPane()` (which walks the responder chain to a
-    /// TerminalHostView across multiple panes) to a single-pane check: walk
-    /// up from the first responder looking for the one AgentTerminalHostView.
+    /// host across multiple panes) to a single-pane check: walk up from the
+    /// first responder looking for the one TerminalHostView.
     /// Returns false when focus is elsewhere (Settings window, no key window)
     /// so ⌘= / ⌘- / ⌘0 don't zoom the terminal from a text field.
     static func agentTerminalIsFocused() -> Bool {
@@ -365,7 +366,7 @@ final class MenuActions: NSObject {
         else { return false }
         var view: NSView? = responder
         while let v = view {
-            if v is AgentTerminalHostView { return true }
+            if v is TerminalHostView { return true }
             view = v.superview
         }
         return false

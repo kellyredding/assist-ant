@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// The agent pane — the right side of the main window. Renders the embedded
+/// The session pane — the right side of the main window. Renders the embedded
 /// `assist-ant` Claude session, or one of three non-running states
 /// (starting / stopped / failed) driven by AgentSessionController.state.
 /// Fills the space the resizable sidebar leaves.
-struct AgentPaneView: View {
+struct SessionPaneView: View {
     @ObservedObject private var controller = AgentSessionController.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
 
@@ -15,11 +15,11 @@ struct AgentPaneView: View {
             switch controller.state {
             case .running:
                 if let backend = controller.backend {
-                    // Only hold keyboard focus while the Agent tab is active, so
-                    // other tabs' keystrokes can't bleed into the PTY.
-                    AgentTerminalView(
+                    // Only hold keyboard focus while the Terminal tab is active,
+                    // so other tabs' keystrokes can't bleed into the PTY.
+                    FocusableTerminalView(
                         backend: backend,
-                        isActive: navigator.selectedTab == .agent)
+                        isActive: navigator.selectedTab == .terminal)
                 } else {
                     // Defensive: running with no backend should not happen,
                     // but never show an empty pane.

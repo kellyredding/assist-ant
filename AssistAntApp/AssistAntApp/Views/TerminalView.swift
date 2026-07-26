@@ -6,21 +6,21 @@ import Galactic
 /// single-session port — multi-pane focus arbitration is dropped since
 /// AssistAnt embeds exactly one session. The host owns the scrollback
 /// overlay lifecycle, so it takes the whole backend (not just its view).
-struct AgentTerminalView: NSViewRepresentable {
+struct FocusableTerminalView: NSViewRepresentable {
     let backend: TerminalBackend
-    /// Whether the Agent tab is the active tab. The terminal only holds first
-    /// responder while active — otherwise keys pressed on another tab (e.g.
-    /// j/k list navigation) bubble into the live PTY.
+    /// Whether the Terminal tab is the active tab. The terminal only holds
+    /// first responder while active — otherwise keys pressed on another tab
+    /// (e.g. j/k list navigation) bubble into the live PTY.
     var isActive: Bool = true
 
-    func makeNSView(context: Context) -> AgentTerminalHostView {
-        AgentTerminalHostView(backend: backend)
+    func makeNSView(context: Context) -> TerminalHostView {
+        TerminalHostView(backend: backend)
     }
 
-    func updateNSView(_ nsView: AgentTerminalHostView, context: Context) {
+    func updateNSView(_ nsView: TerminalHostView, context: Context) {
         // The backend's view is stable for the life of a session, so there is
         // nothing to reconcile on re-render. Re-assert focus only while the
-        // Agent tab is active (in case the view was just (re)mounted after a
+        // Terminal tab is active (in case the view was just (re)mounted after a
         // window reopen); when it isn't, give up first responder so other tabs'
         // keystrokes can't bleed into the PTY. Refresh drag registration so the
         // terminal is a drop target only while running (mirrors Galaxy).
@@ -35,9 +35,9 @@ struct AgentTerminalView: NSViewRepresentable {
 
 /// Host NSView that holds the terminal surface, paints a small inset strip,
 /// forwards focus to the terminal, and owns the scrollback overlay
-/// lifecycle. Re-homes Galaxy's per-pane `TerminalHostView` scrollback
-/// machinery onto AssistAnt's single embedded session.
-final class AgentTerminalHostView: NSView {
+/// lifecycle. Mirrors Galaxy's per-pane host of the same name, collapsed onto
+/// AssistAnt's single embedded session.
+final class TerminalHostView: NSView {
     private let backend: TerminalBackend
     private let terminalView: NSView
     private static let padding: CGFloat = 4
@@ -121,16 +121,16 @@ final class AgentTerminalHostView: NSView {
     }
 
     func requestFocus() {
-        // Only the active Agent tab may take terminal focus. Without this guard
-        // an early-lifecycle focus grab (viewDidMoveToWindow, scrollback dismiss)
-        // could seize first responder while another tab is showing, so that
-        // tab's unhandled keystrokes would bleed into the live PTY.
-        guard MainTabNavigator.shared.selectedTab == .agent else { return }
+        // Only the active Terminal tab may take terminal focus. Without this
+        // guard an early-lifecycle focus grab (viewDidMoveToWindow, scrollback
+        // dismiss) could seize first responder while another tab is showing, so
+        // that tab's unhandled keystrokes would bleed into the live PTY.
+        guard MainTabNavigator.shared.selectedTab == .terminal else { return }
         guard let window = window else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             _ = window.makeFirstResponder(self.terminalView)
-            // Friendly re-pin: when the agent terminal regains focus (Agent
+            // Friendly re-pin: when the agent terminal regains focus (Terminal
             // tab activation, app refocus, scrollback dismiss) and the user
             // is following the live tail, snap back to the bottom. No-op when
             // parked in scrollback — see Galactic's reassertFollowIfIntended.
@@ -414,7 +414,7 @@ final class AgentTerminalHostView: NSView {
     /// Register for file drops only while running; unregister otherwise so a
     /// stopped session is not a drop target. Mirrors Galaxy
     /// `updateDragRegistration` / `refreshDragRegistration`; called from
-    /// `AgentTerminalView.updateNSView` so it tracks session state.
+    /// `FocusableTerminalView.updateNSView` so it tracks session state.
     func refreshDragRegistration() {
         if canAcceptDrop {
             registerForDraggedTypes([.fileURL])

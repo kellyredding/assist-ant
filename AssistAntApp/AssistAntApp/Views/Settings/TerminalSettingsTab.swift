@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Agent settings tab. Hosts the Font card (family + default size) and the
+/// Terminal settings tab. Hosts the Font card (family + default size) and the
 /// Scrollback card for the embedded agent terminal — minus the color-theme
 /// card (the theme is hardcoded) and the shell subcard.
-struct AgentSettingsTab: View {
+struct TerminalSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
     @State private var fontSizeText: String = ""
     @State private var scrollbackText: String = ""

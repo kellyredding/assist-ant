@@ -5,7 +5,7 @@ import Foundation
 /// add a case, give it a title + SF Symbol icon below, and add its view to
 /// the ZStack switch in ContentView.
 enum MainTab: String, CaseIterable {
-    case agent
+    case terminal
     case schedule
     case tasks
     case icebox
@@ -13,7 +13,7 @@ enum MainTab: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .agent: return "Agent"
+        case .terminal: return "Terminal"
         case .schedule: return "Schedule"
         case .tasks: return "Tasks"
         case .icebox: return "Icebox"
@@ -23,11 +23,22 @@ enum MainTab: String, CaseIterable {
 
     var icon: String {
         switch self {
-        case .agent: return "apple.terminal"
+        case .terminal: return "apple.terminal"
         case .schedule: return "calendar"
         case .tasks: return "list.bullet"
         case .icebox: return "snowflake"
         case .trash: return "trash"
         }
+    }
+
+    /// Resolve a persisted `selectedMainTab` raw value onto a case. The
+    /// terminal tab persisted as `"agent"` before it was renamed, so that
+    /// value is translated rather than dropped — decoding it as unrecognized
+    /// would silently restore the wrong tab. Returns nil when the value
+    /// matches no tab at all, leaving the fallback to the caller.
+    static func fromPersisted(_ raw: String?) -> MainTab? {
+        guard let raw else { return nil }
+        if raw == "agent" { return .terminal }
+        return MainTab(rawValue: raw)
     }
 }

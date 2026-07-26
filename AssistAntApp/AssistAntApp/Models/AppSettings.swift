@@ -28,7 +28,7 @@ struct AppSettings: Codable, Equatable {
     var desk: DeskSettings                // standing-desk sit/stand timer
     var calendarAnnouncement: CalendarAnnouncementSettings  // upcoming-event announcements
 
-    // Embedded agent terminal settings — the three knobs the Agent
+    // Embedded agent terminal settings — the three knobs the Terminal
     // settings tab exposes. The terminal color theme is intentionally NOT
     // stored or user-editable: it is supplied by the GalacticConfiguration
     // conformance as a hardcoded default.
@@ -59,7 +59,7 @@ struct AppSettings: Codable, Equatable {
         captureAutoArmWispr: true
     )
 
-    // Constraints for the Agent settings tab fields (the tab clamps typed
+    // Constraints for the Terminal settings tab fields (the tab clamps typed
     // values into these ranges).
     static let terminalFontSizeRange: ClosedRange<CGFloat> = 10...24
     static let terminalFontSizeStep: CGFloat = 1
