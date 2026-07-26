@@ -51,6 +51,8 @@ final class SessionTerminalPane: TerminalPane {
 
     func snapViewportToBottom() { backend.snapViewportToBottom() }
 
+    func redraw() { backend.redraw() }
+
     func trimBuffer() { backend.trimBuffer() }
 
     func reflowBuffer() { backend.reflowBuffer() }

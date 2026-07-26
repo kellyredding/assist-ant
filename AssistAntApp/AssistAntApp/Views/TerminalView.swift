@@ -108,6 +108,12 @@ final class TerminalHostView: NSView {
     /// Observer token for the `.enterScrollback` menu notification.
     private var scrollbackObserver: Any?
 
+    /// Observer token for our window becoming key.
+    private var didBecomeKeyObserver: Any?
+
+    /// Local key monitor translating Ctrl+←/→ into line-navigation controls.
+    private var keyEventMonitor: Any?
+
     /// Subscriptions that keep the Send to Claude button's enabled state in
     /// step with its blockers. Bound while a scrollback is open, cleared on
     /// teardown.
@@ -119,6 +125,8 @@ final class TerminalHostView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
+        observeWindowBecameKey()
+        setupKeyEventMonitor()
     }
 
     required init?(coder: NSCoder) {
@@ -128,6 +136,12 @@ final class TerminalHostView: NSView {
     deinit {
         if let scrollbackObserver {
             NotificationCenter.default.removeObserver(scrollbackObserver)
+        }
+        if let didBecomeKeyObserver {
+            NotificationCenter.default.removeObserver(didBecomeKeyObserver)
+        }
+        if let keyEventMonitor {
+            NSEvent.removeMonitor(keyEventMonitor)
         }
         firstResponderObservation?.invalidate()
         TerminalPanes.shared.unregisterFocusRestorer(ObjectIdentifier(self))
@@ -369,6 +383,66 @@ final class TerminalHostView: NSView {
             forName: .enterScrollback, object: nil, queue: .main
         ) { [weak self] _ in
             self?.enterScrollback()
+        }
+    }
+
+    /// Repaint and re-focus when our window becomes key again.
+    ///
+    /// The engine stops refreshing its display while the window is inactive,
+    /// so coming back can show cells that are several updates stale. Only the
+    /// pane the user was last in re-asserts focus — without that gate both
+    /// hosts would race on every app switch and whichever ran last would take
+    /// focus regardless of where the user actually was.
+    private func observeWindowBecameKey() {
+        didBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self, self.isActive else { return }
+            guard let window = notification.object as? NSWindow,
+                  window === self.window else { return }
+            self.pane.redraw()
+            guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+                return
+            }
+            if window.firstResponder !== self.terminalView {
+                self.requestFocus()
+            }
+        }
+    }
+
+    /// Translate Ctrl+← / Ctrl+→ into start-of-line and end-of-line controls,
+    /// matching Terminal.app. The shell's readline and Claude's input both
+    /// understand these; the arrows alone they do not.
+    ///
+    /// Guarding on this pane's terminal holding first responder is what keeps
+    /// each host's monitor to its own pane, and what makes it inert while a
+    /// scrollback is open — the web view holds focus then, so the keys reach
+    /// the page instead of the process.
+    private func setupKeyEventMonitor() {
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            guard let self else { return event }
+            guard self.window?.firstResponder === self.terminalView else {
+                return event
+            }
+            // Control alone. Option or Command in the mix means the user is
+            // asking for something else entirely.
+            let controlOnly = event.modifierFlags
+                .intersection([.control, .option, .command]) == .control
+            guard controlOnly else { return event }
+
+            switch event.keyCode {
+            case 123:  // Left arrow → start of line, as Ctrl-A
+                self.pane.send(text: "\u{01}", asPaste: false)
+                return nil
+            case 124:  // Right arrow → end of line, as Ctrl-E
+                self.pane.send(text: "\u{05}", asPaste: false)
+                return nil
+            default:
+                return event
+            }
         }
     }
 

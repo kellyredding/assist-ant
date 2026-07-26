@@ -50,6 +50,8 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     var cellHeight: CGFloat { backend.cellHeight }
     func snapViewportToBottom() { backend.snapViewportToBottom() }
 
+    func redraw() { backend.redraw() }
+
     var fontSizePublisher: AnyPublisher<CGFloat, Never> {
         $fontSize.eraseToAnyPublisher()
     }

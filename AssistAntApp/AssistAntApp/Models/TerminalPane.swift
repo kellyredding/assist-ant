@@ -19,7 +19,7 @@ import Galactic
 /// Ported from Galaxy's protocol of the same name, minus the members with no
 /// AssistAnt analog: `ledgerSessionId` and `paneKind` exist there only to
 /// attribute timeline events, `onBell` feeds a bell subsystem AssistAnt does
-/// not have, and `onScrollUp` / `hasScrollbackContent` / `redraw` serve
+/// not have, and `onScrollUp` / `hasScrollbackContent` serve
 /// scroll-to-enter-scrollback, which is deliberately unsupported here.
 protocol TerminalPane: AnyObject {
     /// The inner NSView that renders the terminal.
@@ -78,6 +78,12 @@ protocol TerminalPane: AnyObject {
     /// the `userScrolling` gate so subsequent output auto-follows.
     /// Unconditional — no threshold, no selection guard.
     func snapViewportToBottom()
+
+    /// Force a repaint of the underlying terminal surface. Recovers the
+    /// stalled-render case where the engine stops refreshing while its
+    /// window is inactive: the chrome can see that the cells are stale but
+    /// has no way to trigger a redraw through AppKit alone.
+    func redraw()
 
     /// Current font size for this pane's terminal. Per-pane, so the session
     /// and shell panes can diverge independently.
