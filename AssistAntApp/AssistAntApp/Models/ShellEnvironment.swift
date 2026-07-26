@@ -4,8 +4,9 @@ import Foundation
 /// session matches what a terminal gets — profile-exported secrets, the
 /// full PATH, locale. AssistAnt spawns claude-persona directly (not via a
 /// shell), so without this it inherits launchd's minimal environment and
-/// misses everything the login profile exports. There is no Shell pane here
-/// (unlike Galaxy), so this is the app's only login-shell touchpoint.
+/// misses everything the login profile exports. The shell pane resolves its
+/// binary through `userLoginShell()` here too, but needs no capture — it
+/// runs the profile itself; see `ShellLauncher`.
 ///
 /// Pure functions, no state. The environment capture runs a subprocess
 /// synchronously — call it OFF the main thread.
