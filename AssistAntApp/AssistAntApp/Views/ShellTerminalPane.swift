@@ -127,10 +127,10 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     /// terminal, not its own. Disabled while the agent isn't running.
     ///
     /// Goes through the controller rather than its backend so the send
-    /// inherits the same running-state gate every other write to the session
-    /// PTY uses. A second gate — refusing to send while the session pane's
-    /// own scrollback overlay is frozen open — is added where that overlay's
-    /// state becomes observable to other panes.
+    /// inherits the same running-state gate every other write to the agent's
+    /// PTY uses. The second gate refuses to send while the agent pane's own
+    /// scrollback is frozen open, since the text would arrive somewhere the
+    /// user cannot see it.
     var sendToClaudeTarget: SendToClaudeTarget? {
         let controller = self.controller
         return SendToClaudeTarget(
@@ -139,8 +139,17 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
             },
             sendCR: { controller.submit() },
             disabledReason: {
-                controller.state == .running
-                    ? nil : "Start the agent first"
+                // Agent-stopped takes precedence — it is the more
+                // fundamental block, and saying "close scrollback" to
+                // someone whose agent isn't running would send them to fix
+                // the wrong thing.
+                if controller.state != .running {
+                    return "Start the agent first"
+                }
+                if TerminalPanes.shared.sessionPaneScrollbackActive {
+                    return "Close agent scrollback first"
+                }
+                return nil
             }
         )
     }

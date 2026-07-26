@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Which of the Terminal tab's two panes a host is showing.
 enum TerminalPaneKind {
@@ -13,10 +14,24 @@ enum TerminalPaneKind {
 /// and would become a pane coordinator too. Galaxy keeps the equivalent
 /// registries on its per-session model; with one embedded session here, a
 /// singleton is the same shape with the session dimension collapsed.
-final class TerminalPanes {
+final class TerminalPanes: ObservableObject {
     static let shared = TerminalPanes()
 
     private init() {}
+
+    /// True while the agent pane's scrollback overlay is open.
+    ///
+    /// Published because the shell pane's Send to Claude has to react to it:
+    /// sending into the agent while its buffer is frozen open would land text
+    /// the user can't see arriving. Lives here rather than on either pane, so
+    /// neither has to know the other exists — and so it survives a pane being
+    /// torn down and rebuilt.
+    @Published private(set) var sessionPaneScrollbackActive: Bool = false
+
+    func setSessionPaneScrollbackActive(_ active: Bool) {
+        guard sessionPaneScrollbackActive != active else { return }
+        sessionPaneScrollbackActive = active
+    }
 
     /// The pane most recently holding first responder. Written by
     /// `TerminalHostView` when focus enters its subtree, and read when

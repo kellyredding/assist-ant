@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Galactic
 
@@ -107,6 +108,11 @@ final class TerminalHostView: NSView {
     /// Observer token for the `.enterScrollback` menu notification.
     private var scrollbackObserver: Any?
 
+    /// Subscriptions that keep the Send to Claude button's enabled state in
+    /// step with its blockers. Bound while a scrollback is open, cleared on
+    /// teardown.
+    private var sendButtonStateCancellables = Set<AnyCancellable>()
+
     init(pane: TerminalPane) {
         self.pane = pane
         self.terminalView = pane.view
@@ -128,6 +134,11 @@ final class TerminalHostView: NSView {
         TerminalPanes.shared.unregisterUnsavedWorkChecker(
             ObjectIdentifier(self)
         )
+        // Going away with a scrollback still open would strand the flag, and
+        // with it leave the shell's Send disabled for good.
+        if paneKind == .session, scrollbackOverlay != nil {
+            TerminalPanes.shared.setSessionPaneScrollbackActive(false)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -413,6 +424,9 @@ final class TerminalHostView: NSView {
             // restore any note state.
             self?.pane.snapViewportToBottom()
             webView.restoreNoteState()
+            // Push the button's starting state now that the page exists;
+            // the subscriptions keep it current from here.
+            self?.refreshSendButtonState()
         }
         // "Send to Claude" routes back through the send-to-session seam:
         // tear down, bracketed-paste the composed message, then CR after
@@ -420,10 +434,16 @@ final class TerminalHostView: NSView {
         // Galaxy `TerminalView.onSendToClaude` — same 0.3s delay.
         webView.onSendToClaude = { [weak self] message in
             guard let self else { return }
+            // Through the owning pane's target: the agent pane sends into
+            // itself, the shell sends into the agent. Re-checking the gate
+            // here covers the gap between the button being drawn and the
+            // click arriving.
+            guard let target = self.pane.sendToClaudeTarget,
+                  target.disabledReason() == nil else { return }
             self.dismissScrollback()
-            AgentSessionController.shared.send(text: message, asPaste: true)
+            target.sendText(message)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                AgentSessionController.shared.submit()
+                target.sendCR()
             }
         }
         // Note-form / edit / drag-replace discard confirmations route
@@ -458,6 +478,13 @@ final class TerminalHostView: NSView {
         addSubview(overlay, positioned: .above, relativeTo: dragHighlightView)
         scrollbackOverlay = overlay
         window?.makeFirstResponder(webView.webView)
+
+        // Tell the other pane its target just froze, and start tracking the
+        // blockers that decide whether this pane's own Send stays live.
+        if paneKind == .session {
+            TerminalPanes.shared.setSessionPaneScrollbackActive(true)
+        }
+        subscribeToSendButtonStateChanges()
     }
 
     /// Tear down the overlay and return focus to the live terminal.
@@ -475,7 +502,52 @@ final class TerminalHostView: NSView {
         overlay.removeFromSuperview()
         scrollbackOverlay = nil
         currentSnapshot = nil
+        sendButtonStateCancellables.removeAll()
+        if paneKind == .session {
+            TerminalPanes.shared.setSessionPaneScrollbackActive(false)
+        }
         requestFocus()
+    }
+
+    /// Push the pane's current Send-to-Claude availability into the open
+    /// overlay. A no-op when no overlay is up.
+    ///
+    /// The reason text is escaped before interpolation so wording that
+    /// contains an apostrophe can never break the inline script.
+    private func refreshSendButtonState() {
+        guard let overlay = scrollbackOverlay else { return }
+        let target = pane.sendToClaudeTarget
+        let reason = target?.disabledReason()
+        let enabled = (target != nil && reason == nil)
+        let escaped = (reason ?? "")
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        overlay.scrollbackView.webView.evaluateJavaScript(
+            "ScrollbackManager.setSendButtonState(\(enabled), '\(escaped)')"
+        )
+    }
+
+    /// Subscribe to whatever can block this pane's Send, so the button
+    /// enables and disables while the overlay is open rather than being
+    /// judged once when it opened.
+    private func subscribeToSendButtonStateChanges() {
+        sendButtonStateCancellables.removeAll()
+
+        // Both panes ultimately write into the agent's PTY, so both care
+        // whether it is running.
+        AgentSessionController.shared.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshSendButtonState() }
+            .store(in: &sendButtonStateCancellables)
+
+        // Only the shell is additionally blocked by the agent pane's own
+        // scrollback being frozen open.
+        if pane is ShellTerminalPane {
+            TerminalPanes.shared.$sessionPaneScrollbackActive
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.refreshSendButtonState() }
+                .store(in: &sendButtonStateCancellables)
+        }
     }
 
     /// Confirm before discarding unsaved scrollback notes — uses the
