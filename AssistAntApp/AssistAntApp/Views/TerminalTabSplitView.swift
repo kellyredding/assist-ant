@@ -81,7 +81,12 @@ struct TerminalTabSplitView: View {
         }
         .onReceive(TerminalTabCommands.shared.openShell) { _ in
             if state.shellPane != nil {
-                state.shellPane?.focus()
+                // Already open, so this means "focus it" — through the
+                // registry rather than the pane, so a scrollback open on the
+                // shell keeps focus instead of the live terminal behind it.
+                // Focusing the pane directly leaves the overlay visible but
+                // keyboard-dead, with Esc going to the shell as input.
+                TerminalPanes.shared.restoreShellPaneFocus()
             } else {
                 state.openShell()
             }
@@ -154,7 +159,11 @@ final class SplitState: ObservableObject {
         ratio = TerminalTabSplitView.configuredTopRatio()
         shellPane = pane
 
-        // Focus the shell on open — the user just asked for it.
+        // Focus the shell on open — the user just asked for it. Deliberately
+        // the pane and not its focus restorer, unlike every other focus route
+        // here: this shell was created a moment ago, so it can have no
+        // scrollback to redirect to, and its host has not registered a
+        // restorer yet. The delay gives that host time to reach the window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             pane.focus()
         }

@@ -80,4 +80,13 @@ final class TerminalPanes {
             .first(where: { $0.kind == .session })?
             .restore()
     }
+
+    /// Restore focus to the shell pane specifically. Used when the open-shell
+    /// command arrives and a shell is already open, so the command means
+    /// "focus it" rather than "open one".
+    func restoreShellPaneFocus() {
+        focusRestorers.values
+            .first(where: { $0.kind == .shell })?
+            .restore()
+    }
 }
