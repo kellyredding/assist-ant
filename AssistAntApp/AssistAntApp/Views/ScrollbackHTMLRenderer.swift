@@ -238,6 +238,7 @@ enum ScrollbackHTMLRenderer {
         <script>\(emojiAutocompleteJS)</script>
         <script>\(clipboardCopyJS)</script>
         <script>\(suggestionInsertJS)</script>
+        <script>\(addNoteButtonJS)</script>
         <script>
         \(scrollbackManagerJS)
         \(noteManagerJS)
@@ -336,6 +337,17 @@ enum ScrollbackHTMLRenderer {
                 this.handleEscape();
                 break;
             case 'Enter':
+                // Bare Enter promotes a selection toolbar into
+                // the note form, so drag then Enter arrives where
+                // dragging alone used to. The textarea guard at
+                // the top of this handler keeps it from stealing
+                // newlines while composing.
+                if (!e.metaKey && !e.shiftKey
+                    && this.notes.selectionOnly) {
+                    e.preventDefault();
+                    this.notes.promoteToForm();
+                    break;
+                }
                 // Cmd+Shift+Enter — send notes to Claude
                 if (e.metaKey && e.shiftKey && this.notes.items.length > 0) {
                     e.preventDefault();
@@ -799,6 +811,7 @@ enum ScrollbackHTMLRenderer {
             border-width: 0;
         }
         \(verbatimCardCSS)
+        \(selectionToolbarCSS(prefix: "note"))
         /* Sits in the header row at the end of the label group,
            rather than below the card body where appearing and
            disappearing changed the card's height — a one-line
@@ -1041,6 +1054,10 @@ enum ScrollbackHTMLRenderer {
         highlightedLines: [],
         formStartLine: null,
         formEndLine: null,
+        // True while the form is showing only its header row as a
+        // toolbar over a live selection, with no textarea and
+        // nothing focused.
+        selectionOnly: false,
         pendingEditCancelId: null,
         pendingEditOriginalContent: null,
         editIconSVG: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>',
@@ -1053,17 +1070,44 @@ enum ScrollbackHTMLRenderer {
             document.addEventListener('mouseup', (e) => {
                 // Ignore clicks on note UI elements
                 if (e.target.closest('.note-form') ||
-                    e.target.closest('.note-card') ||
                     e.target.closest('.send-bar')) return;
+                // A click on an existing card expands it, so a
+                // toolbar over some other range is no longer
+                // about anything the user is looking at.
+                if (e.target.closest('.note-card')) {
+                    if (self.selectionOnly) {
+                        self.hideForm();
+                        self.clearHighlights();
+                    }
+                    return;
+                }
 
                 const sel = window.getSelection();
-                if (!sel || sel.isCollapsed) return;
+                // A plain click collapses the selection. Nothing
+                // needed to handle this before, because the
+                // selection was destroyed the moment it was read.
+                if (!sel || sel.isCollapsed) {
+                    if (self.selectionOnly) {
+                        self.hideForm();
+                        self.clearHighlights();
+                    }
+                    return;
+                }
 
                 const range = sel.getRangeAt(0);
                 const startLine = self.findLineElement(range.startContainer);
                 const endLine = self.findLineElement(range.endContainer);
 
-                if (!startLine || !endLine) return;
+                // Landed somewhere with no line. Don't leave a
+                // toolbar pointing at a range the user has moved
+                // away from.
+                if (!startLine || !endLine) {
+                    if (self.selectionOnly) {
+                        self.hideForm();
+                        self.clearHighlights();
+                    }
+                    return;
+                }
 
                 const startIdx = parseInt(startLine.dataset.line);
                 const endIdx = parseInt(endLine.dataset.line);
@@ -1071,10 +1115,12 @@ enum ScrollbackHTMLRenderer {
                 const lo = Math.min(startIdx, endIdx);
                 const hi = Math.max(startIdx, endIdx);
 
-                // Guard: if the form is open with unsaved text,
-                // ask Swift for confirmation before replacing it.
+                // Guard: only a form being written into can lose
+                // work. A toolbar holds nothing, so re-pointing it
+                // at a new range needs no confirmation.
                 if (self.formElement
-                    && self.formElement.style.display !== 'none') {
+                    && self.formElement.style.display !== 'none'
+                    && !self.selectionOnly) {
                     const ta = self.formElement
                         .querySelector('textarea');
                     if (ta && ta.value.trim()) {
@@ -1089,8 +1135,10 @@ enum ScrollbackHTMLRenderer {
                     }
                 }
 
-                self.showNoteForm(lo, hi);
-                sel.removeAllRanges();
+                // The selection deliberately survives: it is what
+                // a plain Cmd+C acts on, and what tells the user
+                // that copying is available right now.
+                self.showSelectionToolbar(lo, hi);
             });
 
             // Send bar click
@@ -1109,7 +1157,27 @@ enum ScrollbackHTMLRenderer {
 
         // --- Form Management ---
 
-        showNoteForm(startLine, endLine) {
+        // Toolbar to form, from the add-note button or Enter.
+        promoteToForm() {
+            if (!this.selectionOnly) return;
+            this.selectionOnly = false;
+            this.formElement.classList.remove(
+                'selection-only');
+            const ta = this.formElement
+                .querySelector('textarea');
+            if (ta) {
+                ta.style.height = 'auto';
+                ta.style.height = ta.scrollHeight + 'px';
+                ta.focus();
+            }
+        },
+
+        // Every selection lands here, whatever was on screen
+        // before: the toolbar is the only thing a range opens.
+        // Reaching the form is a separate, deliberate step, so
+        // nothing here focuses anything — focusing would collapse
+        // the browser selection the user still needs for Cmd+C.
+        showSelectionToolbar(startLine, endLine) {
             this.clearHighlights();
             for (let i = startLine; i <= endLine; i++) {
                 const line = document.querySelector('[data-line=\"' + i + '\"]');
@@ -1134,15 +1202,14 @@ enum ScrollbackHTMLRenderer {
                 ref.textContent = 'Note #' + this.nextNumber + ': lines ' + (startLine + 1) + '\\u2013' + (endLine + 1);
             }
 
+            this.selectionOnly = true;
+            this.formElement.classList.add('selection-only');
+
             this.positionForm(endLine);
             this.formElement.style.display = 'block';
             const ta = this.formElement.querySelector('textarea');
             ta.value = '';
             ta.style.height = 'auto';
-            // Focus after layout so the browser has positioned the form
-            requestAnimationFrame(() => {
-                ta.focus();
-            });
         },
 
         // Per-textarea auto-grow, kept off the keystroke hot path.
@@ -1221,7 +1288,7 @@ enum ScrollbackHTMLRenderer {
             this.formElement = document.createElement('div');
             this.formElement.className = 'note-form';
             // The form is display:none until a selection
-            // is made (showNoteForm sets
+            // is made (showSelectionToolbar sets
             // formElement.style.display = 'block'), so the
             // copy button is naturally invisible until
             // there's a range to copy.
@@ -1238,11 +1305,20 @@ enum ScrollbackHTMLRenderer {
                     : window.GalaxySuggestion.buttonHTML(
                         'note-suggest',
                         'Add a suggestion');
+            // Promotes the selection toolbar into this form.
+            const formAddNoteHTML =
+                (typeof window.GalaxyAddNote
+                    === 'undefined')
+                    ? ''
+                    : window.GalaxyAddNote.buttonHTML(
+                        'note-addnote',
+                        'Add a note');
             this.formElement.innerHTML =
                 '<div class="note-form-header">' +
                     '<span class="note-form-ref"></span>' +
                     formCopyHTML +
                     formSuggestHTML +
+                    formAddNoteHTML +
                 '</div>' +
                 '<textarea class="note-textarea" ' +
                     'spellcheck="false" ' +
@@ -1282,6 +1358,17 @@ enum ScrollbackHTMLRenderer {
                     () => self.pendingFormText(),
                     () => this.formElement
                         .querySelector('textarea')
+                );
+            }
+
+            // Promote the toolbar into this form. Only visible
+            // while the form is in its selection-only state.
+            const formAddNoteBtn = this.formElement
+                .querySelector('.note-addnote');
+            if (formAddNoteBtn && window.GalaxyAddNote) {
+                window.GalaxyAddNote.bindAddNoteButton(
+                    formAddNoteBtn,
+                    () => self.promoteToForm()
                 );
             }
 
@@ -1368,7 +1455,10 @@ enum ScrollbackHTMLRenderer {
         hideForm() {
             if (this.formElement) {
                 this.formElement.style.display = 'none';
+                this.formElement.classList.remove(
+                    'selection-only');
             }
+            this.selectionOnly = false;
         },
 
         // Lift text from the rendered scrollback for the
