@@ -15,6 +15,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // entry point.
         NSApp.setActivationPolicy(.regular)
 
+        // Disable the press-and-hold accent popover app-wide so held keys
+        // produce normal key repeats. Without this, holding j/k in a pager
+        // inside the shell pane registers once and then stops while macOS
+        // waits to show the accent picker, and the pager rings BEL on the
+        // swallowed repeats. The terminal routes input through SwiftTerm's
+        // interpretKeyEvents path, which hands events to AppKit's text input
+        // context and so inherits the system-wide default of true.
+        //
+        // Registered rather than set: register(defaults:) writes to the
+        // lowest-priority domain, so nothing persists to disk and a user who
+        // wants the accent picker can still override it globally. Doing this
+        // before the app finishes launching is load-bearing — it must land
+        // before any window or text input context initializes.
+        UserDefaults.standard.register(
+            defaults: ["ApplePressAndHoldEnabled": false]
+        )
+
         // Install the menu bar (the strip at the top of the screen) before
         // the app finishes launching so system menu wires are in place
         // when AppKit starts honoring key equivalents.
