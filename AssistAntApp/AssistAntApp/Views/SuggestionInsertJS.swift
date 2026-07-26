@@ -1,5 +1,12 @@
 import Foundation
 
+// This file defines two shared form-header affordances:
+// `window.GalaxySuggestion` below, and `window.GalaxyAddNote`
+// further down. They live together because both are buttons the
+// note and annotation form headers inject, and because both files
+// they would otherwise need are already in two Xcode projects —
+// adding a third would mean hand-editing `project.pbxproj` twice.
+
 // MARK: - Shared JS-side suggestion-insert helper
 //
 // Defines `window.GalaxySuggestion`, used by note /
@@ -173,6 +180,71 @@ let suggestionInsertJS: String = """
         insertSuggestion: insertSuggestion,
         buttonHTML: buttonHTML,
         bindSuggestionButton: bindSuggestionButton
+    };
+})();
+"""
+
+// MARK: - Shared JS-side add-note affordance
+//
+// Defines `window.GalaxyAddNote`, the button that promotes a
+// selection toolbar into the note form. Companion to
+// `GalaxyClipboard` and `GalaxySuggestion`, and deliberately
+// thinner than either: promoting is surface-specific, so only the
+// icon and the markup are shared here and each manager wires its
+// own click handler.
+//
+// The icon is an outlined comment bubble, distinct from the
+// suggestion affordance's filled plus so the two never read as the
+// same action — they occupy the same slot in the same row, one
+// state apart. Stroked rather than filled, which makes it lighter
+// than the filled copy icon beside it; raise `stroke-width` if it
+// reads too quiet.
+//
+// Idempotent — calls through `if (window.GalaxyAddNote) return;`
+// so a second injection is a no-op.
+
+// js-validate
+let addNoteButtonJS: String = """
+(function() {
+    if (window.GalaxyAddNote) return;
+
+    var ADDNOTE_ICON_SVG =
+        '<svg class="addnote-icon" width="14"'
+        + ' height="14" viewBox="0 0 16 16"'
+        + ' fill="none" stroke="currentColor"'
+        + ' stroke-width="1.5" stroke-linejoin="round"'
+        + ' aria-hidden="true">'
+        + '<path d="M3.6 3h8.8a1.4 1.4 0 0 1 1.4 1.4v4.9'
+        + 'a1.4 1.4 0 0 1-1.4 1.4H7.6L4.7 13.2V10.7H3.6'
+        + 'a1.4 1.4 0 0 1-1.4-1.4V4.4A1.4 1.4 0 0 1 3.6 3Z"/>'
+        + '</svg>';
+
+    function buttonHTML(className, defaultTitle) {
+        return '<button type="button"'
+            + ' class="addnote-button '
+            + className + '" title="' + defaultTitle
+            + '" aria-label="' + defaultTitle + '">'
+            + ADDNOTE_ICON_SVG + '</button>';
+    }
+
+    // `onActivate` promotes the toolbar to the note form on
+    // whichever manager owns this surface. dblclick is swallowed
+    // so a fast double-click on the button doesn't also reach the
+    // row beneath and re-open a selection.
+    function bindAddNoteButton(btn, onActivate) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            try { onActivate(); } catch (err) {}
+        });
+        btn.addEventListener('dblclick', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    window.GalaxyAddNote = {
+        ADDNOTE_ICON_SVG: ADDNOTE_ICON_SVG,
+        buttonHTML: buttonHTML,
+        bindAddNoteButton: bindAddNoteButton
     };
 })();
 """

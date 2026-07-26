@@ -42,6 +42,59 @@ func noteUXTokens(textSize: String) -> String {
     """
 }
 
+/// Rules for the form's selection-only state — the toolbar shown
+/// while a range is selected but no note is being written yet.
+///
+/// The textarea and the suggestion affordance are hidden, and the
+/// add-note affordance is revealed. Nothing in this state is
+/// focused, which is the point: the browser's own selection has to
+/// survive so a plain Cmd+C copies what the user highlighted.
+///
+/// The add-note button defaults to hidden and is revealed only by
+/// the state selector, matching how the suggestion button already
+/// works — a button that exists in the DOM but is wrong for the
+/// current state is never visible.
+///
+/// Parameterized by class prefix because the two surfaces name
+/// their elements differently — `annotation-` in the artifact and
+/// snapshot readers, `note-` in the scrollback — while the rules
+/// themselves are identical.
+func selectionToolbarCSS(prefix: String) -> String {
+    """
+    .\(prefix)-form.selection-only
+        .\(prefix)-textarea {
+        display: none;
+    }
+    .\(prefix)-form.selection-only
+        .suggest-button.\(prefix)-suggest {
+        display: none;
+    }
+    .addnote-button.\(prefix)-addnote {
+        background: transparent;
+        border: 0;
+        padding: 0 4px;
+        margin: 0;
+        cursor: pointer;
+        line-height: 1;
+        opacity: 0.7;
+        transition: opacity 120ms ease,
+            color 120ms ease;
+        display: none;
+        align-items: center;
+    }
+    .addnote-button.\(prefix)-addnote:hover {
+        opacity: 1;
+    }
+    .addnote-button.\(prefix)-addnote .addnote-icon {
+        display: block;
+    }
+    .\(prefix)-form.selection-only
+        .addnote-button.\(prefix)-addnote {
+        display: inline-flex;
+    }
+    """
+}
+
 /// CSS for verbatim text rendering inside annotation/note card
 /// bodies. Targets `.verbatim-card-content`, the marker class
 /// applied to every card-style container that displays user-typed
