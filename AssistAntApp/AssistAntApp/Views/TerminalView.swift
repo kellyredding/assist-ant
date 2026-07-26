@@ -2,19 +2,19 @@ import AppKit
 import SwiftUI
 import Galactic
 
-/// SwiftUI wrapper that mounts the Galactic backend's NSView. A simplified
-/// single-session port — multi-pane focus arbitration is dropped since
-/// AssistAnt embeds exactly one session. The host owns the scrollback
-/// overlay lifecycle, so it takes the whole backend (not just its view).
+/// SwiftUI wrapper that mounts a terminal pane's NSView. Accepts any
+/// `TerminalPane` conformer so the session pane and the shell pane share one
+/// SwiftUI→AppKit bridge without branching. The host owns the scrollback
+/// overlay lifecycle, so it takes the whole pane (not just its view).
 struct FocusableTerminalView: NSViewRepresentable {
-    let backend: TerminalBackend
+    let pane: TerminalPane
     /// Whether the Terminal tab is the active tab. The terminal only holds
     /// first responder while active — otherwise keys pressed on another tab
     /// (e.g. j/k list navigation) bubble into the live PTY.
     var isActive: Bool = true
 
     func makeNSView(context: Context) -> TerminalHostView {
-        TerminalHostView(backend: backend)
+        TerminalHostView(pane: pane)
     }
 
     func updateNSView(_ nsView: TerminalHostView, context: Context) {
@@ -38,7 +38,7 @@ struct FocusableTerminalView: NSViewRepresentable {
 /// lifecycle. Mirrors Galaxy's per-pane host of the same name, collapsed onto
 /// AssistAnt's single embedded session.
 final class TerminalHostView: NSView {
-    private let backend: TerminalBackend
+    private let pane: TerminalPane
     private let terminalView: NSView
     private static let padding: CGFloat = 4
     private var didSetUp = false
@@ -57,9 +57,9 @@ final class TerminalHostView: NSView {
     /// Observer token for the `.enterScrollback` menu notification.
     private var scrollbackObserver: Any?
 
-    init(backend: TerminalBackend) {
-        self.backend = backend
-        self.terminalView = backend.view
+    init(pane: TerminalPane) {
+        self.pane = pane
+        self.terminalView = pane.view
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
@@ -134,7 +134,7 @@ final class TerminalHostView: NSView {
             // tab activation, app refocus, scrollback dismiss) and the user
             // is following the live tail, snap back to the bottom. No-op when
             // parked in scrollback — see Galactic's reassertFollowIfIntended.
-            self.backend.reassertFollowIfIntended()
+            self.pane.reassertFollowIfIntended()
         }
     }
 
@@ -176,8 +176,8 @@ final class TerminalHostView: NSView {
     private func enterScrollback() {
         guard window != nil, scrollbackOverlay == nil else { return }
         guard window?.firstResponder === terminalView else { return }
-        let scrollPosition = backend.viewportRow
-        backend.clearSelection()
+        let scrollPosition = pane.viewportRow
+        pane.clearSelection()
         createScrollback(initialScrollLine: scrollPosition)
     }
 
@@ -185,12 +185,12 @@ final class TerminalHostView: NSView {
     /// terminal buffer. Mirrors Galaxy `createScrollback` collapsed to the
     /// single surface (no isActiveSurface, no find, no timeline).
     private func createScrollback(initialScrollLine: Int) {
-        guard let snapshot = backend.captureScrollbackSnapshot() else {
+        guard let snapshot = pane.captureScrollbackSnapshot() else {
             return
         }
         currentSnapshot = snapshot
 
-        let font = backend.font
+        let font = pane.font
         let theme = TerminalColorTheme.theme(
             named: SettingsManager.shared.settings.terminalColorThemeName
         )
@@ -199,7 +199,7 @@ final class TerminalHostView: NSView {
             theme: theme,
             fontFamily: font.fontName,
             fontSize: font.pointSize,
-            cellHeight: backend.cellHeight
+            cellHeight: pane.cellHeight
         )
 
         let webView = ScrollbackWebView(
@@ -222,7 +222,7 @@ final class TerminalHostView: NSView {
             // Snap the live terminal to the bottom once the overlay is
             // visible — prevents a flash of the live view jumping — then
             // restore any note state.
-            self?.backend.snapViewportToBottom()
+            self?.pane.snapViewportToBottom()
             webView.restoreNoteState()
         }
         // "Send to Claude" routes back through the send-to-session seam:
@@ -405,10 +405,10 @@ final class TerminalHostView: NSView {
         didSet { dragHighlightView?.isHighlighted = isReceivingDrag }
     }
 
-    /// Drops are accepted only while the single embedded session is running
-    /// — the collapse of Galaxy's `isActive && pane.isAcceptingInput`.
+    /// Drops are accepted only while the hosted pane is accepting input —
+    /// for the session pane, while the embedded session is running.
     private var canAcceptDrop: Bool {
-        AgentSessionController.shared.state == .running
+        pane.isAcceptingInput
     }
 
     /// Register for file drops only while running; unregister otherwise so a
@@ -529,8 +529,9 @@ final class TerminalHostView: NSView {
 
         // Send-to-session seam: bracketed paste, NO submit — the user
         // reviews the paths and presses Return themselves. Mirrors Galaxy's
-        // performDragOperation (paste, no CR).
-        AgentSessionController.shared.send(text: pathsText, asPaste: true)
+        // performDragOperation (paste, no CR). Guarded by canAcceptDrop
+        // above, which is what gates a send at a non-running session.
+        pane.send(text: pathsText, asPaste: true)
         requestFocus()
         return true
     }

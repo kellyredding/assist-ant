@@ -1,4 +1,5 @@
 import SwiftUI
+import Galactic
 
 /// The session pane — the right side of the main window. Renders the embedded
 /// `assist-ant` Claude session, or one of three non-running states
@@ -7,6 +8,7 @@ import SwiftUI
 struct SessionPaneView: View {
     @ObservedObject private var controller = AgentSessionController.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
+    @StateObject private var paneHolder = SessionPaneAdapterHolder()
 
     var body: some View {
         ZStack {
@@ -18,7 +20,8 @@ struct SessionPaneView: View {
                     // Only hold keyboard focus while the Terminal tab is active,
                     // so other tabs' keystrokes can't bleed into the PTY.
                     FocusableTerminalView(
-                        backend: backend,
+                        pane: paneHolder.pane(
+                            for: controller, backend: backend),
                         isActive: navigator.selectedTab == .terminal)
                 } else {
                     // Defensive: running with no backend should not happen,
@@ -36,6 +39,14 @@ struct SessionPaneView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: controller.state) { _, state in
+            // Drop the cached adapter once the session leaves running, so the
+            // backend it holds — and the scrollback buffer inside it — is
+            // freed at stop time rather than lingering until the next spawn.
+            // The controller nils its own backend in teardown; without this
+            // the adapter would be the last strong reference.
+            if state != .running { paneHolder.release() }
+        }
     }
 
     // MARK: - Stopped
@@ -81,5 +92,35 @@ struct SessionPaneView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
         }
+    }
+}
+
+/// Caches one `SessionTerminalPane` per `SessionPaneView` lifetime, returning
+/// the same instance for the same underlying backend. A stop-then-start cycle
+/// builds a fresh backend, and with it a fresh adapter.
+///
+/// The cache lives in a plain (non-`@Published`) property so writing to it
+/// during body evaluation doesn't re-trigger a SwiftUI update. Ported from
+/// Galaxy's `SessionPaneAdapterHolder`.
+final class SessionPaneAdapterHolder: ObservableObject {
+    private var cached: SessionTerminalPane?
+
+    func pane(
+        for controller: AgentSessionController,
+        backend: TerminalBackend
+    ) -> SessionTerminalPane {
+        if let cached, cached.backend === backend {
+            return cached
+        }
+        let fresh = SessionTerminalPane(
+            controller: controller, backend: backend
+        )
+        cached = fresh
+        return fresh
+    }
+
+    /// Drop the cached adapter so the backend it holds can be released.
+    func release() {
+        cached = nil
     }
 }
