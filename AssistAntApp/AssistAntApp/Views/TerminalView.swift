@@ -28,18 +28,31 @@ struct FocusableTerminalView: NSViewRepresentable, Equatable {
     }
 
     func updateNSView(_ nsView: TerminalHostView, context: Context) {
-        // The backend's view is stable for the life of a session, so there is
-        // nothing to reconcile on re-render. Re-assert focus only while the
-        // Terminal tab is active (in case the view was just (re)mounted after a
-        // window reopen); when it isn't, give up first responder so other tabs'
-        // keystrokes can't bleed into the PTY. Refresh drag registration so the
-        // terminal is a drop target only while running (mirrors Galaxy).
-        if isActive {
-            nsView.requestFocus()
-        } else {
+        let wasActive = nsView.isActive
+        let activationChanged = isActive != wasActive
+        nsView.isActive = isActive
+
+        // Setting isActive refreshes drag registration when the value flips,
+        // so only refresh explicitly when it didn't — the case where the
+        // pane's own accepting-input state may have changed instead.
+        if !activationChanged {
+            nsView.refreshDragRegistration()
+        }
+
+        if !isActive {
+            // Give up first responder so another tab's keystrokes can't bleed
+            // into the PTY.
             nsView.resignFocusIfHeld()
         }
-        nsView.refreshDragRegistration()
+
+        // Take focus only on the transition into active, never on every
+        // re-render. An unconditional grab steals first responder from
+        // whatever the user is actually typing in, and with two panes both
+        // hosts would race — the loser overwriting the focus memory that
+        // decides where focus belongs. The preference gate settles it.
+        if isActive && !wasActive {
+            nsView.requestFocusIfPreferred()
+        }
     }
 }
 
@@ -54,6 +67,31 @@ final class TerminalHostView: NSView {
     private let terminalView: NSView
     private static let padding: CGFloat = 4
     private var didSetUp = false
+
+    /// Alpha applied to the pane's view when focus sits outside it. Tuned so
+    /// the unfocused pane reads as clearly inactive without making its text
+    /// hard to scan at a glance.
+    private static let unfocusedPaneAlpha: CGFloat = 0.70
+
+    /// Whether the Terminal tab is showing. Mirrors the SwiftUI wrapper's
+    /// value so `updateNSView` can tell an activation transition from an
+    /// ordinary re-render.
+    var isActive: Bool = true {
+        didSet {
+            guard isActive != oldValue else { return }
+            refreshDragRegistration()
+        }
+    }
+
+    /// KVO on `window.firstResponder`, driving the focus dim and the record
+    /// of which pane the user was last in. Bound in `viewDidMoveToWindow` so
+    /// it exists only while attached to a window, and torn down in `deinit`.
+    private var firstResponderObservation: NSKeyValueObservation?
+
+    /// Which pane this host is showing.
+    private var paneKind: TerminalPaneKind {
+        pane is ShellTerminalPane ? .shell : .session
+    }
 
     /// Galactic-owned container that hosts the terminal full-bleed
     /// inside a `padding` inset. SwiftTerm clips its leftmost column
@@ -85,10 +123,15 @@ final class TerminalHostView: NSView {
         if let scrollbackObserver {
             NotificationCenter.default.removeObserver(scrollbackObserver)
         }
+        firstResponderObservation?.invalidate()
+        TerminalPanes.shared.unregisterFocusRestorer(ObjectIdentifier(self))
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Rebind on every window move so the observer never outlives an
+        // attachment or leaks across a reattachment.
+        startObservingFirstResponder()
         if !didSetUp && window != nil {
             // Host the terminal full-bleed inside the Galactic inset
             // container so SwiftTerm never sees an offset frame (which
@@ -110,6 +153,15 @@ final class TerminalHostView: NSView {
             addSubview(highlight, positioned: .above, relativeTo: container)
             dragHighlightView = highlight
             refreshDragRegistration()
+            // Let cross-pane callers put focus back into this pane. Routing
+            // through requestFocus() rather than the backend is what lets an
+            // open scrollback overlay keep focus instead of the live terminal
+            // underneath it.
+            TerminalPanes.shared.registerFocusRestorer(
+                ObjectIdentifier(self), kind: paneKind
+            ) { [weak self] in
+                self?.requestFocus()
+            }
             didSetUp = true
             // Defer focus a runloop turn so the responder chain has settled
             // after the view is in a window.
@@ -141,22 +193,110 @@ final class TerminalHostView: NSView {
         guard let window = window else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            _ = window.makeFirstResponder(self.terminalView)
-            // Friendly re-pin: when the agent terminal regains focus (Terminal
-            // tab activation, app refocus, scrollback dismiss) and the user
-            // is following the live tail, snap back to the bottom. No-op when
-            // parked in scrollback — see Galactic's reassertFollowIfIntended.
-            self.pane.reassertFollowIfIntended()
+            // With a scrollback open, focus belongs to the overlay's web view
+            // rather than the live terminal behind it — otherwise scrollback
+            // is visible but keyboard-dead, and Esc has nowhere to go.
+            let focusingLivePane = self.scrollbackOverlay == nil
+            let target: NSResponder =
+                self.scrollbackOverlay?.scrollbackView.webView
+                ?? self.terminalView
+            // Friendly re-pin: when the terminal regains focus (tab
+            // activation, app refocus, scrollback dismiss) and the user is
+            // following the live tail, snap back to the bottom. Skipped when
+            // focusing an overlay — someone reading frozen history must not
+            // be yanked to the end.
+            let reassertFollow = {
+                if focusingLivePane { self.pane.reassertFollowIfIntended() }
+            }
+            if window.makeFirstResponder(target) {
+                reassertFollow()
+                return
+            }
+            // Retry once next runloop: a responder elsewhere may not have
+            // finished resigning yet (settings closing, app refocus). One
+            // retry suffices — repeated failure means something else is wrong.
+            DispatchQueue.main.async { [weak window] in
+                guard let w = window else { return }
+                if w.makeFirstResponder(target) { reassertFollow() }
+            }
         }
     }
 
-    /// Give up first responder when the Agent tab goes inactive, but only when
-    /// the terminal is the one holding it — so keystrokes on another tab (e.g.
-    /// j/k list navigation) fall to the responder chain instead of bleeding into
-    /// the live PTY. Leaves other responders (a focused field elsewhere) alone.
+    /// Take focus only when this pane is the one the user was last typing in.
+    /// Without the gate both hosts grab on every activation and whichever runs
+    /// last wins, overwriting the very memory that was meant to decide it.
+    func requestFocusIfPreferred() {
+        guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+            return
+        }
+        requestFocus()
+    }
+
+    /// Give up first responder when the Terminal tab goes inactive, but only
+    /// when this pane is the one holding it — so keystrokes on another tab
+    /// (e.g. j/k list navigation) fall to the responder chain instead of
+    /// bleeding into the live PTY. Leaves other responders alone.
+    ///
+    /// Checks descendants, not just the terminal view, so an open scrollback
+    /// overlay's web view resigns too. Doing this before the pane is hidden
+    /// also sidesteps AppKit's own auto-resign path inside `setHidden:`, which
+    /// does a large amount of synchronous work when the first responder is a
+    /// descendant of the view being hidden.
     func resignFocusIfHeld() {
-        guard let window, window.firstResponder === terminalView else { return }
+        guard let window else { return }
+        let responder = window.firstResponder
+        let holdsFocus =
+            responder === terminalView
+            || (responder as? NSView)?.isDescendant(of: self) == true
+        guard holdsFocus else { return }
         window.makeFirstResponder(nil)
+    }
+
+    // MARK: - Focus state
+
+    /// (Re)bind the first-responder observer. Idempotent — the prior
+    /// observation is invalidated first, and leaving a window simply leaves it
+    /// torn down until the view is attached again.
+    private func startObservingFirstResponder() {
+        firstResponderObservation?.invalidate()
+        firstResponderObservation = nil
+        guard let window = window else { return }
+        firstResponderObservation = window.observe(
+            \.firstResponder, options: [.initial, .new]
+        ) { [weak self] _, _ in
+            self?.refreshFocusState()
+        }
+    }
+
+    /// Dim this pane when focus is elsewhere, and record it as the last
+    /// focused pane when focus is here. "Here" means this host or anything
+    /// inside it, which covers the terminal surface, an open scrollback
+    /// overlay, and anything nested we haven't thought of.
+    private func refreshFocusState() {
+        let responder = window?.firstResponder
+        var isFocusInPane = false
+        if let responderView = responder as? NSView {
+            isFocusInPane =
+                responderView === self
+                || responderView.isDescendant(of: self)
+        }
+
+        // Animate the dim so focus changes don't snap. 150ms matches the
+        // cadence AppKit uses for a window's own active/inactive transition.
+        let target: CGFloat = isFocusInPane ? 1.0 : Self.unfocusedPaneAlpha
+        if pane.view.alphaValue != target {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                pane.view.animator().alphaValue = target
+            }
+        }
+
+        // Record on entry only. Focus leaving for a field elsewhere keeps the
+        // memory pointing at the pane the user was actually typing in, so
+        // coming back lands them where they left off.
+        if isFocusInPane {
+            TerminalPanes.shared.lastFocusedPaneKind = paneKind
+        }
     }
 
     // Let the terminal own first responder; clicks focus it.

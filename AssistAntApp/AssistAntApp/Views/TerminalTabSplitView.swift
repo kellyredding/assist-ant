@@ -87,7 +87,11 @@ struct TerminalTabSplitView: View {
             }
         }
         .onReceive(TerminalTabCommands.shared.focusSession) { _ in
-            AgentSessionController.shared.backend?.focus()
+            // Through the registry, not the backend: with a scrollback open
+            // on the session pane, focusing the backend would land on the
+            // live terminal hidden behind the overlay. Galaxy's own ⌘T goes
+            // straight to the backend and has exactly that bug.
+            TerminalPanes.shared.restoreSessionPaneFocus()
         }
         .onReceive(TerminalTabCommands.shared.closeFocusedShell) { _ in
             state.shellPane?.requestClose()
@@ -158,11 +162,13 @@ final class SplitState: ObservableObject {
 
     func closeShell() {
         shellPane = nil
-        // Hand focus back to the session terminal. This targets the live
-        // terminal directly; routing it so an open scrollback overlay keeps
-        // focus instead arrives with the pane focus-restorer registry.
+        // Hand focus back to the session pane through its restorer, so an
+        // open scrollback overlay there receives focus rather than the live
+        // terminal beneath it. Deliberately the session-specific restorer:
+        // the focus memory still reads `.shell` from the user's last
+        // keystroke in the pane that just went away.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            AgentSessionController.shared.backend?.focus()
+            TerminalPanes.shared.restoreSessionPaneFocus()
         }
     }
 

@@ -19,10 +19,16 @@ struct SessionPaneView: View {
                 if let backend = controller.backend {
                     // Only hold keyboard focus while the Terminal tab is active,
                     // so other tabs' keystrokes can't bleed into the PTY.
+                    // `.equatable()` matches the shell pane, so this host
+                    // skips updateNSView on renders where neither the pane
+                    // nor its active state changed. Without it the session
+                    // host re-ran on every render while the shell host was
+                    // skipped, making focus theft one-directional.
                     FocusableTerminalView(
                         pane: paneHolder.pane(
                             for: controller, backend: backend),
                         isActive: navigator.selectedTab == .terminal)
+                        .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,
                     // but never show an empty pane.
