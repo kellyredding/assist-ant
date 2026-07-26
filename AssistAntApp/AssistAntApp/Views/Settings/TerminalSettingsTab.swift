@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
+import Galactic
 
-/// Terminal settings tab. Hosts the Font card (family + default size) and the
-/// Scrollback card for the embedded agent terminal — minus the color-theme
-/// card (the theme is hardcoded) and the shell subcard.
+/// Terminal settings tab. Hosts the Font, Scrollback, and Cursor cards for the
+/// embedded agent terminal — minus the color-theme card (the theme is
+/// hardcoded) and the shell subcard. Card order follows Galaxy's Terminal tab
+/// so the two read alike side by side.
 struct TerminalSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
     @State private var fontSizeText: String = ""
@@ -104,6 +106,31 @@ struct TerminalSettingsTab: View {
                         ))
                         .foregroundColor(.secondary)
                     }
+                }
+            }
+
+            // Cursor — the caret the engine renders, which doubles as
+            // Claude's prompt cursor since Claude draws none of its own.
+            SettingsCard(title: "Cursor") {
+                VStack(alignment: .leading, spacing: 12) {
+                    SettingsRow(label: "Style") {
+                        Picker(
+                            "",
+                            selection: $settingsManager.settings.terminalCursorStyle
+                        ) {
+                            ForEach(ShellCursorStyle.allCases, id: \.self) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 160, alignment: .trailing)
+                    }
+
+                    Toggle(
+                        "Blink",
+                        isOn: $settingsManager.settings.terminalCursorBlink
+                    )
+                    .toggleStyle(.checkbox)
                 }
             }
 

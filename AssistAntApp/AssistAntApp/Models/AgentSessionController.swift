@@ -433,14 +433,17 @@ final class AgentSessionController: ObservableObject {
         terminalFontSize = settings.defaultTerminalFontSize
         // Show the engine's native caret — it IS Claude's prompt
         // cursor (Claude does not self-render one, so hiding it left
-        // no visible cursor). No cursor-settings UI here yet, so
-        // default to a steady block (matches Galaxy / Terminal /
+        // no visible cursor). Shape and blink come from settings; their
+        // defaults are a steady block (matching Galaxy / Terminal /
         // Ghostty) rather than the engine's blinking-block default.
         backend.setCaretHidden(false)
-        backend.applyCursor(style: .block, blink: false)
+        backend.applyCursor(
+            style: settings.terminalCursorStyle,
+            blink: settings.terminalCursorBlink
+        )
 
         // Re-apply settings live when prefs change (font / size /
-        // scrollback).
+        // scrollback / cursor).
         settingsCancellable = SettingsManager.shared.$settings
             .removeDuplicates()
             .dropFirst()
@@ -457,6 +460,13 @@ final class AgentSessionController: ObservableObject {
                 // A settings-driven font change is the new transient
                 // baseline, so live zoom and the persisted default agree.
                 self?.terminalFontSize = settings.defaultTerminalFontSize
+                // Cursor rides the same stream: applySettings covers only
+                // the GalacticConfiguration members, so shape and blink
+                // need their own call to take effect without a restart.
+                backend.applyCursor(
+                    style: settings.terminalCursorStyle,
+                    blink: settings.terminalCursorBlink
+                )
             }
 
         // Transition to stopped when the child exits. No auto-restart: a

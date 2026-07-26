@@ -28,13 +28,15 @@ struct AppSettings: Codable, Equatable {
     var desk: DeskSettings                // standing-desk sit/stand timer
     var calendarAnnouncement: CalendarAnnouncementSettings  // upcoming-event announcements
 
-    // Embedded agent terminal settings — the three knobs the Terminal
-    // settings tab exposes. The terminal color theme is intentionally NOT
-    // stored or user-editable: it is supplied by the GalacticConfiguration
-    // conformance as a hardcoded default.
+    // Embedded agent terminal settings — the knobs the Terminal settings tab
+    // exposes. The terminal color theme is intentionally NOT stored or
+    // user-editable: it is supplied by the GalacticConfiguration conformance
+    // as a hardcoded default.
     var terminalFontFamily: String        // monospaced family for the agent terminal
     var defaultTerminalFontSize: CGFloat   // point size for the agent terminal
     var terminalScrollbackLines: Int       // scrollback buffer depth in lines
+    var terminalCursorStyle: ShellCursorStyle  // caret shape
+    var terminalCursorBlink: Bool          // whether the caret blinks
 
     // Quick Capture. The per-kind summon shortcuts persist through the
     // KeyboardShortcuts library (not here); this is the one capture knob the
@@ -56,6 +58,8 @@ struct AppSettings: Codable, Equatable {
         terminalFontFamily: "SF Mono",
         defaultTerminalFontSize: 13.0,
         terminalScrollbackLines: 10_000,
+        terminalCursorStyle: .block,
+        terminalCursorBlink: false,
         captureAutoArmWispr: true
     )
 
@@ -138,6 +142,12 @@ struct AppSettings: Codable, Equatable {
         self.terminalScrollbackLines = try container.decodeIfPresent(
             Int.self, forKey: .terminalScrollbackLines
         ) ?? AppSettings.current.terminalScrollbackLines
+        self.terminalCursorStyle = try container.decodeIfPresent(
+            ShellCursorStyle.self, forKey: .terminalCursorStyle
+        ) ?? AppSettings.current.terminalCursorStyle
+        self.terminalCursorBlink = try container.decodeIfPresent(
+            Bool.self, forKey: .terminalCursorBlink
+        ) ?? AppSettings.current.terminalCursorBlink
         // Migrate the former Ask-scoped key: this toggle was
         // `captureAutoArmWisprOnAsk` when it applied only to the Ask summon.
         // Read it as a fallback so an existing prefs.json keeps the user's
@@ -166,6 +176,8 @@ struct AppSettings: Codable, Equatable {
         terminalFontFamily: String,
         defaultTerminalFontSize: CGFloat,
         terminalScrollbackLines: Int,
+        terminalCursorStyle: ShellCursorStyle,
+        terminalCursorBlink: Bool,
         captureAutoArmWispr: Bool
     ) {
         self.version = version
@@ -181,6 +193,8 @@ struct AppSettings: Codable, Equatable {
         self.terminalFontFamily = terminalFontFamily
         self.defaultTerminalFontSize = defaultTerminalFontSize
         self.terminalScrollbackLines = terminalScrollbackLines
+        self.terminalCursorStyle = terminalCursorStyle
+        self.terminalCursorBlink = terminalCursorBlink
         self.captureAutoArmWispr = captureAutoArmWispr
     }
 
@@ -222,6 +236,8 @@ struct AppSettings: Codable, Equatable {
         case terminalFontFamily
         case defaultTerminalFontSize
         case terminalScrollbackLines
+        case terminalCursorStyle
+        case terminalCursorBlink
         case captureAutoArmWispr
     }
 
