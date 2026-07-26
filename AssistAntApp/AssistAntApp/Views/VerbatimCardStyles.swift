@@ -42,6 +42,67 @@ func noteUXTokens(textSize: String) -> String {
     """
 }
 
+/// Shared treatment for every icon button in a note or annotation
+/// header: copy, add-a-suggestion, and add-a-note.
+///
+/// These were three near-identical rule sets per surface, six in
+/// all, and they had already drifted — the suggestion button sat at
+/// a different rest opacity than the copy button beside it, and the
+/// add-note button, declaring no colour at all, fell through to the
+/// user agent's `buttontext` and rendered near-black instead of
+/// muted. A button does not inherit `color` from its container, so
+/// leaving it out is not a way of accepting the surrounding value.
+///
+/// One block now describes all three. Only `display` differs
+/// between them, and only because copy is always meaningful while
+/// the other two belong to states — so those two default to hidden
+/// here and the state rules that reveal them live with the state.
+///
+/// Colours are parameterized rather than shared: the artifact
+/// readers resolve theirs from CSS variables, the scrollback from
+/// its terminal theme.
+func iconButtonCSS(
+    prefix: String,
+    restColor: String,
+    hoverColor: String
+) -> String {
+    """
+    .copy-button.\(prefix)-copy-lines,
+    .suggest-button.\(prefix)-suggest,
+    .addnote-button.\(prefix)-addnote {
+        background: transparent;
+        border: 0;
+        padding: 0 4px;
+        margin: 0;
+        cursor: pointer;
+        color: \(restColor);
+        line-height: 1;
+        opacity: 0.6;
+        transition: opacity 120ms ease,
+            color 120ms ease;
+        align-items: center;
+    }
+    .copy-button.\(prefix)-copy-lines:hover,
+    .suggest-button.\(prefix)-suggest:hover,
+    .addnote-button.\(prefix)-addnote:hover {
+        opacity: 1;
+        color: \(hoverColor);
+    }
+    .copy-button.\(prefix)-copy-lines .copy-icon,
+    .suggest-button.\(prefix)-suggest .suggest-icon,
+    .addnote-button.\(prefix)-addnote .addnote-icon {
+        display: block;
+    }
+    .copy-button.\(prefix)-copy-lines {
+        display: inline-flex;
+    }
+    .suggest-button.\(prefix)-suggest,
+    .addnote-button.\(prefix)-addnote {
+        display: none;
+    }
+    """
+}
+
 /// Rules for the form's selection-only state — the toolbar shown
 /// while a range is selected but no note is being written yet.
 ///
@@ -68,25 +129,6 @@ func selectionToolbarCSS(prefix: String) -> String {
     .\(prefix)-form.selection-only
         .suggest-button.\(prefix)-suggest {
         display: none;
-    }
-    .addnote-button.\(prefix)-addnote {
-        background: transparent;
-        border: 0;
-        padding: 0 4px;
-        margin: 0;
-        cursor: pointer;
-        line-height: 1;
-        opacity: 0.7;
-        transition: opacity 120ms ease,
-            color 120ms ease;
-        display: none;
-        align-items: center;
-    }
-    .addnote-button.\(prefix)-addnote:hover {
-        opacity: 1;
-    }
-    .addnote-button.\(prefix)-addnote .addnote-icon {
-        display: block;
     }
     .\(prefix)-form.selection-only
         .addnote-button.\(prefix)-addnote {

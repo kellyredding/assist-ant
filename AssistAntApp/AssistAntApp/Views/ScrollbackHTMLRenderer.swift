@@ -717,29 +717,14 @@ enum ScrollbackHTMLRenderer {
            line-reference label in the form/card header.
            The host header is display:flex so the button
            slots in as a flex item. */
-        .copy-button.note-copy-lines {
-            background: transparent;
-            border: 0;
-            padding: 0 4px;
-            margin: 0;
-            cursor: pointer;
-            color: \(textColor);
-            line-height: 1;
-            opacity: 0.6;
-            transition: opacity 120ms ease, color 120ms ease;
-            display: inline-flex;
-            align-items: center;
-        }
-        .copy-button.note-copy-lines:hover {
-            opacity: 1;
-            color: var(--fg);
-        }
+        \(iconButtonCSS(
+            prefix: "note",
+            restColor: textColor,
+            hoverColor: "var(--fg)"
+        ))
         .copy-button.note-copy-lines.copied {
             color: #2ea043;
             opacity: 1;
-        }
-        .copy-button.note-copy-lines .copy-icon {
-            display: block;
         }
         .note-form-header {
             display: flex;
@@ -760,28 +745,9 @@ enum ScrollbackHTMLRenderer {
            new (form) and edit states, never in show.
            Inserts the captured source text into the
            active textarea wrapped in a `suggestion`
-           fenced block. */
-        .suggest-button.note-suggest {
-            background: transparent;
-            border: 0;
-            padding: 0 4px;
-            margin: 0;
-            cursor: pointer;
-            color: \(textColor);
-            line-height: 1;
-            opacity: 0.7;
-            transition: opacity 120ms ease,
-                color 120ms ease;
-            display: none;
-            align-items: center;
-        }
-        .suggest-button.note-suggest:hover {
-            opacity: 1;
-            color: var(--fg);
-        }
-        .suggest-button.note-suggest .suggest-icon {
-            display: block;
-        }
+           fenced block. Its rest and hover treatment comes
+           from the shared icon-button block above; only the
+           states that reveal it live here. */
         .note-form-header
             .suggest-button.note-suggest {
             display: inline-flex;
