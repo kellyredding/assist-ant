@@ -39,6 +39,20 @@ let clipboardCopyJS: String = """
         + '.25.25 0 0 0-.25-.25Z"/>'
         + '</svg>';
 
+    // Outlined bookmark — a kept location. Stroked to match
+    // the add-note bubble rather than the filled copy glyph
+    // beside it, so the two copy actions read as different
+    // things at a glance.
+    var REF_ICON_SVG =
+        '<svg class="copy-icon" width="14"'
+        + ' height="14" viewBox="0 0 16 16"'
+        + ' fill="none" stroke="currentColor"'
+        + ' stroke-width="1.5" stroke-linejoin="round"'
+        + ' aria-hidden="true">'
+        + '<path d="M4.3 2.2h7.4a.9.9 0 0 1 .9.9v10.8'
+        + 'l-4.6-2.9-4.6 2.9V3.1a.9.9 0 0 1 .9-.9Z"/>'
+        + '</svg>';
+
     var CHECK_ICON_SVG =
         '<svg class="copy-icon" width="14"'
         + ' height="14" viewBox="0 0 16 16"'
@@ -112,6 +126,13 @@ let clipboardCopyJS: String = """
     }
 
     function showCopiedFeedback(btn, defaultTitle) {
+        // Remember whichever glyph this button started with.
+        // More than one icon uses this path now, and reverting
+        // to a named one would quietly turn a reference button
+        // into a copy button once its confirmation faded.
+        if (!btn._restoreIcon) {
+            btn._restoreIcon = btn.innerHTML;
+        }
         btn.classList.add('copied');
         btn.innerHTML = CHECK_ICON_SVG;
         btn.setAttribute('title', 'Copied!');
@@ -121,7 +142,7 @@ let clipboardCopyJS: String = """
         }
         btn._copyResetTimer = setTimeout(function() {
             btn.classList.remove('copied');
-            btn.innerHTML = COPY_ICON_SVG;
+            btn.innerHTML = btn._restoreIcon;
             btn.setAttribute('title', defaultTitle);
             btn.setAttribute('aria-label', defaultTitle);
             btn._copyResetTimer = null;
@@ -136,6 +157,17 @@ let clipboardCopyJS: String = """
             + className + '" title="' + defaultTitle
             + '" aria-label="' + defaultTitle + '">'
             + COPY_ICON_SVG + '</button>';
+    }
+
+    // Same button, bookmark glyph. Carries `copy-button` so it
+    // inherits the shared icon treatment, and is wired with
+    // bindCopyButton like any other — only the text it produces
+    // differs.
+    function refButtonHTML(className, defaultTitle) {
+        return '<button type="button" class="copy-button '
+            + className + '" title="' + defaultTitle
+            + '" aria-label="' + defaultTitle + '">'
+            + REF_ICON_SVG + '</button>';
     }
 
     // Wires a click handler on `btn`. `getText` is a
@@ -167,9 +199,11 @@ let clipboardCopyJS: String = """
     window.GalaxyClipboard = {
         COPY_ICON_SVG: COPY_ICON_SVG,
         CHECK_ICON_SVG: CHECK_ICON_SVG,
+        REF_ICON_SVG: REF_ICON_SVG,
         copy: copy,
         showCopiedFeedback: showCopiedFeedback,
         buttonHTML: buttonHTML,
+        refButtonHTML: refButtonHTML,
         bindCopyButton: bindCopyButton
     };
 })();

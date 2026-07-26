@@ -722,10 +722,6 @@ enum ScrollbackHTMLRenderer {
             restColor: textColor,
             hoverColor: "var(--fg)"
         ))
-        .copy-button.note-copy-lines.copied {
-            color: #2ea043;
-            opacity: 1;
-        }
         .note-form-header {
             display: flex;
             align-items: center;
