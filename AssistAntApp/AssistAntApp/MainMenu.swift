@@ -358,42 +358,44 @@ final class MenuActions: NSObject {
         MainTabNavigator.shared.switchToNextTab()
     }
 
-    /// View ▸ Default / Bigger / Smaller terminal font size. Unlike the
-    /// notification-posting actions above, these call the controller
-    /// directly — mirroring Galaxy, whose font actions call
-    /// `focusedTerminalPane()?.increaseFontSize()` directly. The focus
-    /// guard is belt-and-suspenders; validateMenuItem already gates these.
+    /// View ▸ Default / Bigger / Smaller terminal font size. Each acts on the
+    /// pane holding focus, so zooming a shell strip down leaves the agent
+    /// readable above it. `validateMenuItem` already gates these; the
+    /// optional chain is what makes "no pane focused" a no-op.
     @objc func defaultTerminalFontSize(_ sender: Any?) {
-        guard Self.agentTerminalIsFocused() else { return }
-        AgentSessionController.shared.resetFontSize()
+        Self.focusedTerminalPane()?.resetFontSize()
     }
 
     @objc func biggerTerminalFontSize(_ sender: Any?) {
-        guard Self.agentTerminalIsFocused() else { return }
-        AgentSessionController.shared.increaseFontSize()
+        Self.focusedTerminalPane()?.increaseFontSize()
     }
 
     @objc func smallerTerminalFontSize(_ sender: Any?) {
-        guard Self.agentTerminalIsFocused() else { return }
-        AgentSessionController.shared.decreaseFontSize()
+        Self.focusedTerminalPane()?.decreaseFontSize()
     }
 
-    /// Whether the agent terminal currently holds first responder. Collapses
-    /// Galaxy's `focusedTerminalPane()` (which walks the responder chain to a
-    /// host across multiple panes) to a single-pane check: walk up from the
-    /// first responder looking for the one TerminalHostView.
-    /// Returns false when focus is elsewhere (Settings window, no key window)
-    /// so ⌘= / ⌘- / ⌘0 don't zoom the terminal from a text field.
-    static func agentTerminalIsFocused() -> Bool {
+    /// The pane holding first responder, or nil when focus is somewhere else
+    /// entirely (a text field, the settings window, no key window) — which is
+    /// what keeps ⌘= / ⌘- / ⌘0 from zooming a terminal the user isn't in.
+    ///
+    /// Walks up from the first responder rather than asking any pane, so it
+    /// stays correct however many panes exist and whatever is nested inside
+    /// them.
+    static func focusedTerminalPane() -> TerminalPane? {
         guard let window = NSApp.keyWindow,
               let responder = window.firstResponder as? NSView
-        else { return false }
+        else { return nil }
         var view: NSView? = responder
         while let v = view {
-            if v is TerminalHostView { return true }
+            if let host = v as? TerminalHostView { return host.pane }
             view = v.superview
         }
-        return false
+        return nil
+    }
+
+    /// Whether any terminal pane holds first responder.
+    static func agentTerminalIsFocused() -> Bool {
+        focusedTerminalPane() != nil
     }
 
     /// Whether the key window's first responder is an *editable* text view —
@@ -440,17 +442,15 @@ final class MenuActions: NSObject {
         AgentSessionController.shared.compactSession()
     }
 
-    /// Agent ▸ Trim Buffer / Reflow Buffer. Route to the controller like the
-    /// font actions; the focus guard is belt-and-suspenders (validateMenuItem
-    /// already gates these on the agent terminal holding focus).
+    /// Terminal ▸ Trim Buffer / Reflow Buffer. Like the font actions, these
+    /// act on the focused pane — trimming a shell's runaway output should not
+    /// clear the agent's history, and vice versa.
     @objc func trimBuffer(_ sender: Any?) {
-        guard Self.agentTerminalIsFocused() else { return }
-        AgentSessionController.shared.trimBuffer()
+        Self.focusedTerminalPane()?.trimBuffer()
     }
 
     @objc func reflowBuffer(_ sender: Any?) {
-        guard Self.agentTerminalIsFocused() else { return }
-        AgentSessionController.shared.reflowBuffer()
+        Self.focusedTerminalPane()?.reflowBuffer()
     }
 }
 
@@ -478,13 +478,14 @@ extension MenuActions: NSMenuItemValidation {
             // line navigation (incl. ⌘⇧←/→ selection) wins over tab switching.
             return MainTab.allCases.count > 1 && !Self.editableTextIsFocused()
         case #selector(defaultTerminalFontSize(_:)):
-            return Self.agentTerminalIsFocused()
+            return Self.focusedTerminalPane() != nil
         case #selector(biggerTerminalFontSize(_:)):
-            return Self.agentTerminalIsFocused()
-                && controller.canIncreaseFontSize
+            // Read the ceiling from the focused pane, not the session: the
+            // shell keeps its own size and may still have room when the agent
+            // does not.
+            return Self.focusedTerminalPane()?.canIncreaseFontSize ?? false
         case #selector(smallerTerminalFontSize(_:)):
-            return Self.agentTerminalIsFocused()
-                && controller.canDecreaseFontSize
+            return Self.focusedTerminalPane()?.canDecreaseFontSize ?? false
         case #selector(enterScrollback(_:)):
             return controller.state == .running
         case #selector(clearSession(_:)),

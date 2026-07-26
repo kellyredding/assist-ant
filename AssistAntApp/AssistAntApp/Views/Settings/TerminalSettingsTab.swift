@@ -2,14 +2,16 @@ import AppKit
 import SwiftUI
 import Galactic
 
-/// Terminal settings tab. Hosts the Font, Scrollback, and Cursor cards for the
-/// embedded agent terminal — minus the color-theme card (the theme is
-/// hardcoded) and the shell subcard. Card order follows Galaxy's Terminal tab
-/// so the two read alike side by side.
+/// Terminal settings tab. Hosts the Font, Scrollback, Cursor, and Shell cards
+/// for the Terminal tab's panes — minus the color-theme card, since the theme
+/// is hardcoded. Card order follows Galaxy's Terminal tab so the two read
+/// alike side by side.
 struct TerminalSettingsTab: View {
     @ObservedObject var settingsManager: SettingsManager
     @State private var fontSizeText: String = ""
     @State private var scrollbackText: String = ""
+    @State private var shellHeightPercentText: String = ""
+    @FocusState private var shellHeightFocused: Bool
 
     var body: some View {
         VStack(spacing: 16) {
@@ -134,9 +136,96 @@ struct TerminalSettingsTab: View {
                 }
             }
 
+            // Shell — the pane ⌘⇧T opens below the agent. Only its default
+            // height is configurable; the live split is deliberately not
+            // remembered across launches.
+            SettingsCard(title: "Shell") {
+                SettingsRow(label: "Default height") {
+                    HStack(spacing: 4) {
+                        TextField("", text: $shellHeightPercentText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 50)
+                            .multilineTextAlignment(.trailing)
+                            .focused($shellHeightFocused)
+                            .onAppear {
+                                shellHeightPercentText = Self.percentText(
+                                    settingsManager.settings
+                                        .shellDefaultHeightRatio
+                                )
+                            }
+                            .onChange(of: shellHeightPercentText) { _, newValue in
+                                // Commit only a valid in-range number, so
+                                // typing "3" on the way to "35" doesn't snap
+                                // the setting to the floor and fight the
+                                // user's next keystroke. Blur and submit
+                                // normalize whatever is left over.
+                                guard let percent = Int(newValue) else { return }
+                                let ratio = Double(percent) / 100.0
+                                if AppSettings.shellDefaultHeightRatioRange
+                                    .contains(ratio) {
+                                    settingsManager.settings
+                                        .shellDefaultHeightRatio = ratio
+                                }
+                            }
+                            .onChange(of: shellHeightFocused) { _, isFocused in
+                                if !isFocused { normalizeShellHeightText() }
+                            }
+                            .onSubmit { normalizeShellHeightText() }
+                            .onChange(of: settingsManager.settings
+                                .shellDefaultHeightRatio
+                            ) { _, newValue in
+                                let newText = Self.percentText(newValue)
+                                if shellHeightPercentText != newText {
+                                    shellHeightPercentText = newText
+                                }
+                            }
+
+                        Stepper(
+                            "",
+                            value: $settingsManager.settings
+                                .shellDefaultHeightRatio,
+                            in: AppSettings.shellDefaultHeightRatioRange,
+                            step: AppSettings.shellDefaultHeightRatioStep
+                        )
+                        .labelsHidden()
+
+                        Text("%").foregroundColor(.secondary)
+                    }
+                }
+            }
+
             Spacer()
         }
         .padding(20)
+    }
+
+    // MARK: - Shell height
+
+    private static func percentText(_ ratio: Double) -> String {
+        "\(Int((ratio * 100).rounded()))"
+    }
+
+    /// Settle the field once the user is done with it: clamp an out-of-range
+    /// number into the allowed window, and restore the current setting when
+    /// the field was left empty or unparseable.
+    private func normalizeShellHeightText() {
+        let range = AppSettings.shellDefaultHeightRatioRange
+        let setting = settingsManager.settings.shellDefaultHeightRatio
+
+        guard let percent = Int(shellHeightPercentText) else {
+            shellHeightPercentText = Self.percentText(setting)
+            return
+        }
+        let clamped = min(
+            max(Double(percent) / 100.0, range.lowerBound), range.upperBound
+        )
+        if clamped != setting {
+            settingsManager.settings.shellDefaultHeightRatio = clamped
+        }
+        let clampedText = Self.percentText(clamped)
+        if shellHeightPercentText != clampedText {
+            shellHeightPercentText = clampedText
+        }
     }
 
     // MARK: - Font enumeration
