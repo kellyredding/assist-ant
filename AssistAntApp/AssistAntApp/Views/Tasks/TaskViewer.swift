@@ -65,7 +65,9 @@ struct TaskViewer: View {
                 Text(when).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            PointerIconButton(systemName: "play.fill", help: "Run now", action: onRunNow)
+            PointerIconButton(
+                systemName: "play.fill", help: "Run now",
+                confirmSystemName: "checkmark", action: onRunNow)
             SwitchButton(
                 isOn: task.enabled, onChange: onToggle,
                 help: task.enabled ? "Disable task" : "Enable task")

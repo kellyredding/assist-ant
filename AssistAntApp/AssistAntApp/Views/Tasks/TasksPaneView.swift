@@ -273,7 +273,11 @@ private struct TaskRowView: View {
 
             // Run now: deliver the task's prompt to the agent and log the run.
             // Stays enabled while the agent is down — it logs a skipped run.
-            PointerIconButton(systemName: "play.fill", help: "Run now", action: onRunNow)
+            // The run lands in the agent pane and the run log, neither of which
+            // the row can show, so the check is its only acknowledgment.
+            PointerIconButton(
+                systemName: "play.fill", help: "Run now",
+                confirmSystemName: "checkmark", action: onRunNow)
 
             SwitchButton(
                 isOn: task.enabled, onChange: onToggle,
