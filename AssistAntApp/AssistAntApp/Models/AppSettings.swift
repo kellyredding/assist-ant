@@ -37,6 +37,7 @@ struct AppSettings: Codable, Equatable {
     var terminalScrollbackLines: Int       // scrollback buffer depth in lines
     var terminalCursorStyle: ShellCursorStyle  // caret shape
     var terminalCursorBlink: Bool          // whether the caret blinks
+    var shellDefaultHeightRatio: Double    // shell pane's share of the split
 
     // Quick Capture. The per-kind summon shortcuts persist through the
     // KeyboardShortcuts library (not here); this is the one capture knob the
@@ -60,6 +61,7 @@ struct AppSettings: Codable, Equatable {
         terminalScrollbackLines: 10_000,
         terminalCursorStyle: .block,
         terminalCursorBlink: false,
+        shellDefaultHeightRatio: 0.5,
         captureAutoArmWispr: true
     )
 
@@ -68,6 +70,12 @@ struct AppSettings: Codable, Equatable {
     static let terminalFontSizeRange: ClosedRange<CGFloat> = 10...24
     static let terminalFontSizeStep: CGFloat = 1
     static let terminalScrollbackRange: ClosedRange<Int> = 500...100_000
+
+    /// Bounds on the shell pane's share of the Terminal tab. The same window
+    /// the divider drag enforces, so a configured default can never disagree
+    /// with what a drag allows.
+    static let shellDefaultHeightRatioRange: ClosedRange<Double> = 0.30...0.70
+    static let shellDefaultHeightRatioStep: Double = 0.01
 
     /// Estimated memory for a given scrollback line count. Assumes a
     /// 200-column terminal at 16 bytes/cell (3,200 bytes/line), rounded up
@@ -148,6 +156,9 @@ struct AppSettings: Codable, Equatable {
         self.terminalCursorBlink = try container.decodeIfPresent(
             Bool.self, forKey: .terminalCursorBlink
         ) ?? AppSettings.current.terminalCursorBlink
+        self.shellDefaultHeightRatio = try container.decodeIfPresent(
+            Double.self, forKey: .shellDefaultHeightRatio
+        ) ?? AppSettings.current.shellDefaultHeightRatio
         // Migrate the former Ask-scoped key: this toggle was
         // `captureAutoArmWisprOnAsk` when it applied only to the Ask summon.
         // Read it as a fallback so an existing prefs.json keeps the user's
@@ -178,6 +189,7 @@ struct AppSettings: Codable, Equatable {
         terminalScrollbackLines: Int,
         terminalCursorStyle: ShellCursorStyle,
         terminalCursorBlink: Bool,
+        shellDefaultHeightRatio: Double,
         captureAutoArmWispr: Bool
     ) {
         self.version = version
@@ -195,6 +207,7 @@ struct AppSettings: Codable, Equatable {
         self.terminalScrollbackLines = terminalScrollbackLines
         self.terminalCursorStyle = terminalCursorStyle
         self.terminalCursorBlink = terminalCursorBlink
+        self.shellDefaultHeightRatio = shellDefaultHeightRatio
         self.captureAutoArmWispr = captureAutoArmWispr
     }
 
@@ -238,6 +251,7 @@ struct AppSettings: Codable, Equatable {
         case terminalScrollbackLines
         case terminalCursorStyle
         case terminalCursorBlink
+        case shellDefaultHeightRatio
         case captureAutoArmWispr
     }
 

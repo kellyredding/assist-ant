@@ -136,7 +136,7 @@ struct ContentView: View {
             // the reader (gateWhenHidden: false). The other panes quiet while
             // hidden so their drag-grip / pointer-cursor tracking — which ignores
             // opacity and hit-testing — can't bleed through the pane on top.
-            SessionPaneView()
+            TerminalTabSplitView()
                 .tabPane(.terminal, selected: tabs.selectedTab,
                          covered: viewer.openItem != nil, gateWhenHidden: false)
 

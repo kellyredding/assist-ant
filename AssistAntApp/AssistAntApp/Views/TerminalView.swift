@@ -6,7 +6,7 @@ import Galactic
 /// `TerminalPane` conformer so the session pane and the shell pane share one
 /// SwiftUI→AppKit bridge without branching. The host owns the scrollback
 /// overlay lifecycle, so it takes the whole pane (not just its view).
-struct FocusableTerminalView: NSViewRepresentable {
+struct FocusableTerminalView: NSViewRepresentable, Equatable {
     let pane: TerminalPane
     /// Whether the Terminal tab is the active tab. The terminal only holds
     /// first responder while active — otherwise keys pressed on another tab
@@ -15,6 +15,16 @@ struct FocusableTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TerminalHostView {
         TerminalHostView(pane: pane)
+    }
+
+    /// Pane identity plus active state is the whole of this view's input, so
+    /// `.equatable()` at the call site lets SwiftUI skip `updateNSView` — and
+    /// with it a focus re-assert and drag re-registration — on renders where
+    /// neither changed.
+    static func == (
+        lhs: FocusableTerminalView, rhs: FocusableTerminalView
+    ) -> Bool {
+        lhs.pane === rhs.pane && lhs.isActive == rhs.isActive
     }
 
     func updateNSView(_ nsView: TerminalHostView, context: Context) {
@@ -38,7 +48,9 @@ struct FocusableTerminalView: NSViewRepresentable {
 /// lifecycle. Mirrors Galaxy's per-pane host of the same name, collapsed onto
 /// AssistAnt's single embedded session.
 final class TerminalHostView: NSView {
-    private let pane: TerminalPane
+    /// Readable from outside so the ⌘W interceptor can ask which kind of pane
+    /// a host is showing while walking up from the first responder.
+    let pane: TerminalPane
     private let terminalView: NSView
     private static let padding: CGFloat = 4
     private var didSetUp = false

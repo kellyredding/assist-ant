@@ -242,6 +242,30 @@ final class MainMenu: NSObject {
 
         menu.addItem(.separator())
 
+        // Pane commands. ⌘T focuses the session terminal; ⌘⇧T opens a login
+        // shell below it, or focuses the shell if one is already open.
+        // Bindings match Galaxy's Sessions menu. ⌘W is not a menu item — the
+        // File menu keeps it as Close Window, and a local event monitor in
+        // TerminalTabCommands consumes it only while a shell holds focus.
+        let focusSessionItem = NSMenuItem(
+            title: "Focus Session Pane",
+            action: #selector(MenuActions.focusSessionPane(_:)),
+            keyEquivalent: "t"
+        )
+        focusSessionItem.target = MenuActions.shared
+        menu.addItem(focusSessionItem)
+
+        let openShellItem = NSMenuItem(
+            title: "Open Shell Pane",
+            action: #selector(MenuActions.openShellPane(_:)),
+            keyEquivalent: "t"
+        )
+        openShellItem.target = MenuActions.shared
+        openShellItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(openShellItem)
+
+        menu.addItem(.separator())
+
         // Scrollback (⌘S) opens the read-only scrollback overlay over the
         // live terminal. No explicit modifier mask: takes AppKit's default
         // (.command), matching Galaxy. Enable state is gated dynamically by
@@ -393,6 +417,17 @@ final class MenuActions: NSObject {
         NotificationCenter.default.post(name: .enterScrollback, object: nil)
     }
 
+    /// Terminal ▸ Focus Session Pane (⌘T).
+    @objc func focusSessionPane(_ sender: Any?) {
+        TerminalTabCommands.shared.focusSession.send(())
+    }
+
+    /// Terminal ▸ Open Shell Pane (⌘⇧T). Opens the split, or focuses the
+    /// shell when one is already open.
+    @objc func openShellPane(_ sender: Any?) {
+        TerminalTabCommands.shared.openShell.send(())
+    }
+
     /// Agent ▸ Clear / Compact session. Each trims the terminal scrollback
     /// then sends the slash command to the single embedded session, mirroring
     /// Galaxy's clear/compact (minus the /handoff auto-chain — that is Galaxy
@@ -458,6 +493,14 @@ extension MenuActions: NSMenuItemValidation {
         case #selector(trimBuffer(_:)),
              #selector(reflowBuffer(_:)):
             return Self.agentTerminalIsFocused()
+        case #selector(focusSessionPane(_:)),
+             #selector(openShellPane(_:)):
+            // Gate on the tab, not on focus: both commands are about moving
+            // focus into the Terminal tab's panes, so they stay live while
+            // the tab is showing but something else holds first responder.
+            // Without the gate, the split stays mounted behind another tab
+            // and would take a shell — or focus — out of sight.
+            return MainTabNavigator.shared.selectedTab == .terminal
         default:
             return menuItem.isEnabled
         }
