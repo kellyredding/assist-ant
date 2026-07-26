@@ -339,6 +339,11 @@ final class TerminalHostView: NSView {
             }
         }
 
+        // An open scrollback covers the view that just dimmed, so it carries
+        // the same signal itself — otherwise two open scrollbacks look
+        // identical and neither says which one is taking keys.
+        scrollbackOverlay?.isPaneFocused = isFocusInPane
+
         // Record on entry only. Focus leaving for a field elsewhere keeps the
         // memory pointing at the pane the user was actually typing in, so
         // coming back lands them where they left off.
@@ -485,6 +490,9 @@ final class TerminalHostView: NSView {
             TerminalPanes.shared.setSessionPaneScrollbackActive(true)
         }
         subscribeToSendButtonStateChanges()
+        // Seed the overlay's focus tint. The observer is already running, but
+        // it only fires on responder changes and this overlay just appeared.
+        refreshFocusState()
     }
 
     /// Tear down the overlay and return focus to the live terminal.

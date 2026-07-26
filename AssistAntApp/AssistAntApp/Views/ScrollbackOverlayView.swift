@@ -3,12 +3,9 @@ import AppKit
 /// Container NSView that holds a ScrollbackWebView and a floating pill
 /// indicator. Draws a 2px accent-color border around the entire view.
 ///
-/// Collapsed for AssistAnt's single embedded session: Galaxy's
-/// shared find-bar arbitration (`findController` /
-/// `FindBarPanelController` / `WebViewFindController`) and the
-/// `isActiveSurface` focus-tint predicate are dropped — there is only
-/// one terminal surface, so the border + pill stay at full accent
-/// tint and there is no Cmd+F find module to host.
+/// Galaxy's shared find-bar arbitration (`findController` /
+/// `FindBarPanelController` / `WebViewFindController`) is dropped —
+/// there is no Cmd+F find module to host here.
 class ScrollbackOverlayView: NSView {
     let scrollbackView: ScrollbackWebView
     private let pillLabel: NSTextField
@@ -17,6 +14,27 @@ class ScrollbackOverlayView: NSView {
     /// view is inset by this amount so the border frames the content
     /// rather than covering its edge.
     static let borderWidth: CGFloat = 2
+
+    /// Alpha applied to the border and pill when the owning pane has
+    /// lost focus.
+    private static let unfocusedAlpha: CGFloat = 0.55
+
+    /// Whether the owning pane holds focus, pushed by
+    /// `TerminalHostView` as first responder moves.
+    ///
+    /// The pane's own dim can't answer this while a scrollback is
+    /// open: that dims the live terminal, which the overlay is
+    /// covering. Without a signal of its own, two open scrollbacks
+    /// look identical and nothing says which one is taking keys.
+    ///
+    /// Defaults to true because an overlay almost always becomes
+    /// first responder the moment it appears.
+    var isPaneFocused: Bool = true {
+        didSet {
+            guard isPaneFocused != oldValue else { return }
+            applyAccentTint()
+        }
+    }
 
     init(
         frame: NSRect,
@@ -122,10 +140,13 @@ class ScrollbackOverlayView: NSView {
         pillLabel.textColor = contrastingTextColor()
     }
 
-    /// Apply the accent color to the border + pill background. Single
-    /// source of truth so appearance changes always agree.
+    /// Apply the accent color to the border + pill background, at the
+    /// alpha the current focus state calls for. Single source of
+    /// truth so focus changes and appearance changes always agree.
     private func applyAccentTint() {
+        let alpha: CGFloat = isPaneFocused ? 1.0 : Self.unfocusedAlpha
         let tinted = NSColor.controlAccentColor
+            .withAlphaComponent(alpha)
         layer?.borderColor = tinted.cgColor
         pillLabel.backgroundColor = tinted
     }
