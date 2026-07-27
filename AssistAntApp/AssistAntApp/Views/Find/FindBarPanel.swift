@@ -125,12 +125,24 @@ final class FindBarPanelController {
             return
         }
 
+        // Read where focus should return to *before* any teardown. `dismiss`
+        // puts first responder back where the outgoing bar found it, so
+        // reading it afterwards captures that stale value — the pane the
+        // previous bar belonged to — instead of the one the user is in now.
+        let incomingPriorResponder = parent.firstResponder
+
         let previousController = currentController
         if panel != nil {
+            // Hand over without restoring focus at all. The restore is
+            // pointless here, since the new bar is about to take focus, and
+            // harmful: it briefly moves first responder into the outgoing
+            // pane, which is enough for the focus observers to record that
+            // pane as the one the user was last in.
+            priorParentResponder = nil
             dismiss()
         }
 
-        priorParentResponder = parent.firstResponder
+        priorParentResponder = incomingPriorResponder
         parentWindow = parent
         currentController = controller
 
