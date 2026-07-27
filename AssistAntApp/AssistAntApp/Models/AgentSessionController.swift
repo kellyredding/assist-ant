@@ -303,12 +303,13 @@ final class AgentSessionController: ObservableObject {
         backend.send(text: text, asPaste: asPaste)
     }
 
-    /// Send a single CR (0x0D) to submit whatever was last written — the
-    /// same byte as a keyboard Return. Mirrors Galaxy's inline
-    /// `backend.send(bytes: [0x0D])` in `Session.sendCommand`.
+    /// Submit whatever was last written — the automated counterpart to a
+    /// keyboard Return. `SessionSubmit` owns the bytes, so this keeps
+    /// working when text-entry settings change. Mirrors Galaxy's
+    /// `Session.sendCommand`, which submits through the same seam.
     func submit() {
         guard state == .running, let backend else { return }
-        backend.send(bytes: [0x0D])
+        backend.submitPrompt()
     }
 
     /// Enqueue a (possibly multi-line) prompt for delivery, each submitted on its
@@ -332,7 +333,7 @@ final class AgentSessionController: ObservableObject {
             deadline: .now() + Self.commandSubmitDelay
         ) { [weak self] in
             guard let self else { return }
-            if self.state == .running { self.backend?.send(bytes: [0x0D]) }
+            if self.state == .running { self.backend?.submitPrompt() }
             DispatchQueue.main.asyncAfter(
                 deadline: .now() + Self.interPromptDelay
             ) { [weak self] in
@@ -361,7 +362,7 @@ final class AgentSessionController: ObservableObject {
             deadline: .now() + Self.commandSubmitDelay
         ) { [weak self] in
             guard let self, self.state == .running else { return }
-            self.backend?.send(bytes: [0x0D])
+            self.backend?.submitPrompt()
         }
     }
 
