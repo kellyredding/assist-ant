@@ -164,6 +164,19 @@ final class MainMenu: NSObject {
                      action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         menu.addItem(withTitle: "Select All",
                      action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        menu.addItem(.separator())
+
+        // Find (⌘F) — searches the scrollback, opening one at the current
+        // viewport if none is up. The first item in this menu with an
+        // explicit target; the rest ride the responder chain.
+        let findItem = NSMenuItem(
+            title: "Find…",
+            action: #selector(MenuActions.find(_:)),
+            keyEquivalent: "f"
+        )
+        findItem.target = MenuActions.shared
+        menu.addItem(findItem)
     }
 
     // MARK: - View menu
@@ -419,6 +432,13 @@ final class MenuActions: NSObject {
         NotificationCenter.default.post(name: .enterScrollback, object: nil)
     }
 
+    /// Edit ▸ Find… (⌘F). Posted rather than called directly, for the same
+    /// reason Scrollback is: the menu has no handle on whichever terminal
+    /// host should answer.
+    @objc func find(_ sender: Any?) {
+        NotificationCenter.default.post(name: .activateFind, object: nil)
+    }
+
     /// Terminal ▸ Focus Session Pane (⌘T).
     @objc func focusSessionPane(_ sender: Any?) {
         TerminalTabCommands.shared.focusSession.send(())
@@ -459,6 +479,7 @@ final class MenuActions: NSObject {
 extension Notification.Name {
     static let showPreferences = Notification.Name("showPreferences")
     static let enterScrollback = Notification.Name("enterScrollback")
+    static let activateFind = Notification.Name("activateFind")
 }
 
 // MARK: - Menu validation
@@ -486,7 +507,13 @@ extension MenuActions: NSMenuItemValidation {
             return Self.focusedTerminalPane()?.canIncreaseFontSize ?? false
         case #selector(smallerTerminalFontSize(_:)):
             return Self.focusedTerminalPane()?.canDecreaseFontSize ?? false
-        case #selector(enterScrollback(_:)):
+        case #selector(enterScrollback(_:)),
+             #selector(find(_:)):
+            // Find is gated exactly like Scrollback, since it opens one when
+            // none is up. Deliberately not routed through
+            // focusedTerminalPane(), which resolves via NSApp.keyWindow and
+            // returns nil once the find panel takes key — that would disable
+            // Find precisely when the user presses ⌘F a second time.
             return controller.state == .running
         case #selector(clearSession(_:)),
              #selector(compactSession(_:)):

@@ -111,6 +111,20 @@ final class TerminalHostView: NSView {
     /// Observer token for our window becoming key.
     private var didBecomeKeyObserver: Any?
 
+    /// Observer token for the `.activateFind` menu notification.
+    private var activateFindObserver: Any?
+
+    /// Tokens for key-window transitions anywhere in the app. The find bar
+    /// is its own window, so it taking or losing key is not a
+    /// first-responder change in ours and the KVO below would never see it —
+    /// without these, the focus dim would be evaluated once and then never
+    /// re-evaluated as the bar gains and loses focus.
+    private var keyWindowObservers: [Any] = []
+
+    /// One-shot: set when ⌘F is what opened the scrollback, consumed by
+    /// `onReady` so the bar appears once the page has actually painted.
+    private var pendingFindActivation = false
+
     /// Local key monitor translating Ctrl+←/→ into line-navigation controls.
     private var keyEventMonitor: Any?
 
@@ -125,7 +139,9 @@ final class TerminalHostView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
+        observeActivateFindNotification()
         observeWindowBecameKey()
+        observeKeyWindowChanges()
         setupKeyEventMonitor()
     }
 
@@ -139,6 +155,12 @@ final class TerminalHostView: NSView {
         }
         if let didBecomeKeyObserver {
             NotificationCenter.default.removeObserver(didBecomeKeyObserver)
+        }
+        if let activateFindObserver {
+            NotificationCenter.default.removeObserver(activateFindObserver)
+        }
+        for observer in keyWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
         if let keyEventMonitor {
             NSEvent.removeMonitor(keyEventMonitor)
@@ -282,6 +304,11 @@ final class TerminalHostView: NSView {
     /// does a large amount of synchronous work when the first responder is a
     /// descendant of the view being hidden.
     func resignFocusIfHeld() {
+        // Close find as the tab goes inactive. The bar lives in its own
+        // panel, so unlike everything else in this pane it is not a
+        // descendant and would otherwise be left floating over whichever
+        // tab the user switched to.
+        scrollbackOverlay?.findController.isVisible = false
         guard let window else { return }
         let responder = window.firstResponder
         let holdsFocus =
@@ -343,6 +370,22 @@ final class TerminalHostView: NSView {
                 || responderView.isDescendant(of: self)
         }
 
+        // The find bar is this pane's own UI even though AppKit puts it in a
+        // separate window, so searching a scrollback must not read as having
+        // left the pane — otherwise the pane dims and its overlay tints down
+        // while the user is looking straight at it. Asserted rather than
+        // inferred from first responder: which window holds focus while a
+        // child panel is key is AppKit's business, and this does not need to
+        // depend on getting that right.
+        //
+        // Gated on the bar actually holding key, not merely being open, so
+        // that clicking into the sibling pane still dims this one.
+        if !isFocusInPane,
+           let findController = scrollbackOverlay?.findController,
+           FindBarPanelController.shared.isKeyWindow(for: findController) {
+            isFocusInPane = true
+        }
+
         // Animate the dim so focus changes don't snap. 150ms matches the
         // cadence AppKit uses for a window's own active/inactive transition.
         let target: CGFloat = isFocusInPane ? 1.0 : Self.unfocusedPaneAlpha
@@ -384,6 +427,60 @@ final class TerminalHostView: NSView {
         ) { [weak self] _ in
             self?.enterScrollback()
         }
+    }
+
+    /// Re-evaluate the focus dim whenever any window gains or loses key.
+    ///
+    /// Deliberately unfiltered by window: the transition that matters most
+    /// is the find bar's own panel gaining or losing key, which is not our
+    /// window and produces no first-responder change in it.
+    private func observeKeyWindowChanges() {
+        let center = NotificationCenter.default
+        for name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+        ] {
+            keyWindowObservers.append(
+                center.addObserver(
+                    forName: name, object: nil, queue: .main
+                ) { [weak self] _ in
+                    self?.refreshFocusState()
+                }
+            )
+        }
+    }
+
+    /// Observe Edit ▸ Find (⌘F).
+    private func observeActivateFindNotification() {
+        activateFindObserver = NotificationCenter.default.addObserver(
+            forName: .activateFind, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.activateFindOnScrollback()
+        }
+    }
+
+    /// Route ⌘F to this pane's scrollback, opening one at the current
+    /// viewport if none is up and deferring the bar until the page is ready.
+    ///
+    /// Both hosts observe the notification, so exactly one has to answer, and
+    /// the focus memory decides which. Deliberately not a first-responder
+    /// check: once the find panel takes key no pane holds first responder,
+    /// and a ⌘F re-press would then reach nobody.
+    private func activateFindOnScrollback() {
+        guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+            return
+        }
+        if let overlay = scrollbackOverlay {
+            overlay.activateFind()
+            return
+        }
+        // Opening a fresh scrollback is the one path that does want the
+        // terminal focused, so a background pane can't spawn one.
+        guard window?.firstResponder === terminalView else { return }
+        let scrollPosition = pane.viewportRow
+        pane.clearSelection()
+        pendingFindActivation = true
+        createScrollback(initialScrollLine: scrollPosition)
     }
 
     /// Repaint and re-focus when our window becomes key again.
@@ -506,6 +603,12 @@ final class TerminalHostView: NSView {
             // Push the button's starting state now that the page exists;
             // the subscriptions keep it current from here.
             self?.refreshSendButtonState()
+            // If ⌘F is what opened this scrollback, bring the bar up now
+            // that there is a painted page to search. One-shot.
+            if self?.pendingFindActivation == true {
+                self?.pendingFindActivation = false
+                self?.scrollbackOverlay?.activateFind()
+            }
         }
         // "Send to Claude" routes back through the send-to-session seam:
         // tear down, bracketed-paste the composed message, then CR after
@@ -574,7 +677,15 @@ final class TerminalHostView: NSView {
     /// events. The unsaved-notes confirmation is KEPT — it gates this
     /// path via `showDismissConfirmation`.
     private func dismissScrollback() {
+        // Never let the flag outlive the overlay it was set for. Cleared
+        // ahead of the guard so a no-op teardown clears it too.
+        pendingFindActivation = false
         guard let overlay = scrollbackOverlay else { return }
+        // Close find before anything else: it owns a panel anchored to this
+        // overlay, and the focus restore below should not be racing a bar
+        // that is about to lose its web view. Synchronous, where the
+        // overlay's own deinit safety net has to hop to the main actor.
+        overlay.findController.isVisible = false
         // Hand first responder back to the live terminal only if the
         // web view currently owns it, so we don't steal focus.
         if window?.firstResponder === overlay.scrollbackView.webView {

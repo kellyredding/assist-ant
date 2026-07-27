@@ -1,14 +1,31 @@
 import AppKit
+import Combine
 
 /// Container NSView that holds a ScrollbackWebView and a floating pill
 /// indicator. Draws a 2px accent-color border around the entire view.
 ///
-/// Galaxy's shared find-bar arbitration (`findController` /
-/// `FindBarPanelController` / `WebViewFindController`) is dropped —
-/// there is no Cmd+F find module to host here.
+/// Galaxy's cross-surface find arbitration is dropped — it exists there to
+/// decide which of several sessions and readers owns one shared find panel,
+/// and this app has a single scrollback surface to give it to.
 class ScrollbackOverlayView: NSView {
     let scrollbackView: ScrollbackWebView
     private let pillLabel: NSTextField
+
+    /// Find controller bound to the inner web view. Reverse iteration means
+    /// the first match presented is the most recent one walking up, which is
+    /// what a terminal scrollback should do — and why the counter reads
+    /// downward from the total.
+    let findController: WebViewFindController
+
+    private var findVisibilityCancellable: AnyCancellable?
+
+    /// AppKit-level Esc monitor. The find bar's close button carries a
+    /// SwiftUI escape shortcut, but it does not reliably fire from inside an
+    /// AppKit hierarchy — the text field's own `cancelOperation:` consumes
+    /// Esc first. This catches it at the event stream instead, gated on find
+    /// actually being open so a second Esc still reaches the page and
+    /// dismisses the overlay.
+    private var findEscapeMonitor: Any?
 
     /// Width of the accent border drawn around the overlay. The web
     /// view is inset by this amount so the border frames the content
@@ -42,6 +59,10 @@ class ScrollbackOverlayView: NSView {
     ) {
         self.scrollbackView = scrollbackView
         self.pillLabel = NSTextField(labelWithString: "Scrollback · Esc to exit")
+        self.findController = WebViewFindController(
+            webView: scrollbackView.webView,
+            reverse: true
+        )
         super.init(frame: frame)
         wantsLayer = true
 
@@ -62,6 +83,29 @@ class ScrollbackOverlayView: NSView {
         // appearance changes re-tint it too).
         layer?.borderWidth = Self.borderWidth
         applyAccentTint()
+
+        // Find bar, hidden until activateFind(). It anchors to the same
+        // top-right slot as the pill, which hides while find is up.
+        configureFindBar()
+        installFindEscapeMonitor()
+    }
+
+    deinit {
+        if let monitor = findEscapeMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        // Yield the panel. Without this, any teardown that isn't Esc —
+        // sending to Claude, the agent exiting, quitting, discarding notes —
+        // leaves the bar floating, bound to a web view that no longer exists.
+        //
+        // Hopped to the main actor because the panel controller is isolated
+        // to it and deinit is not. The controller is captured by value so it
+        // outlives this object long enough for the identity check to run;
+        // the panel holds it too, which is precisely why it can be stranded.
+        let controller = findController
+        Task { @MainActor in
+            FindBarPanelController.shared.dismiss(if: controller)
+        }
     }
 
     @available(*, unavailable)
@@ -129,6 +173,61 @@ class ScrollbackOverlayView: NSView {
             return scrollbackView.hitTest(convert(point, to: scrollbackView))
         }
         return super.hitTest(point)
+    }
+
+    // MARK: - Find bar
+
+    /// Mirror find visibility into the three things that care: the panel,
+    /// the pill, and the page's own key handling.
+    ///
+    /// The page suspension is the load-bearing one — without it the page
+    /// would read Esc as "dismiss scrollback" instead of "close find", and
+    /// arrow keys would scroll the buffer out from under the field.
+    private func configureFindBar() {
+        findVisibilityCancellable = findController.$isVisible
+            .receive(on: RunLoop.main)
+            .sink { [weak self] visible in
+                guard let self = self else { return }
+                self.syncFindBarPanel()
+                // The pill and the bar want the same corner, and the pill's
+                // "Esc to exit" is a lie while find owns Esc.
+                self.pillLabel.isHidden = visible
+                self.scrollbackView.webView.evaluateJavaScript(
+                    "if (typeof ScrollbackManager !== 'undefined') { "
+                        + "ScrollbackManager.suspendInput(\(visible)); }"
+                )
+            }
+    }
+
+    private func syncFindBarPanel() {
+        guard findController.isVisible else {
+            FindBarPanelController.shared.dismiss(if: findController)
+            return
+        }
+        FindBarPanelController.shared.present(
+            controller: findController, anchorView: self
+        )
+    }
+
+    /// Bring up the find bar. Safe to call when it is already visible: the
+    /// publisher emits on every assignment, not only on change, so this
+    /// re-presents and refocuses the field — which is what a ⌘F re-press
+    /// should do.
+    func activateFind() {
+        findController.isVisible = true
+    }
+
+    private func installFindEscapeMonitor() {
+        findEscapeMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .keyDown
+        ) { [weak self] event in
+            guard let self = self,
+                  event.keyCode == 53,
+                  self.findController.isVisible
+            else { return event }
+            self.findController.isVisible = false
+            return nil
+        }
     }
 
     // MARK: - Dynamic Accent Color

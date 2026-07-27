@@ -282,6 +282,17 @@ final class TerminalTabCommands {
                 event.charactersIgnoringModifiers?.lowercased() == "w"
             else { return event }
 
+            // With the find bar up, the key window is its panel and the walk
+            // below finds no host — which would quietly turn ⌘W into "close
+            // the whole window" mid-search. Fall back to the focus memory,
+            // which still names the pane the user was typing in.
+            if FindBarPanelController.shared.isPresenting {
+                guard TerminalPanes.shared.lastFocusedPaneKind == .shell
+                else { return event }
+                self.closeFocusedShell.send(())
+                return nil
+            }
+
             guard let window = NSApp.keyWindow,
                   let responder = window.firstResponder as? NSView
             else { return event }

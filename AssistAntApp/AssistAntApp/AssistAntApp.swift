@@ -32,6 +32,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defaults: ["ApplePressAndHoldEnabled": false]
         )
 
+        // Disable AppKit's automatic text behaviors app-wide. They are
+        // unwanted everywhere this app takes text — a terminal, a find
+        // field, settings — and the first text field to take focus
+        // otherwise pays seconds of nested-runloop setup for machinery
+        // that is never used.
+        //
+        // Unlike the press-and-hold key above these are also `set`, because
+        // they have to beat whatever sits in the user's global domain;
+        // press-and-hold stays registration-only so a global override still
+        // wins there.
+        let textInputDefaults: [String: Any] = [
+            "NSAutomaticSpellingCorrectionEnabled": false,
+            "NSAutomaticTextReplacementEnabled": false,
+            "NSAutomaticQuoteSubstitutionEnabled": false,
+            "NSAutomaticDashSubstitutionEnabled": false,
+            "NSAutomaticPeriodSubstitutionEnabled": false,
+            "NSAutomaticCapitalizationEnabled": false,
+            "NSContinuousSpellCheckingEnabled": false,
+            "NSGrammarCheckingEnabled": false,
+            "NSAutomaticLinkDetectionEnabled": false,
+            "NSAutomaticDataDetectionEnabled": false,
+        ]
+        UserDefaults.standard.register(defaults: textInputDefaults)
+        for (key, value) in textInputDefaults {
+            UserDefaults.standard.set(value, forKey: key)
+        }
+
         // Install the menu bar (the strip at the top of the screen) before
         // the app finishes launching so system menu wires are in place
         // when AppKit starts honoring key equivalents.
@@ -296,6 +323,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openMainWindow() {
         if mainWindow == nil {
             mainWindow = MainWindowController()
+            // Prime AppKit's lazy text-input machinery against a throwaway
+            // field, so the find bar isn't the first thing to pay for it.
+            // Done on window creation rather than at launch because there is
+            // no window to prime against until now.
+            if let window = mainWindow?.window {
+                TextInputWarmup.run(in: window)
+            }
         }
         mainWindow?.showWindow(nil)
         mainWindow?.window?.makeKeyAndOrderFront(nil)
