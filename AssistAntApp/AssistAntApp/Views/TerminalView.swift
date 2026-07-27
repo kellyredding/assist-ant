@@ -239,6 +239,12 @@ final class TerminalHostView: NSView {
         // inside the inset; overlays align to that inset (= paddedBounds).
         terminalContainer?.frame = bounds
         dragHighlightView?.frame = inner
+        // The scrollback overlay carries no autoresizing mask, so this is the
+        // only thing that resizes it. Without it the overlay keeps whatever
+        // size it was born at: opening a shell shrinks this host, and a
+        // stale, too-tall overlay then extends up past the top of the pane
+        // and over the tab bar.
+        scrollbackOverlay?.frame = inner
     }
 
     private func paddedBounds() -> NSRect {
