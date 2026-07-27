@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Owns the single floating tooltip panel shown when hovering an index-view row,
-/// plus the warm-up / sticky-switch / instant-hide timing and the positioning
-/// math. App-wide singleton — only one tooltip is ever on screen.
+/// Owns the single tooltip panel shown when hovering an index-view row, plus
+/// the warm-up / sticky-switch / instant-hide timing and the positioning math.
+/// App-wide singleton — only one tooltip is ever on screen.
 ///
 /// Timing (steered with the user):
 /// - First show waits a warm-up delay so the tooltip doesn't strobe while the
@@ -68,7 +68,7 @@ final class ItemTooltipController {
     /// (Icebox / Schedule), whose rows go `.disabled` and stop firing hover
     /// while it's open, so they self-suppress. The Today sidebar is never
     /// covered, so its tooltips must keep working with the reader up — including
-    /// in edit mode. The panel floats above the reader regardless.
+    /// in edit mode. The panel draws above the reader regardless.
     func requestShow(_ item: Item, anchor: RowFrameAnchor, side: Side) {
         hideTask?.cancel()
         hideTask = nil
@@ -115,7 +115,13 @@ final class ItemTooltipController {
         isShowing = false
         currentAnchor = nil
         removeWindowObservers()
-        panel?.orderOut(nil)
+        if let p = panel {
+            // A window retains its children, so detaching is what actually
+            // releases the panel — dropping this reference alone would leave it
+            // alive on the parent's child list.
+            p.parent?.removeChildWindow(p)
+            p.orderOut(nil)
+        }
         panel = nil
     }
 
@@ -175,17 +181,29 @@ final class ItemTooltipController {
                        alignment: .topLeading)
                 .clipped()
         )
-        showPanel(content: content, frame: frame,
-                  appearance: window.effectiveAppearance)
+        showPanel(content: content, frame: frame, over: window)
         installWindowObservers(for: window)
     }
 
-    /// Create-or-reuse the borderless, non-activating floating panel. Reuse (vs.
-    /// recreate) is what makes the sticky adjacent-row switch seamless. The
-    /// panel ignores mouse events so it never intercepts the hover that drives
-    /// the rows beneath it.
-    private func showPanel(content: NSView, frame: NSRect,
-                           appearance: NSAppearance?) {
+    /// Create-or-reuse the borderless, non-activating panel and attach it as a
+    /// child of the row's window. Reuse (vs. recreate) is what makes the sticky
+    /// adjacent-row switch seamless. The panel ignores mouse events so it never
+    /// intercepts the hover that drives the rows beneath it.
+    ///
+    /// Child attachment, rather than a floating level, is what keeps the preview
+    /// inside the app. Window levels are system-global: a floating panel
+    /// outranks the frontmost application's windows, so hovering a row while
+    /// Assist Ant sat in the background painted the tooltip over whatever app
+    /// was actually in front. A child ordered above its parent still draws over
+    /// all of the app's own content — including the item reader, which is a view
+    /// layer in this same window — but sinks behind other apps along with the
+    /// window it belongs to.
+    ///
+    /// Attachment alone is not sufficient, and the find bar is the proof: it is
+    /// a child window that keeps `.floating` and floats over other apps anyway.
+    /// A child retains whatever level it was given, so the level has to be
+    /// pinned to the parent's as well.
+    private func showPanel(content: NSView, frame: NSRect, over parent: NSWindow) {
         let p: NSPanel
         if let existing = panel {
             p = existing
@@ -198,13 +216,20 @@ final class ItemTooltipController {
             )
             p.isOpaque = false
             p.backgroundColor = .clear
-            p.level = .floating
             p.hasShadow = true
             p.ignoresMouseEvents = true
             panel = p
         }
-        p.appearance = appearance
+        p.appearance = parent.effectiveAppearance
         p.contentView = content
+        // Re-parent only when the owning window actually changes: the sticky
+        // switch reuses the panel across adjacent rows, and re-attaching it to
+        // the window it is already a child of would re-order it every hover.
+        if p.parent !== parent {
+            p.parent?.removeChildWindow(p)
+            parent.addChildWindow(p, ordered: .above)
+        }
+        p.level = parent.level
         p.setFrame(frame, display: true)
         p.orderFront(nil)
     }
@@ -222,9 +247,11 @@ final class ItemTooltipController {
 
     // MARK: - Dismissal observers
 
-    /// The panel's origin is computed once from the row's hover-time frame and
-    /// does not follow the window. Hide it on a live resize, a move, or a scroll
-    /// so it never strands at stale coordinates; the next hover re-shows it.
+    /// The panel's origin is computed once from the row's hover-time frame, so a
+    /// live resize or a scroll strands it at stale coordinates — hide it on
+    /// both, and the next hover re-shows it. Child attachment does carry the
+    /// panel through a window move on its own, but a deliberate window drag is
+    /// dismissed too rather than left hanging off the pointer.
     private func installWindowObservers(for window: NSWindow) {
         removeWindowObservers()
         let center = NotificationCenter.default
