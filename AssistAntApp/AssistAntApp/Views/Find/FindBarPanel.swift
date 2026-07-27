@@ -242,6 +242,24 @@ final class FindBarPanelController {
         dismiss()
     }
 
+    /// Re-position the bar against its anchor, without touching focus.
+    ///
+    /// For anchors whose own geometry can change while the window's does not
+    /// — a pane resized by a split drag, or by a sibling pane opening. The
+    /// parent-window resize observer sees neither. Deliberately not routed
+    /// through `present`, whose already-showing branch re-keys the panel and
+    /// re-selects the field: correct for a ⌘F re-press, focus theft on every
+    /// layout pass.
+    func reanchorIfPresenting(
+        for controller: WebViewFindController,
+        anchorView: NSView
+    ) {
+        guard currentController === controller,
+              panel != nil,
+              let parent = anchorView.window else { return }
+        reanchor(to: anchorView, in: parent)
+    }
+
     /// Hide the panel and return first responder to whoever
     /// held it before `present` was called.
     func dismiss() {

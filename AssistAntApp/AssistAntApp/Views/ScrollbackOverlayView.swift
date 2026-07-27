@@ -175,6 +175,17 @@ class ScrollbackOverlayView: NSView {
         return super.hitTest(point)
     }
 
+    override func layout() {
+        super.layout()
+        // The find bar is pinned to this view's corner in screen space, so a
+        // change in our own geometry has to move it — a split drag, or a
+        // sibling pane opening and shrinking us. The panel controller only
+        // watches the window for resizes, and neither of those is one.
+        FindBarPanelController.shared.reanchorIfPresenting(
+            for: findController, anchorView: self
+        )
+    }
+
     // MARK: - Find bar
 
     /// Mirror find visibility into the three things that care: the panel,
