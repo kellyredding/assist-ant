@@ -19,11 +19,16 @@ struct ContentView: View {
 
     /// Active state of the window hosting this view. ContentView is only ever
     /// hosted in the main window, so this tracks the main window specifically.
-    /// `.inactive` means the app is not the frontmost application — distinct
-    /// from `.active` (app frontmost, but another of its own windows is key,
-    /// e.g. Settings or the capture panel), so the right pane dims only when
-    /// the app itself loses focus, not when focus moves to a sibling window.
-    @Environment(\.controlActiveState) private var controlActiveState
+    /// Whether this app is the frontmost application.
+    ///
+    /// Tracked from `NSApplication`'s own notifications rather than read from
+    /// `controlActiveState`, which was the previous source and reports
+    /// `.inactive` for a *child* window taking key — the find bar attaches
+    /// itself that way. Sibling windows (Settings, the capture panel) behave
+    /// as that environment value's documentation implies; child windows do
+    /// not, and the difference dimmed the whole window while the user was
+    /// typing into a bar attached to it.
+    @State private var appIsActive = NSApp.isActive
 
     /// Live width (pixels) while a resize drag is in flight; nil otherwise, at
     /// which point the width is derived from the persisted fraction × the
@@ -101,8 +106,18 @@ struct ContentView: View {
         // translucent and the index pane behind it bleeds through; grouping
         // first dims the composited result as one, preserving the occlusion.
         .compositingGroup()
-        .opacity(controlActiveState == .inactive ? Self.inactiveDimOpacity : 1)
-        .animation(.easeInOut(duration: 0.18), value: controlActiveState)
+        .opacity(appIsActive ? 1 : Self.inactiveDimOpacity)
+        .animation(.easeInOut(duration: 0.18), value: appIsActive)
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in appIsActive = true }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didResignActiveNotification
+            )
+        ) { _ in appIsActive = false }
     }
 
     /// Flat tab strip centered over the right pane, with a hairline bottom
