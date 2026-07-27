@@ -42,10 +42,10 @@ targets:
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSHighResolutionCapable: true
         CFBundleIconName: AppIcon
-        # NB: NOT LSUIElement=true. The app toggles
-        # NSApp.setActivationPolicy(.accessory) <-> .regular at
-        # runtime so the dock icon appears only while a window
-        # is open.
+        # NB: NOT LSUIElement=true. This is a regular dock app:
+        # AppDelegate sets .regular at launch and never changes
+        # it. Closing the main window leaves the app running —
+        # the dock icon and File > Main Window reopen it.
     settings:
       base:
         # The bundle wrapper is "Assist Ant.app" (the user-facing name the

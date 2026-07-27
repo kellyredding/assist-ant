@@ -7,7 +7,7 @@ import Foundation
 /// `SettingsView` are both singletons that live across the modal's
 /// lifetime, so a `@State`-driven initial-tab choice wouldn't pick
 /// up second-and-later opens (the State init only runs once). This
-/// navigator gives any caller — status button click, menu bar item,
+/// navigator gives any caller — status button click, main menu,
 /// future deep links — a write path to the active tab, and
 /// `SettingsView` observes it via `@ObservedObject`.
 ///

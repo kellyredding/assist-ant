@@ -1,7 +1,6 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var menuBar: MenuBarController!
     private var socket: SocketListener!
     private var events: EventCoordinator!
     private var mainMenu: MainMenu!
@@ -11,8 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Regular dock app from launch: icon visible, Cmd-Tab lists us,
         // main window opens automatically in applicationDidFinishLaunching.
-        // The status item is an additional affordance, not the primary
-        // entry point.
+        // The dock icon is the entry point; there is no status item.
         NSApp.setActivationPolicy(.regular)
 
         // Disable the press-and-hold accent popover app-wide so held keys
@@ -178,12 +176,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // resume's `session:ready` is captured.
         AgentSessionController.shared.startOnLaunch()
 
-        menuBar = MenuBarController(
-            onOpenMainWindow: { [weak self] in self?.openMainWindow() },
-            onOpenSettings: { PreferencesWindowController.showPreferences() },
-            onQuit: { NSApp.terminate(nil) }
-        )
-
         // MenuActions posts named notifications from main-menu items.
         // Observe the ones we care about and dispatch.
         observeMenuNotifications()
@@ -277,9 +269,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationObservers.removeAll()
     }
 
-    /// Keep the app running when the user closes the main window. Dock
-    /// icon stays visible; main window can be reopened from the menu bar
-    /// item, the status item, or by clicking the dock icon.
+    /// Keep the app running when the user closes the main window.
+    ///
+    /// The global capture and status shortcuts, the socket listener, and
+    /// the agent session are all app-level, so quitting on the last window
+    /// would take down far more than the window. The dock icon stays
+    /// visible and reopens the window, as does File > Main Window.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }

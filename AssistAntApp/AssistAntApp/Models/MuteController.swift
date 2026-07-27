@@ -2,7 +2,7 @@ import Foundation
 
 /// Thin facade for applying and clearing the global manual mute on
 /// `AppSettings`. Keeps the `SettingsManager` mutation in one place so
-/// both the in-window status button and the menu bar item use the same
+/// both the in-window status button and the status popover use the same
 /// write path. The mute is global — it silences time announcements and
 /// the desk nudge alike — and open-ended: it stays until the user
 /// explicitly unmutes.

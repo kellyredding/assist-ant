@@ -1,8 +1,7 @@
 import AppKit
 
 /// Builds and manages the application's menu bar (the menu strip at the top
-/// of the screen, distinct from the status item in the menu bar's right
-/// side). Programmatic NSMenu construction, mirroring Galaxy's pattern
+/// of the screen). Programmatic NSMenu construction, mirroring Galaxy's pattern
 /// (~/projects/kellyredding/galaxy/GalaxyApp/GalaxyApp/MainMenu.swift).
 ///
 /// Routes menu item actions through MenuActions.shared, which posts named
@@ -21,7 +20,7 @@ final class MainMenu: NSObject {
         mainMenu.addItem(appMenuItem)
         buildAppMenu(appMenu)
 
-        // File menu — currently just "Close Window" so ⌘W has a home.
+        // File menu — the home for ⌘W, plus the way back to a closed window.
         let fileMenu = NSMenu(title: "File")
         let fileMenuItem = NSMenuItem(
             title: "File", action: nil, keyEquivalent: ""
@@ -138,8 +137,24 @@ final class MainMenu: NSObject {
     // MARK: - File menu
 
     private func buildFileMenu(_ menu: NSMenu) {
+        // Main Window — the keyboard route back once the window is closed.
+        // A windowless regular app still shows its menu bar when it comes
+        // forward, so ⌘-Tab and then this item reopens without the mouse;
+        // clicking the dock icon does the same thing.
+        let showItem = NSMenuItem(
+            title: "Main Window",
+            action: #selector(MenuActions.showMainWindow(_:)),
+            keyEquivalent: ""
+        )
+        showItem.target = MenuActions.shared
+        menu.addItem(showItem)
+
+        menu.addItem(.separator())
+
         // Close Window (⌘W) — first responder routes this to the key window
         // via performClose:, which the window's red close button also uses.
+        // Both therefore pass through MainWindowController.windowShouldClose,
+        // which confirms while the agent session is running.
         let closeItem = NSMenuItem(
             title: "Close Window",
             action: #selector(NSWindow.performClose(_:)),
@@ -353,6 +368,10 @@ final class MenuActions: NSObject {
     static let shared = MenuActions()
 
     private override init() { super.init() }
+
+    @objc func showMainWindow(_ sender: Any?) {
+        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+    }
 
     @objc func showPreferences(_ sender: Any?) {
         NotificationCenter.default.post(name: .showPreferences, object: nil)

@@ -3,8 +3,8 @@ import Combine
 
 /// Drives the standing-desk timer's state transitions and its audible
 /// nudge. The timer's data lives in `SettingsManager.shared.settings.desk`;
-/// this service owns the writes so the UI, menu bar, and the audio path
-/// all go through one place.
+/// this service owns the writes so the UI and the audio path all go
+/// through one place.
 ///
 /// Visual is never gated (the views derive the countdown/nudge live from
 /// `DeskSettings.timerPhase(at:)`). Audio is: while a nudge is pending the
