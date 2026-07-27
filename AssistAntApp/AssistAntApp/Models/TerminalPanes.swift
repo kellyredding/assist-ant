@@ -180,7 +180,8 @@ final class TerminalPanes: ObservableObject {
                 onConfirm()
                 return
             }
-            guard let window = NSApp.keyWindow else { return }
+            guard let window = AppDelegate.shared?.windowForConfirmation()
+            else { return }
             SheetAlert.confirm(
                 in: window,
                 message: "Close shell pane with unsaved scrollback notes?",

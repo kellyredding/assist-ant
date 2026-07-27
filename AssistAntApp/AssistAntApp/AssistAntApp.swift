@@ -205,7 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Answering requires a round trip into the scrollback page's own state,
     /// so the decision can't be made synchronously — hence `terminateLater`
     /// and the explicit reply on every path out. Missing a reply would hang
-    /// the quit, so the no-work and no-window cases reply immediately.
+    /// the quit, so the no-work case replies immediately.
+    ///
+    /// When no window can be produced to host the sheet the quit is
+    /// cancelled rather than allowed. Quitting is the destructive answer,
+    /// and it is not one to give on behalf of a question that never
+    /// reached the user.
     func applicationShouldTerminate(
         _ sender: NSApplication
     ) -> NSApplication.TerminateReply {
@@ -216,8 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: true)
                 return
             }
-            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-                sender.reply(toApplicationShouldTerminate: true)
+            guard let window = self.windowForConfirmation() else {
+                sender.reply(toApplicationShouldTerminate: false)
                 return
             }
 
@@ -314,6 +319,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Window lifecycle
+
+    /// The delegate, for the few app-level services that need to reach a
+    /// window from outside the responder chain.
+    static var shared: AppDelegate? {
+        NSApp.delegate as? AppDelegate
+    }
+
+    /// A window that can host a confirmation sheet, opening the main window
+    /// if nothing is on screen.
+    ///
+    /// Confirmations are sheets, so they need a host, and the app can be
+    /// running with no window at all. Callers used to give up in that case
+    /// and pick a default: quit assumed yes and discarded unsaved notes, and
+    /// a shell close dropped the request without answering it either way.
+    /// Reopening is the honest response — the app is about to ask a
+    /// question, so it needs to be visible to ask it.
+    func windowForConfirmation() -> NSWindow? {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow { return window }
+        openMainWindow()
+        return mainWindow?.window
+    }
 
     private func openMainWindow() {
         if mainWindow == nil {
