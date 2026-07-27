@@ -217,7 +217,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalPanes.shared.checkUnsavedWork(
             kinds: [.session, .shell]
         ) { panesWithWork in
-            guard !panesWithWork.isEmpty else {
+            // Both stakes in one sheet rather than two in sequence: quitting
+            // takes the agent and the notes together, so it is one decision.
+            var reasons: [String] = []
+
+            if AgentSessionController.shared.state == .running {
+                reasons.append(
+                    "The agent session is running and will be stopped."
+                )
+            }
+
+            if !panesWithWork.isEmpty {
+                // Listed in pane order — agent above, shell below — rather
+                // than whatever order the set iterates in.
+                let names: [String] = [TerminalPaneKind.session, .shell]
+                    .filter { panesWithWork.contains($0) }
+                    .map { $0 == .session ? "agent" : "shell" }
+                let subject = names.count == 1
+                    ? "The \(names[0]) pane has"
+                    : "The \(names.joined(separator: " and ")) panes have"
+                reasons.append(
+                    "\(subject) unsaved scrollback notes that will be lost."
+                )
+            }
+
+            guard !reasons.isEmpty else {
                 sender.reply(toApplicationShouldTerminate: true)
                 return
             }
@@ -226,20 +250,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            // Listed in pane order — agent above, shell below — rather than
-            // whatever order the set iterates in.
-            let names: [String] = [TerminalPaneKind.session, .shell]
-                .filter { panesWithWork.contains($0) }
-                .map { $0 == .session ? "agent" : "shell" }
-            let subject = names.count == 1
-                ? "The \(names[0]) pane has"
-                : "The \(names.joined(separator: " and ")) panes have"
-
             SheetAlert.confirm(
                 in: window,
-                message: "Quit with unsaved scrollback notes?",
-                detail: "\(subject) unsaved scrollback notes. "
-                    + "They will be lost if you quit.",
+                message: "Quit Assist Ant?",
+                detail: reasons.joined(separator: "\n"),
                 confirm: "Quit",
                 onConfirm: {
                     sender.reply(toApplicationShouldTerminate: true)

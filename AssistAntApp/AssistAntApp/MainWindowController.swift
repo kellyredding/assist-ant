@@ -248,6 +248,38 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.setFrame(newFrame, display: true)
     }
 
+    // MARK: - NSWindowDelegate (close guard)
+
+    /// Confirm before hiding the window while the agent session is alive.
+    ///
+    /// Closing costs nothing on its own: the window isn't released, the pane
+    /// tree stays mounted, and the session is app-level, so reopening
+    /// restores exactly what was there. The guard exists because there is no
+    /// status item any more — an accidental close leaves a running app with
+    /// no visible surface, and the ways back are a dock click or ⌘-Tab plus
+    /// File > Main Window. The sheet is a speed bump, not a data warning,
+    /// which is why it says the session keeps running rather than implying
+    /// closing would end it. Quitting is what ends it.
+    ///
+    /// Confirming calls `close()` rather than `performClose(_:)`: it skips
+    /// this method, so the sheet can't re-present itself and no re-entry
+    /// flag has to be tracked.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard AgentSessionController.shared.state == .running else {
+            return true
+        }
+        SheetAlert.confirm(
+            in: sender,
+            message: "Close the window with the agent running?",
+            detail: "The agent session keeps running in the background. "
+                + "Reopen the window from the dock icon or File > Main "
+                + "Window.",
+            confirm: "Close Window",
+            onConfirm: { sender.close() }
+        )
+        return false
+    }
+
     // MARK: - NSWindowDelegate (save triggers)
 
     func windowDidMove(_ notification: Notification) {
