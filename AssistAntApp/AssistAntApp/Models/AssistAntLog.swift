@@ -30,6 +30,17 @@ enum AssistAntLog {
         write("[AssistAnt] \(message)")
     }
 
+    /// Automated prompt submission — text the app composed and sent itself.
+    ///
+    /// A standing channel rather than a `dbg` tag because this path is
+    /// invisible from the outside: the bytes either land or vanish, with
+    /// no echo and no error to distinguish the two. What it records is the
+    /// only evidence a submission happened at all, so it outlives any one
+    /// investigation — which is precisely what `dbg` is not for.
+    static func submit(_ message: String) {
+        write("[AssistAnt/submit] \(message)")
+    }
+
     /// Diagnostic logging for transient bug investigations. `tag`
     /// categorizes the subsystem (e.g. "cursor"). Remove the call sites
     /// once a bug is resolved; this method itself can stay.

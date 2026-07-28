@@ -328,18 +328,43 @@ final class AgentSessionController: ObservableObject {
               !promptQueue.isEmpty else { return }
         drainingPrompts = true
         let text = promptQueue.removeFirst()
-        backend.send(text: text, asPaste: true)
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.commandSubmitDelay
-        ) { [weak self] in
+
+        // Gated for the same reason as `sendCommand`, and with more at stake: a
+        // task can fire the moment the session reports running, which is exactly
+        // the window where the child is up but not yet reading. The flag is
+        // released on every exit from here, or the queue would strand behind a
+        // prompt that never got written.
+        AssistAntLog.submit(
+            "queued prompt \(SessionSubmit.describe(text: text))")
+        if !backend.isKittyKeyboardActive {
+            AssistAntLog.submit("  waiting for input readiness…")
+        }
+        let started = Date()
+        backend.whenAcceptingInput { [weak self] ready in
             guard let self else { return }
-            if self.state == .running { self.backend?.submitPrompt() }
+            guard self.state == .running else {
+                self.drainingPrompts = false
+                return
+            }
+            backend.send(text: text, asPaste: true)
+            AssistAntLog.submit(
+                String(
+                    format: "  input %@ (+%.0fms) — wrote prompt",
+                    ready ? "ready" : "TIMED OUT",
+                    Date().timeIntervalSince(started) * 1000)
+            )
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + Self.interPromptDelay
+                deadline: .now() + Self.commandSubmitDelay
             ) { [weak self] in
                 guard let self else { return }
-                self.drainingPrompts = false
-                self.drainPromptQueue()
+                if self.state == .running { self.backend?.submitPrompt() }
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + Self.interPromptDelay
+                ) { [weak self] in
+                    guard let self else { return }
+                    self.drainingPrompts = false
+                    self.drainPromptQueue()
+                }
             }
         }
     }
@@ -351,18 +376,42 @@ final class AgentSessionController: ObservableObject {
     /// embedded session does not observe).
     func sendCommand(_ command: String) {
         guard state == .running, let backend else {
-            NSLog(
-                "AgentSessionController: cannot send '%@' — not running",
-                command
-            )
+            AssistAntLog.submit("sendCommand refused — session not running")
             return
         }
-        backend.send(text: command, asPaste: false)
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.commandSubmitDelay
-        ) { [weak self] in
+
+        // The trailing space closes Claude Code's completion popup, which any
+        // slash command opens. The popup filters on the token under the cursor,
+        // and a space ends that token so nothing matches. Batched into the same
+        // write rather than paced after it: both land in the composer before the
+        // popup filters either of them.
+        let text = command + " "
+
+        AssistAntLog.submit(
+            "sendCommand text=\(SessionSubmit.describe(text: text))")
+
+        // A pane's readiness marks the *process* being up, not its input layer.
+        // Text written into that window is lost in silence, and a trailing space
+        // — last byte, and whitespace — is the first thing to go.
+        if !backend.isKittyKeyboardActive {
+            AssistAntLog.submit("  waiting for input readiness…")
+        }
+        let started = Date()
+        backend.whenAcceptingInput { [weak self] ready in
             guard let self, self.state == .running else { return }
-            self.backend?.submitPrompt()
+            backend.send(text: text, asPaste: false)
+            AssistAntLog.submit(
+                String(
+                    format: "  input %@ (+%.0fms) — wrote text",
+                    ready ? "ready" : "TIMED OUT",
+                    Date().timeIntervalSince(started) * 1000)
+            )
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.commandSubmitDelay
+            ) { [weak self] in
+                guard let self, self.state == .running else { return }
+                self.backend?.submitPrompt()
+            }
         }
     }
 
