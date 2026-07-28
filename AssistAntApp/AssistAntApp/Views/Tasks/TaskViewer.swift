@@ -145,8 +145,7 @@ struct TaskViewer: View {
             ActionableBodyEditor(
                 text: $draft,
                 isFocused: true,
-                onFocusGained: {},
-                onSubmit: { if canSave { save() } }
+                onFocusGained: {}
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
@@ -170,6 +169,7 @@ struct TaskViewer: View {
             hiddenButton { isEditing = false }
                 .keyboardShortcut(.cancelAction)
         }
+        .onTextEntryKeystrokes { if canSave { save() } }
     }
 
     private func save() {

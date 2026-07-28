@@ -58,8 +58,8 @@ struct CaptureContentView: View {
                 // Deliberately no `.keyboardShortcut`. It can only name one
                 // fixed chord, so it would go on submitting on ⌘Return whatever
                 // the settings said — an extra binding nobody configured, and
-                // one the hint above would not mention. The editor's own key
-                // handling covers the keyboard, and it reads the real bindings.
+                // one the hint above would not mention. The key monitor on this
+                // view covers the keyboard, from the real bindings.
                 Button("Send") { send() }
                     .buttonStyle(.borderedProminent)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -72,6 +72,11 @@ struct CaptureContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .preferredColorScheme(colorScheme)
+        // Resolves the configured submit and newline keystrokes for the field
+        // above. A monitor rather than the text view's own keyDown, because a
+        // Command-modified keystroke never reaches keyDown at all — which is how
+        // a submit bound to ⌘Return came to do nothing here.
+        .onTextEntryKeystrokes { send() }
         .onExitCommand { onClose() }
         .onChange(of: text) { _, _ in sendError = nil }
         .onChange(of: model.kind) { _, _ in sendError = nil }
