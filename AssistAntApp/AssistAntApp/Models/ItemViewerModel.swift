@@ -202,11 +202,17 @@ final class ItemViewerModel: ObservableObject {
                 return nil
             }
 
-            // ⌘↵ / Tab are edit commands; calendar events never edit.
+            // Edit commands; calendar events never edit.
             guard Self.isActionable(item) else { return event }
 
             if self.edit.isEditing {
-                if cmd, key == 36 || key == 76 {            // ⌘↵ → save
+                // Saving commits text the user composed, so it follows the
+                // configured submit keystroke like every other composer. This
+                // monitor owns it rather than the body's own key handling,
+                // because it fires whichever of the two fields holds focus.
+                if SettingsManager.shared.settings.textEntry
+                    .action(for: Keystroke(event: event)) == .submit
+                {
                     self.saveEdit()
                     return nil
                 }
@@ -216,6 +222,13 @@ final class ItemViewerModel: ObservableObject {
                 }
                 return event
             } else {
+                // Deliberately fixed at ⌘↵ rather than following the submit
+                // keystroke. Entering edit mode composes nothing — it is a verb
+                // on the item, the exact counterpart of Escape leaving edit
+                // mode, and Escape is not configurable either. Tying it to a
+                // text-entry setting also collided with the list's own plain
+                // Return, so a user who bound submit to Return had to press it
+                // twice: once to open, once to edit.
                 if cmd, key == 36 || key == 76 {            // ⌘↵ → enter edit
                     if item.deletedAt == nil, self.openedOverTab != .trash { self.beginEdit() }
                     return nil

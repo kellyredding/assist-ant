@@ -89,8 +89,7 @@ struct TaskViewer: View {
 
     private var readSection: some View {
         VStack(spacing: 0) {
-            // No "Prompt" label or edit glyph — the submit keystroke enters
-            // edit, matching the
+            // No "Prompt" label or edit glyph — ⌘↵ enters edit, matching the
             // actionable item reader.
             EventBodyTextView(markdown: task.prompt)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -104,11 +103,15 @@ struct TaskViewer: View {
             }
             history
         }
-        // Esc closes the viewer; the submit keystroke enters edit.
+        // Esc closes the viewer; ⌘↵ enters edit. Both are fixed: they move
+        // between modes rather than committing composed text, and a text-entry
+        // setting has no business deciding either.
         .overlay {
-            keyShortcuts(
-                onEscape: onClose,
-                onSubmit: { draft = task.prompt; isEditing = true })
+            ZStack {
+                hiddenButton(onClose).keyboardShortcut(.cancelAction)
+                hiddenButton { draft = task.prompt; isEditing = true }
+                    .keyboardShortcut(.return, modifiers: .command)
+            }
         }
     }
 
@@ -160,7 +163,10 @@ struct TaskViewer: View {
         }
         // Esc cancels; the submit keystroke saves — matching the actionable
         // item editor's body.
-        .overlay { keyShortcuts(onEscape: { isEditing = false }, onSubmit: save) }
+        .overlay {
+            editingKeyShortcuts(
+                onEscape: { isEditing = false }, onSubmit: save)
+        }
     }
 
     private func save() {
@@ -171,18 +177,23 @@ struct TaskViewer: View {
 
     // MARK: - Helpers
 
-    /// The viewer's key bindings as zero-size buttons — window-level key
-    /// equivalents that fire without focus: Esc even over the read view, and
-    /// the submit keystroke even while the text editor holds first responder.
-    /// Mirrors the actionable reader's body, which reaches the same bindings
-    /// through `keyDown` because it is backed by an NSTextView.
-    private func keyShortcuts(
+    /// Esc cancels the edit, and the configured submit keystrokes save it —
+    /// zero-size buttons carrying window-level key equivalents, so both fire
+    /// while the text editor holds first responder.
+    ///
+    /// Only used while editing, and only these two. Saving commits text the user
+    /// composed, so it follows the settings; entering and leaving edit mode do
+    /// not, and stay on ⌘↵ and Esc. Mirrors the actionable reader, which reaches
+    /// the same split through a key monitor and an NSTextView.
+    ///
+    /// One hidden button per keystroke because `.keyboardShortcut` names exactly
+    /// one chord and the settings allow several — honouring only the first would
+    /// leave this view disagreeing with every composer that reads the bindings
+    /// properly. SwiftUI's TextEditor exposes no key handling, so a hidden
+    /// button is the only way in here at all.
+    private func editingKeyShortcuts(
         onEscape: @escaping () -> Void, onSubmit: @escaping () -> Void
     ) -> some View {
-        // One hidden button per configured submit keystroke. `.keyboardShortcut`
-        // names exactly one chord, and the settings allow several — honouring
-        // only the first would leave this view disagreeing with every composer
-        // that reads the bindings properly.
         let shortcuts = settingsManager.settings.textEntry.submitShortcuts
         return ZStack {
             hiddenButton(onEscape).keyboardShortcut(.cancelAction)
