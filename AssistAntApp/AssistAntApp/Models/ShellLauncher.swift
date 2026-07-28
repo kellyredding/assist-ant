@@ -46,11 +46,22 @@ enum ShellLauncher {
         var env = inherited.map { "\($0.key)=\($0.value)" }
         env = env.filter {
             !$0.hasPrefix("TERM=") &&
+                !TerminalIdentity.isInherited($0) &&
                 !$0.hasPrefix("CLAUDECODE=") &&
                 !$0.hasPrefix("CLAUDE_CLI_SESSION_ID=") &&
                 !$0.hasPrefix("CLAUDE_CODE_")
         }
         env.append("TERM=xterm-256color")
+
+        // The same identity the agent session claims, so a Claude started by
+        // hand in this pane answers to the configured keystrokes rather than
+        // falling back to Claude Code's defaults. Passing the launching
+        // terminal's identity through instead would make that behaviour depend
+        // on how the app itself was started.
+        //
+        // The claim reaches every program in this shell, not just Claude — see
+        // TerminalIdentity for what that costs and why it is affordable.
+        env.append(TerminalIdentity.declaration)
         if inherited["LANG"]?.isEmpty ?? true {
             env.append("LANG=\(defaultUtf8Locale())")
         }

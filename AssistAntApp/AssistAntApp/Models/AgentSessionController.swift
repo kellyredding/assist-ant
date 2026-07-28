@@ -639,15 +639,28 @@ final class AgentSessionController: ObservableObject {
         //   exits with "No conversation found" (the agent dies on restart).
         //   Drop the whole family so the child always runs as a clean
         //   top-level session no matter how the app was launched.
+        // - TERM_PROGRAM/_VERSION/_SESSION_ID: whichever terminal launched the
+        //   app. Replaced below rather than passed through — an inherited
+        //   identity would either win outright or leave a version or session
+        //   string describing a different terminal than the one being claimed,
+        //   and a half-replaced identity is harder to diagnose than an absent
+        //   one because each field reads as plausible alone.
         env = env.filter {
             !$0.hasPrefix("TERM=") &&
             !$0.hasPrefix("COLORTERM=") &&
             !$0.hasPrefix("LANG=") &&
+            !TerminalIdentity.isInherited($0) &&
             !$0.hasPrefix("CLAUDECODE=") &&
             !$0.hasPrefix("CLAUDE_CLI_SESSION_ID=") &&
             !$0.hasPrefix("CLAUDE_CODE_")
         }
         env.append("TERM=xterm-256color")
+
+        // Claude Code enables the kitty keyboard protocol only for a terminal
+        // identity it recognises, and that protocol is what carries a modified
+        // Return. Without it the reserved machine-submit chord reaches the child
+        // as a bare carriage return, indistinguishable from Return itself.
+        env.append(TerminalIdentity.declaration)
         // Deliberately NOT COLORTERM=truecolor: without it Claude Code uses
         // ANSI indexed colors driven by the installed palette, matching
         // Terminal.app's rendering. Setting it would make Claude Code emit
