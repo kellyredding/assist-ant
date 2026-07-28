@@ -581,7 +581,8 @@ final class TerminalHostView: NSView {
             theme: theme,
             fontFamily: font.fontName,
             fontSize: font.pointSize,
-            cellHeight: pane.cellHeight
+            cellHeight: pane.cellHeight,
+            textEntry: SettingsManager.shared.settings.textEntry.jsPayload
         )
 
         let webView = ScrollbackWebView(

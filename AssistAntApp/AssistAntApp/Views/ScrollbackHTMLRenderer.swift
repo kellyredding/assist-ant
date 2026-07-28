@@ -23,12 +23,20 @@ enum ScrollbackHTMLRenderer {
     ///   - fontFamily: CSS font-family value (e.g. "SF Mono", "Menlo")
     ///   - fontSize: Font size in points
     ///   - cellHeight: Pixel height of one terminal line (from cellDimension.height)
+    /// - Parameter textEntry: composer keystroke bindings, in the shape
+    ///   `window.GalaxyTextEntry.configure` expects. Passed in rather than read
+    ///   from a settings singleton because this file is shared verbatim with
+    ///   assist-ant, whose settings type differs — reading one here would end
+    ///   that. Defaults to nil, which leaves the matcher on the keystrokes
+    ///   these composers used before the setting existed, so a caller that has
+    ///   not been taught to pass it still behaves correctly.
     static func render(
         snapshot: ScrollbackSnapshot,
         theme: TerminalColorTheme,
         fontFamily: String,
         fontSize: CGFloat,
-        cellHeight: CGFloat
+        cellHeight: CGFloat,
+        textEntry: [String: [[String: Any]]]? = nil
     ) -> String {
         let resolver = ColorResolver(theme: theme)
         var html = ""
@@ -46,7 +54,8 @@ enum ScrollbackHTMLRenderer {
             theme: theme,
             fontFamily: fontFamily,
             fontSize: fontSize,
-            cellHeight: cellHeight
+            cellHeight: cellHeight,
+            textEntry: textEntry
         )
     }
 
@@ -163,7 +172,8 @@ enum ScrollbackHTMLRenderer {
         theme: TerminalColorTheme,
         fontFamily: String,
         fontSize: CGFloat,
-        cellHeight: CGFloat
+        cellHeight: CGFloat,
+        textEntry: [String: [[String: Any]]]? = nil
     ) -> String {
         // Map font family for CSS — system monospace needs special handling
         let cssFontFamily: String
@@ -176,6 +186,17 @@ enum ScrollbackHTMLRenderer {
 
         // Detect light vs dark theme for note styling CSS class
         let isLight = theme.backgroundLuminance > 0.5
+
+        // Empty when no bindings were passed, which leaves the matcher on its
+        // own defaults rather than clearing it.
+        let textEntryConfigJS: String = {
+            guard let textEntry,
+                  let data = try? JSONSerialization.data(
+                      withJSONObject: textEntry),
+                  let json = String(data: data, encoding: .utf8)
+            else { return "" }
+            return "window.GalaxyTextEntry.configure(\(json));"
+        }()
 
         return """
         <!DOCTYPE html>
@@ -237,6 +258,8 @@ enum ScrollbackHTMLRenderer {
         <script>\(emojiDataJS)</script>
         <script>\(emojiAutocompleteJS)</script>
         <script>\(clipboardCopyJS)</script>
+        <script>\(textEntryJS)</script>
+        <script>\(textEntryConfigJS)</script>
         <script>\(suggestionInsertJS)</script>
         <script>\(addNoteButtonJS)</script>
         <script>
@@ -1287,7 +1310,9 @@ enum ScrollbackHTMLRenderer {
                     'autocorrect="off" ' +
                     'autocapitalize="off" ' +
                     'autocomplete="off" ' +
-                    'placeholder="Add annotation\\u2026 (\\u2318Enter to save \\u00b7 Esc to dismiss)" ' +
+                    'placeholder="Add annotation\\u2026' +
+                    window.GalaxyTextEntry.placeholderHint('save') +
+                    '" ' +
                     'rows="1"></textarea>';
 
             // Don't append to DOM yet — positionForm() will place it
@@ -1340,9 +1365,15 @@ enum ScrollbackHTMLRenderer {
                     EmojiAutocomplete.handleKeyDown(ta, e)) {
                     return;
                 }
-                if (e.key === 'Enter' && e.metaKey) {
+                const action = window.GalaxyTextEntry.actionFor(e);
+                if (action === 'submit') {
                     e.preventDefault();
                     self.submitNote();
+                    return;
+                }
+                if (action === 'newline') {
+                    window.GalaxyTextEntry.handleNewline(ta, e);
+                    return;
                 }
                 // Don't let Escape propagate to ScrollbackManager.handleKey
                 if (e.key === 'Escape') {
@@ -1765,9 +1796,15 @@ enum ScrollbackHTMLRenderer {
                     EmojiAutocomplete.handleKeyDown(ta, e)) {
                     return;
                 }
-                if (e.key === 'Enter' && e.metaKey) {
+                const action = window.GalaxyTextEntry.actionFor(e);
+                if (action === 'submit') {
                     e.preventDefault();
                     self.saveEdit(noteId, ta.value);
+                    return;
+                }
+                if (action === 'newline') {
+                    window.GalaxyTextEntry.handleNewline(ta, e);
+                    return;
                 }
                 if (e.key === 'Escape') {
                     e.preventDefault();

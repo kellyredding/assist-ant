@@ -5,8 +5,7 @@ import SwiftUI
 /// The keystrokes above this row reach the note and annotation composers
 /// directly, so they are always current. The Claude session pane is different:
 /// it answers to `~/.claude/keybindings.json`, a file outside this app that a
-/// companion app also writes and that a person can edit by hand. When that
-/// file
+/// companion app also writes and that a person can edit by hand. When that file
 /// disagrees with these settings, something has to say so and offer a
 /// direction — which is what this row is.
 ///
