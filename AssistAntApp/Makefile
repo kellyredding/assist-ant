@@ -8,7 +8,8 @@ USER_APPS_DIR  := $(HOME)/Applications
 BUILT_APP      := $(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/$(APP_NAME).app
 USER_APP_LINK  := $(USER_APPS_DIR)/$(APP_NAME).app
 
-.PHONY: all generate validate-js build release install uninstall clean smoke check
+.PHONY: all generate validate-js build release install uninstall clean \
+        smoke smoke-items smoke-keystroke check
 
 all: build
 
@@ -31,9 +32,12 @@ build: generate validate-js
 	  -derivedDataPath $(DERIVED_DATA) \
 	  build
 
-# Sandboxed smoke check: build the standalone ItemsSmoke tool and run it. No
-# app launch — runs as its own process against an in-memory DB + temp file.
-smoke: generate
+# Sandboxed smoke checks: build the standalone tools and run them. No app
+# launch — each runs as its own process.
+smoke: smoke-items smoke-keystroke
+
+# Runs against an in-memory DB + temp file.
+smoke-items: generate
 	xcodebuild \
 	  -project AssistAntApp.xcodeproj \
 	  -scheme ItemsSmoke \
@@ -42,6 +46,19 @@ smoke: generate
 	  build
 	DYLD_FRAMEWORK_PATH="$(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/PackageFrameworks" \
 	  "$(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/ItemsSmoke"
+
+# The text-entry keystroke model: the matcher, the key-name mapping both ways,
+# and the keybindings writer against a real file in a temp directory. Reads
+# fixtures/text-entry-cases.json, the table the JavaScript side must also agree
+# with. No framework path needed — this one links nothing but Foundation.
+smoke-keystroke: generate
+	xcodebuild \
+	  -project AssistAntApp.xcodeproj \
+	  -scheme KeystrokeSmoke \
+	  -configuration $(CONFIG_DEBUG) \
+	  -derivedDataPath $(DERIVED_DATA) \
+	  build
+	"$(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/KeystrokeSmoke"
 
 # Build the app and run the smoke check — the pre-commit gate.
 check: build smoke
