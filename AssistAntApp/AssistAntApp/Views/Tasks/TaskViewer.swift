@@ -22,7 +22,6 @@ struct TaskViewer: View {
 
     @State private var isEditing = false
     @State private var draft = ""
-    @FocusState private var editorFocused: Bool
 
     private var canSave: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -135,17 +134,26 @@ struct TaskViewer: View {
 
     private var editSection: some View {
         VStack(spacing: 0) {
-            TextEditor(text: $draft)
-                .font(.body)
-                .focused($editorFocused)
-                .padding(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
-                )
-                .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear { DispatchQueue.main.async { editorFocused = true } }
+            // The same editor the actionable item's body uses, rather than a
+            // SwiftUI TextEditor. Two reasons, and the second is why this
+            // changed: TextEditor exposes no caret control, and no key handling
+            // either — so the submit keystroke could only be reached from
+            // outside the view, by a key equivalent that cannot take a bare
+            // Return off a focused editor or by an app-wide monitor that fires
+            // for every window at once. An NSTextView we own resolves the
+            // keystroke where the focus already is.
+            ActionableBodyEditor(
+                text: $draft,
+                isFocused: true,
+                onFocusGained: {},
+                onSubmit: { if canSave { save() } }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            )
+            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
@@ -156,15 +164,12 @@ struct TaskViewer: View {
             .padding(.horizontal, 16).padding(.vertical, 8)
             .background(Color(.windowBackgroundColor))
         }
-        // Esc cancels; the submit keystroke saves — matching the actionable
-        // item editor. Esc keeps its hidden button, since a key equivalent
-        // handles it fine; saving needs the monitor, because a key equivalent
-        // cannot take a bare Return off a focused text editor.
+        // Esc cancels — a key equivalent handles that fine, since nothing
+        // competes for Escape. Saving is the editor's own business now.
         .overlay {
             hiddenButton { isEditing = false }
                 .keyboardShortcut(.cancelAction)
         }
-        .onSubmitKeystroke { if canSave { save() } }
     }
 
     private func save() {
