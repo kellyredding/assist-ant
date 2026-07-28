@@ -221,7 +221,10 @@ struct ActionableItemViewer: View {
             ActionableBodyEditor(
                 text: $edit.body,
                 isFocused: edit.focus == .body,
-                onFocusGained: { if edit.isEditing { edit.focus = .body } }
+                onFocusGained: { if edit.isEditing { edit.focus = .body } },
+                // Guarded on the same condition the Save button is: a submit
+                // keystroke must not start a second save over an in-flight one.
+                onSubmit: { if !edit.isSaving { onSave() } }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .actionableFieldBorder(focused: edit.focus == .body)
@@ -261,6 +264,9 @@ struct ActionableBodyEditor: NSViewRepresentable {
     @Binding var text: String
     var isFocused: Bool
     var onFocusGained: () -> Void
+    /// Invoked by the configured submit keystroke. Before this the body had no
+    /// keyboard path to saving at all — Save was reachable only by clicking it.
+    var onSubmit: () -> Void = {}
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -290,6 +296,9 @@ struct ActionableBodyEditor: NSViewRepresentable {
         tv.delegate = context.coordinator
         tv.onFocusGained = { [weak coordinator = context.coordinator] in
             coordinator?.parent.onFocusGained()
+        }
+        tv.onSubmit = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSubmit()
         }
         context.coordinator.textView = tv
         scroll.documentView = tv
@@ -331,11 +340,36 @@ struct ActionableBodyEditor: NSViewRepresentable {
 /// reflect a click-into-body in the edit session and the focus highlight.
 final class FocusReportingTextView: NSTextView {
     var onFocusGained: (() -> Void)?
+    var onSubmit: (() -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         if ok { onFocusGained?() }
         return ok
+    }
+
+    /// Resolved from the text-entry settings rather than hard-coded, so this
+    /// body agrees with the capture field, the note forms, and the agent session
+    /// about what a key means.
+    ///
+    /// Anything the settings do not claim falls through untouched, which is what
+    /// leaves the leader chords, ⌘-shortcuts and ordinary typing alone.
+    override func keyDown(with event: NSEvent) {
+        switch SettingsManager.shared.settings.textEntry
+            .action(for: Keystroke(event: event))
+        {
+        case .submit:
+            onSubmit?()
+            return
+        case .newline:
+            // Inserted rather than left to `super`, because a keystroke bound to
+            // newline may be one AppKit does nothing with. Routed through the
+            // action method so it joins the undo stack like typed text.
+            insertNewline(nil)
+            return
+        case nil:
+            super.keyDown(with: event)
+        }
     }
 }
 

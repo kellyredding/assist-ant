@@ -1,8 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// Multi-line text editor for the capture popover. Return inserts a newline,
-/// ⌘Return sends. Backed by NSTextView for exact key handling; Wispr dictates
+/// Multi-line text editor for the capture popover. Which keystroke sends and
+/// which inserts a newline comes from the text-entry settings, so this field,
+/// the note forms, and the agent session all answer to the same keys.
+/// Backed by NSTextView for exact key handling; Wispr dictates
 /// into it like any native editable text area. The field grows with its content
 /// from `minHeight` up to `maxHeight`, then holds that height and scrolls
 /// internally so a long capture never keeps stretching the popover.
@@ -106,9 +108,9 @@ final class GrowingScrollView: NSScrollView {
     }
 }
 
-/// NSTextView that sends on ⌘Return, draws a placeholder when empty, and reports
-/// its full content height (floored at `minHeight`) as its intrinsic size — the
-/// scroll view clamps that to a max and scrolls past it.
+/// NSTextView that sends on the configured submit keystroke, draws a placeholder
+/// when empty, and reports its full content height (floored at `minHeight`) as
+/// its intrinsic size — the scroll view clamps that to a max and scrolls past it.
 final class SendingTextView: NSTextView {
     var onSend: (() -> Void)?
     var minHeight: CGFloat = 66
@@ -126,12 +128,29 @@ final class SendingTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // ⌘Return sends; plain Return falls through to insert a newline.
-        if event.keyCode == 36, event.modifierFlags.contains(.command) {
+        // Both actions are resolved from the configured keystrokes rather than
+        // hard-coded, so this field agrees with the note forms and the agent
+        // session about what a given key means.
+        //
+        // Anything the settings do not claim falls through untouched. That is
+        // the case that keeps every other shortcut — and every key this app has
+        // never heard of — working exactly as it did before.
+        switch SettingsManager.shared.settings.textEntry
+            .action(for: Keystroke(event: event))
+        {
+        case .submit:
             onSend?()
             return
+        case .newline:
+            // Inserted explicitly rather than left to `super`, because the
+            // keystroke bound to newline may be one AppKit would do nothing
+            // with — ⌥Return among them. Routed through the action method so it
+            // joins the undo stack like typed text.
+            insertNewline(nil)
+            return
+        case nil:
+            super.keyDown(with: event)
         }
-        super.keyDown(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {

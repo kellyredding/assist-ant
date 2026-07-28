@@ -8,6 +8,9 @@ import SwiftUI
 struct CaptureContentView: View {
     @ObservedObject var model: CaptureModel
     @ObservedObject private var agent = AgentSessionController.shared
+    /// Observed rather than read once: the hint below names the configured
+    /// keystrokes, so it has to redraw when they change.
+    @ObservedObject private var settingsManager = SettingsManager.shared
     var colorScheme: ColorScheme?
     var onKindSelected: () -> Void = {}
     var onClose: () -> Void
@@ -52,8 +55,12 @@ struct CaptureContentView: View {
             HStack {
                 Text(hint).font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                // Deliberately no `.keyboardShortcut`. It can only name one
+                // fixed chord, so it would go on submitting on ⌘Return whatever
+                // the settings said — an extra binding nobody configured, and
+                // one the hint above would not mention. The editor's own key
+                // handling covers the keyboard, and it reads the real bindings.
                 Button("Send") { send() }
-                    .keyboardShortcut(.return, modifiers: [.command])
                     .buttonStyle(.borderedProminent)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -89,8 +96,14 @@ struct CaptureContentView: View {
             : "Capture a \(model.kind.title.lowercased())…"
     }
 
+    /// Derived from the live bindings rather than written out, so the copy
+    /// cannot drift from what the field actually does — and so an unbound half
+    /// goes unmentioned instead of naming a key that does nothing.
     private var hint: String {
-        "\(model.kind.title) · return for newline · ⌘⏎ to send · esc to close"
+        ([model.kind.title]
+            + settingsManager.settings.textEntry.hintClauses(verb: "send")
+            + ["esc to close"])
+            .joined(separator: " · ")
     }
 
     private func chooserGlyph(_ k: CaptureKind, index: Int) -> some View {
