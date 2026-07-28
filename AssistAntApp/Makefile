@@ -8,8 +8,8 @@ USER_APPS_DIR  := $(HOME)/Applications
 BUILT_APP      := $(DERIVED_DATA)/Build/Products/$(CONFIG_DEBUG)/$(APP_NAME).app
 USER_APP_LINK  := $(USER_APPS_DIR)/$(APP_NAME).app
 
-.PHONY: all generate validate-js build release install uninstall clean \
-        smoke smoke-items smoke-keystroke check
+.PHONY: all generate validate-js verify-text-entry build release install \
+        uninstall clean smoke smoke-items smoke-keystroke check
 
 all: build
 
@@ -24,7 +24,14 @@ generate:
 validate-js:
 	node scripts/validate-js.mjs
 
-build: generate validate-js
+# Prove the JavaScript text-entry matcher agrees with the Swift one, by running
+# the shipped literal against the same fixture table KeystrokeSmoke reads.
+# validate-js only proves the literal parses; two matchers that both parse are
+# still free to disagree, and this is what stops them.
+verify-text-entry:
+	node scripts/verify-text-entry.mjs
+
+build: generate validate-js verify-text-entry
 	xcodebuild \
 	  -project AssistAntApp.xcodeproj \
 	  -scheme $(SCHEME) \
