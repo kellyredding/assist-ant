@@ -10,11 +10,6 @@ import SwiftUI
 /// talking to the manage-tasks skill). Closed by the header ✕ or Esc; while
 /// editing, Esc cancels the edit instead.
 struct TaskViewer: View {
-    /// Observed rather than read once: the shortcuts below are built from the
-    /// configured submit keystrokes, so they have to be rebuilt when those
-    /// change rather than pinned to whatever they were when the view appeared.
-    @ObservedObject private var settingsManager = SettingsManager.shared
-
     let task: AgentTask
     let timeFormat: TimeFormat
     /// This task's run history, filtered by the host pane.
@@ -162,11 +157,14 @@ struct TaskViewer: View {
             .background(Color(.windowBackgroundColor))
         }
         // Esc cancels; the submit keystroke saves — matching the actionable
-        // item editor's body.
+        // item editor. Esc keeps its hidden button, since a key equivalent
+        // handles it fine; saving needs the monitor, because a key equivalent
+        // cannot take a bare Return off a focused text editor.
         .overlay {
-            editingKeyShortcuts(
-                onEscape: { isEditing = false }, onSubmit: save)
+            hiddenButton { isEditing = false }
+                .keyboardShortcut(.cancelAction)
         }
+        .onSubmitKeystroke { if canSave { save() } }
     }
 
     private func save() {
@@ -176,32 +174,6 @@ struct TaskViewer: View {
     }
 
     // MARK: - Helpers
-
-    /// Esc cancels the edit, and the configured submit keystrokes save it —
-    /// zero-size buttons carrying window-level key equivalents, so both fire
-    /// while the text editor holds first responder.
-    ///
-    /// Only used while editing, and only these two. Saving commits text the user
-    /// composed, so it follows the settings; entering and leaving edit mode do
-    /// not, and stay on ⌘↵ and Esc. Mirrors the actionable reader, which reaches
-    /// the same split through a key monitor and an NSTextView.
-    ///
-    /// One hidden button per keystroke because `.keyboardShortcut` names exactly
-    /// one chord and the settings allow several — honouring only the first would
-    /// leave this view disagreeing with every composer that reads the bindings
-    /// properly. SwiftUI's TextEditor exposes no key handling, so a hidden
-    /// button is the only way in here at all.
-    private func editingKeyShortcuts(
-        onEscape: @escaping () -> Void, onSubmit: @escaping () -> Void
-    ) -> some View {
-        let shortcuts = settingsManager.settings.textEntry.submitShortcuts
-        return ZStack {
-            hiddenButton(onEscape).keyboardShortcut(.cancelAction)
-            ForEach(Array(shortcuts.enumerated()), id: \.offset) { _, shortcut in
-                hiddenButton(onSubmit).keyboardShortcut(shortcut)
-            }
-        }
-    }
 
     private func hiddenButton(_ action: @escaping () -> Void) -> some View {
         Button("", action: action)
