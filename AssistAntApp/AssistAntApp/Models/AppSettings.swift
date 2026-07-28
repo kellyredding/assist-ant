@@ -45,6 +45,11 @@ struct AppSettings: Codable, Equatable {
     // kind) auto-starts Wispr hands-free dictation.
     var captureAutoArmWispr: Bool
 
+    // Which keystrokes commit text and which insert a newline. Governs the
+    // local composers directly, and the embedded session by way of Claude
+    // Code's own keybindings file — see ClaudeKeybindingsWriter.
+    var textEntry: TextEntryBindings
+
     static let current = AppSettings(
         version: 1,
         themePreference: .system,
@@ -62,7 +67,8 @@ struct AppSettings: Codable, Equatable {
         terminalCursorStyle: .block,
         terminalCursorBlink: false,
         shellDefaultHeightRatio: 0.5,
-        captureAutoArmWispr: true
+        captureAutoArmWispr: true,
+        textEntry: .default
     )
 
     // Constraints for the Terminal settings tab fields (the tab clamps typed
@@ -171,6 +177,12 @@ struct AppSettings: Codable, Equatable {
         self.captureAutoArmWispr = try container.decodeIfPresent(
             Bool.self, forKey: .captureAutoArmWispr
         ) ?? legacyAutoArmWispr ?? AppSettings.current.captureAutoArmWispr
+        // Coerced on the way in: an empty submit list would leave a composer
+        // with no way to commit and no save button to fall back on, and a
+        // hand-edited file can arrive that way.
+        self.textEntry = (try container.decodeIfPresent(
+            TextEntryBindings.self, forKey: .textEntry
+        ) ?? AppSettings.current.textEntry).coercingEmptyLists()
     }
 
     init(
@@ -190,7 +202,8 @@ struct AppSettings: Codable, Equatable {
         terminalCursorStyle: ShellCursorStyle,
         terminalCursorBlink: Bool,
         shellDefaultHeightRatio: Double,
-        captureAutoArmWispr: Bool
+        captureAutoArmWispr: Bool,
+        textEntry: TextEntryBindings
     ) {
         self.version = version
         self.themePreference = themePreference
@@ -209,6 +222,7 @@ struct AppSettings: Codable, Equatable {
         self.terminalCursorBlink = terminalCursorBlink
         self.shellDefaultHeightRatio = shellDefaultHeightRatio
         self.captureAutoArmWispr = captureAutoArmWispr
+        self.textEntry = textEntry
     }
 
     /// Whether audible announcements (time or desk) may play right now:
@@ -253,6 +267,7 @@ struct AppSettings: Codable, Equatable {
         case terminalCursorBlink
         case shellDefaultHeightRatio
         case captureAutoArmWispr
+        case textEntry
     }
 
     /// Legacy keys for reading the announcement hours + muteWhileMicInUse out
