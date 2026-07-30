@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import Galactic
 
 /// Split container for the Terminal tab. The session pane is always on top;
 /// a shell pane joins it below once opened.
