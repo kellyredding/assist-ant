@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Galactic
 
 /// Singleton store for AppSettings. Loads from
 /// ~/.assist-ant/data/prefs.json on init; persists synchronously on every

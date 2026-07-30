@@ -1,4 +1,5 @@
 import Foundation
+import Galactic
 
 /// Launch parameters for the shell pane: where its login shell starts, and
 /// what environment it runs with. Pure functions, no state.

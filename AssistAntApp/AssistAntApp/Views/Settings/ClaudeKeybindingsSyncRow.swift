@@ -1,4 +1,5 @@
 import SwiftUI
+import Galactic
 
 /// The half of the text-entry settings that is not automatic.
 ///

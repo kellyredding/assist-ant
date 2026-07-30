@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socket: SocketListener!
@@ -56,6 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (key, value) in textInputDefaults {
             UserDefaults.standard.set(value, forKey: key)
         }
+
+        // Give the engine somewhere to log before anything it owns can run.
+        // It discards by default, and the submission trail is the one record
+        // that distinguishes "sent the wrong bytes" from "sent the right bytes
+        // too early" — both of which look identical from the outside.
+        GalacticLog.sink = GalacticLog.Sink(
+            submit: { AssistAntLog.submit($0) },
+            debug: { AssistAntLog.dbg($0, $1) }
+        )
 
         // Install the menu bar (the strip at the top of the screen) before
         // the app finishes launching so system menu wires are in place

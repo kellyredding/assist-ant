@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Galactic
 
 /// Resolves the configured submit and newline keystrokes for a composer, using a
 /// local key monitor scoped to the composer's own window.

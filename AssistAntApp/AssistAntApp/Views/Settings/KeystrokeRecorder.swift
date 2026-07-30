@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Galactic
 
 /// Lays subviews in rows, wrapping when a row fills, with every row pushed to
 /// the trailing edge.

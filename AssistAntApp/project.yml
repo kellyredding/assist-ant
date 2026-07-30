@@ -61,27 +61,10 @@ targets:
         SWIFT_VERSION: "5.10"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
-  # Sandboxed smoke-test runner: a plain command-line tool that compiles the
-  # items model + store (no app, no AppKit, no sockets) and exercises them
-  # against an in-memory database + a temp file. Run via `make smoke`.
-  # Listing sources file-by-file rather than by directory is deliberate: it
-  # fails to compile the moment one of them grows an AppKit dependency, which
-  # is the property that keeps the matcher testable.
-  KeystrokeSmoke:
-    type: tool
-    platform: macOS
-    sources:
-      - AssistAntApp/Models/Keystroke.swift
-      - AssistAntApp/Models/TextEntryBindings.swift
-      - AssistAntApp/Models/ClaudeKeybindingsWriter.swift
-      # Foundation-only, and the writer logs through it. The logger resolves
-      # its own destination, which is why Paths comes along.
-      - AssistAntApp/Models/AssistAntLog.swift
-      - AssistAntApp/Models/Paths.swift
-      - KeystrokeSmoke
-    settings:
-      base:
-        SWIFT_VERSION: "5.10"
+  # The keystroke model and its assertions now live in Galactic, which tests
+  # the Swift matcher and its JavaScript twin against one fixture in one
+  # process. A standalone tool here could only re-check half of that against a
+  # second copy of the fixture.
 
   ItemsSmoke:
     type: tool

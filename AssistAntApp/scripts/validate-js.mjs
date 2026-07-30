@@ -51,7 +51,7 @@ const SRC_DIR = join(APP_ROOT, "AssistAntApp"); // .../AssistAntApp/AssistAntApp
 // literal, and only once its new home validates it. Never to make a red build
 // green.
 const EXPECTED_MIN_RESOURCE_FILES = 2;
-const EXPECTED_MIN_LITERALS = 7;
+const EXPECTED_MIN_LITERALS = 6;
 
 const failures = [];
 let checkedFiles = 0;

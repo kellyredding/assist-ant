@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Galactic
 
 /// The single, app-wide host for the item reader. Every launch site — the
 /// Icebox list today, the Schedule agenda and the Today sidebar next — opens an

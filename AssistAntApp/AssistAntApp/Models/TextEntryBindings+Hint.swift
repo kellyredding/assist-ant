@@ -1,4 +1,5 @@
 import Foundation
+import Galactic
 
 /// Hint text for the native composers, derived from the live bindings.
 ///
