@@ -70,7 +70,7 @@ smoke-keystroke: generate
 # Build the app and run the smoke check — the pre-commit gate.
 check: build smoke
 
-release: generate validate-js
+release: generate validate-js verify-text-entry
 	xcodebuild \
 	  -project AssistAntApp.xcodeproj \
 	  -scheme $(SCHEME) \
