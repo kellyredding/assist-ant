@@ -504,21 +504,17 @@ class ScrollbackDropWebView: WKWebView {
             }
         }
 
-        let jsArray = paths.map { path in
-            let escaped = path
-                .replacingOccurrences(
-                    of: "\\", with: "\\\\"
-                )
-                .replacingOccurrences(
-                    of: "'", with: "\\'"
-                )
-            return "'\(escaped)'"
-        }.joined(separator: ",")
+        // Encoded rather than escaped. A filename may legally contain a
+        // quote, a backslash, or a line terminator, and any of those ends the
+        // string literal early — which makes the whole injected snippet a
+        // syntax error rather than a call with a wrong argument, so nothing
+        // runs at all and the only trace is a console message inside the page.
+        let jsPaths = JavaScriptLiteral.array(paths)
 
         evaluateJavaScript(
             "if (typeof handleFileDrop"
             + " !== 'undefined')"
-            + " { handleFileDrop([\(jsArray)]); }"
+            + " { handleFileDrop(\(jsPaths)); }"
         )
         return true
     }
