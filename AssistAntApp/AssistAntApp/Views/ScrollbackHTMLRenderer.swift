@@ -271,21 +271,12 @@ enum ScrollbackHTMLRenderer {
         """
     }
 
-    // MARK: - Emoji JS (inlined from bundle resources)
+    // MARK: - Emoji JS
 
-    private static let emojiDataJS: String = {
-        guard let url = Bundle.main.url(forResource: "emoji-data", withExtension: "js"),
-              let content = try? String(contentsOf: url, encoding: .utf8)
-        else { return "" }
-        return content
-    }()
-
-    private static let emojiAutocompleteJS: String = {
-        guard let url = Bundle.main.url(forResource: "emoji-autocomplete", withExtension: "js"),
-              let content = try? String(contentsOf: url, encoding: .utf8)
-        else { return "" }
-        return content
-    }()
+    // Loaded once, with the card UI that depends on them, rather than read out
+    // of the hosting app's bundle by each surface that wants them.
+    private static let emojiDataJS: String = EmojiJS.data
+    private static let emojiAutocompleteJS: String = EmojiJS.autocomplete
 
     // MARK: - JavaScript
 
@@ -596,32 +587,7 @@ enum ScrollbackHTMLRenderer {
             border-radius: 1px;
         }
 
-        /* Neutralize host document rules that match injected note
-           UI by element name. The host `pre` rule below declares
-           `font-size: inherit` on every <pre>, which the card body
-           is; these selectors are (0,1,0) and outrank it at
-           (0,0,1). They tie with the note rules that follow, which
-           win on source order — so this block must stay first. */
-        .note-card, .note-card *,
-        .note-form, .note-form * {
-            background: none;
-            border: 0;
-            border-radius: 0;
-            padding: 0;
-            margin: 0;
-            overflow: visible;
-            box-shadow: none;
-            max-width: none;
-            min-width: 0;
-            float: none;
-            text-align: left;
-            text-indent: 0;
-            text-transform: none;
-            letter-spacing: normal;
-            font-weight: normal;
-            font-style: normal;
-            list-style: none;
-        }
+        \(hostResetCSS(prefix: "note"))
 
         /* Note form — in flow, matches snapshot annotation form styling */
         .note-form {
@@ -843,34 +809,7 @@ enum ScrollbackHTMLRenderer {
             color: var(--delete-color);
         }
 
-        /* Delete confirmation — match snapshot style */
-        .note-btn-delete.confirming {
-            background: rgba(220, 40, 30, 0.75) !important;
-            color: #fff !important;
-            font-size: 12px;
-            font-weight: 600;
-            font-family: -apple-system, sans-serif;
-            padding: 4px 12px !important;
-            position: relative;
-            overflow: hidden;
-        }
-        .note-btn-delete.confirming:hover {
-            background: rgba(220, 40, 30, 0.85) !important;
-            color: #fff !important;
-        }
-        .note-btn-delete.confirming::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            height: 1.5px;
-            background: rgba(255, 255, 255, 0.8);
-            animation: confirmDrain 5s linear forwards;
-        }
-        @keyframes confirmDrain {
-            from { width: 100%; }
-            to { width: 0%; }
-        }
+        \(deleteConfirmCSS(prefix: "note"))
 
         /* Send bar */
         .send-bar {
@@ -968,52 +907,11 @@ enum ScrollbackHTMLRenderer {
             border-color: rgba(88, 166, 255, 0.5);
         }
 
-        /* Emoji autocomplete popup — match snapshot reader exactly */
-        .emoji-popup {
-            position: absolute;
-            z-index: 100;
-            min-width: 200px;
-            max-width: 340px;
-            max-height: 300px;
-            overflow-y: auto;
-            background: \(formBg);
-            border: 1px solid \(cardBorder);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            font-family: -apple-system, system-ui, sans-serif;
-            font-size: 14px;
-            padding: 4px 0;
-            display: none;
-        }
-        .emoji-popup-row {
-            display: flex;
-            align-items: center;
-            padding: 4px 10px;
-            cursor: pointer;
-            gap: 8px;
-        }
-        .emoji-popup-row.selected,
-        .emoji-popup-row.selected:hover {
-            background: rgba(88, 166, 255, 0.2);
-        }
-        .emoji-popup-row:hover {
-            background: rgba(88, 166, 255, 0.12);
-        }
-        .emoji-popup-emoji {
-            font-size: 18px;
-            width: 24px;
-            text-align: center;
-            flex-shrink: 0;
-        }
-        .emoji-popup-name {
-            color: var(--fg);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .emoji-popup-name .emoji-match {
-            font-weight: 600;
-        }
+        \(emojiPopupCSS(
+            background: formBg,
+            border: cardBorder,
+            shadow: "rgba(0, 0, 0, 0.3)"
+        ))
         """
     }
 

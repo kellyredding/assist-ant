@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import Galactic
 
 // MARK: - ScrollbackNote
 

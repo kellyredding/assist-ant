@@ -50,8 +50,12 @@ const SRC_DIR = join(APP_ROOT, "AssistAntApp"); // .../AssistAntApp/AssistAntApp
 // Lowering these is a deliberate act: do it in the same change that moves the
 // literal, and only once its new home validates it. Never to make a red build
 // green.
-const EXPECTED_MIN_RESOURCE_FILES = 2;
-const EXPECTED_MIN_LITERALS = 6;
+// The emoji resources and several card literals now ship with the card UI in
+// Galactic, which parses each of them in its own test suite. A zero resource
+// floor is honest here rather than lax: this app no longer carries any
+// non-minified JavaScript of its own under Resources/.
+const EXPECTED_MIN_RESOURCE_FILES = 0;
+const EXPECTED_MIN_LITERALS = 3;
 
 const failures = [];
 let checkedFiles = 0;
