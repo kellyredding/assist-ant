@@ -257,6 +257,7 @@ enum ScrollbackHTMLRenderer {
         </div>
         <script>\(emojiDataJS)</script>
         <script>\(emojiAutocompleteJS)</script>
+        <script>\(cardTextJS)</script>
         <script>\(clipboardCopyJS)</script>
         <script>\(textEntryJS)</script>
         <script>\(textEntryConfigJS)</script>
@@ -943,8 +944,8 @@ enum ScrollbackHTMLRenderer {
         selectionOnly: false,
         pendingEditCancelId: null,
         pendingEditOriginalContent: null,
-        editIconSVG: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>',
-        deleteIconSVG: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a1 1 0 001 1h12a1 1 0 001-1V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+        editIconSVG: window.GalaxyCardText.EDIT_ICON_SVG,
+        deleteIconSVG: window.GalaxyCardText.DELETE_ICON_SVG,
 
         initialize() {
             const self = this;
@@ -1118,53 +1119,7 @@ enum ScrollbackHTMLRenderer {
         // Trackers update on every input so the next delta is measured
         // against the true previous length.
         installAutosize(ta) {
-            const WAIT = 250;
-            const MAX_WAIT = 500;
-            let lastNewlineCount =
-                (ta.value.match(/\\n/g) || []).length;
-            let lastLength = ta.value.length;
-            let timer = null;
-            let pendingFrame = null;
-            let burstStart = 0;
-
-            const fire = () => {
-                timer = null;
-                if (pendingFrame !== null) return;
-                pendingFrame = requestAnimationFrame(() => {
-                    pendingFrame = null;
-                    ta.style.height = 'auto';
-                    ta.style.height = ta.scrollHeight + 'px';
-                });
-            };
-
-            ta.addEventListener('input', () => {
-                const newlineCount =
-                    (ta.value.match(/\\n/g) || []).length;
-                const length = ta.value.length;
-                const structural =
-                    newlineCount !== lastNewlineCount
-                    || Math.abs(length - lastLength) !== 1;
-                lastNewlineCount = newlineCount;
-                lastLength = length;
-
-                if (structural) {
-                    if (timer !== null) clearTimeout(timer);
-                    fire();
-                    return;
-                }
-
-                const now = Date.now();
-                if (timer === null) {
-                    burstStart = now;
-                } else {
-                    clearTimeout(timer);
-                }
-                const delay = Math.min(
-                    WAIT,
-                    Math.max(0, MAX_WAIT - (now - burstStart))
-                );
-                timer = setTimeout(fire, delay);
-            });
+            window.GalaxyCardText.installAutosize(ta);
         },
 
         createForm() {
@@ -1781,7 +1736,8 @@ enum ScrollbackHTMLRenderer {
                 // catches the second click of a double-click
                 // regardless of whether btn.disabled worked.
                 const elapsed = Date.now() - this.confirmArmedAt;
-                if (elapsed < 500) return;
+                if (elapsed
+                    < window.GalaxyCardText.DELETE_ARM_REJECT_MS) return;
                 this.deleting = true;
                 clearTimeout(this.confirmDeleteTimer);
                 this.confirmingDeleteId = null;
@@ -1803,17 +1759,15 @@ enum ScrollbackHTMLRenderer {
             this.confirmArmedAt = Date.now();
 
             const btn = card.querySelector('.note-btn-delete');
-            btn.classList.add('confirming');
-            btn.textContent = 'Are you sure?';
+            window.GalaxyCardText.armDeleteButton(btn);
 
             const self = this;
             this.confirmDeleteTimer = setTimeout(() => {
-                btn.classList.remove('confirming');
-                btn.innerHTML = self.deleteIconSVG;
+                window.GalaxyCardText.disarmDeleteButton(btn);
                 self.confirmingDeleteId = null;
                 self.confirmDeleteTimer = null;
                 self.confirmArmedAt = null;
-            }, 5000);
+            }, window.GalaxyCardText.DELETE_REVERT_MS);
         },
 
         // --- Highlight Management ---
@@ -1925,55 +1879,21 @@ enum ScrollbackHTMLRenderer {
     };
 
     function handleFileDrop(paths) {
+        // Which textarea receives the drop is this surface's own question —
+        // the create form if it is open, otherwise the note being edited.
+        // Everything after that is the same on both card surfaces.
         var ta = null;
         var notes = ScrollbackManager.notes;
 
-        // Check create form textarea
         if (notes.formElement
-            && notes.formElement.style.display
-                !== 'none') {
-            ta = notes.formElement
-                .querySelector('textarea');
+            && notes.formElement.style.display !== 'none') {
+            ta = notes.formElement.querySelector('textarea');
         }
-
-        // Check edit textarea
         if (!ta && notes.editingId) {
-            ta = document.querySelector(
-                '.note-edit-textarea'
-            );
+            ta = document.querySelector('.note-edit-textarea');
         }
 
-        if (!ta) return;
-
-        // Build the text to insert
-        var text = paths.map(function(p) {
-            return '[' + p + ']';
-        }).join(' ');
-
-        // Insert at cursor position
-        var start = ta.selectionStart;
-        var end = ta.selectionEnd;
-        var before = ta.value.substring(0, start);
-        var after = ta.value.substring(end);
-
-        var prefix = '';
-        if (before.length > 0
-            && before[before.length - 1] !== '\\n') {
-            prefix = '\\n';
-        }
-        var suffix = '\\n';
-
-        ta.value = before + prefix + text
-            + suffix + after;
-
-        var newPos = start + prefix.length
-            + text.length + suffix.length;
-        ta.selectionStart = newPos;
-        ta.selectionEnd = newPos;
-
-        // Trigger auto-grow
-        ta.dispatchEvent(new Event('input'));
-        ta.focus();
+        window.GalaxyCardText.insertPaths(ta, paths);
     }
     """
 
