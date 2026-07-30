@@ -85,26 +85,22 @@ final class SessionTerminalPane: TerminalPane {
 
     /// The session pane routes scrollback sends back into its own terminal.
     ///
-    /// Deliberately goes through the controller rather than the backend: the
-    /// controller gates on the running state and owns the CR that submits,
-    /// which is the path this send has always taken. Galaxy sends its
-    /// composed message unbracketed; AssistAnt has always pasted it, and
-    /// preserving that keeps the send byte-identical to what the TUI sees
-    /// today.
+    /// Goes through the controller's prompt queue rather than the backend: the
+    /// queue waits for the child to be reading before it writes, paces the
+    /// submit behind the paste, and serializes against anything a scheduled
+    /// task is already delivering. Galaxy sends its composed message
+    /// unbracketed; AssistAnt has always pasted it, and the queue pastes too,
+    /// so what the TUI sees is unchanged.
     var sendToClaudeTarget: SendToClaudeTarget? {
         guard controller.state == .running else {
             return SendToClaudeTarget(
-                sendText: { _ in },
-                sendCR: {},
+                send: { _ in },
                 disabledReason: { "Start the agent first" }
             )
         }
         let controller = self.controller
         return SendToClaudeTarget(
-            sendText: { text in
-                controller.send(text: text, asPaste: true)
-            },
-            sendCR: { controller.submit() },
+            send: { controller.enqueuePrompt($0) },
             disabledReason: { nil }
         )
     }

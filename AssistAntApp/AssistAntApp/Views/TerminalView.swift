@@ -618,9 +618,9 @@ final class TerminalHostView: NSView {
             }
         }
         // "Send to Claude" routes back through the send-to-session seam:
-        // tear down, bracketed-paste the composed message, then CR after
-        // 0.3s so the TUI registers the paste before Enter. Mirrors
-        // Galaxy `TerminalView.onSendToClaude` — same 0.3s delay.
+        // tear down, then hand the composed message to the target, which
+        // owns the whole write-pace-submit sequence. Mirrors Galaxy
+        // `TerminalView.onSendToClaude`.
         webView.onSendToClaude = { [weak self] message in
             guard let self else { return }
             // Through the owning pane's target: the agent pane sends into
@@ -630,10 +630,7 @@ final class TerminalHostView: NSView {
             guard let target = self.pane.sendToClaudeTarget,
                   target.disabledReason() == nil else { return }
             self.dismissScrollback()
-            target.sendText(message)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                target.sendCR()
-            }
+            target.send(message)
         }
         // Note-form / edit / drag-replace discard confirmations route
         // through the same ported SheetAlert helper Galaxy uses, so the

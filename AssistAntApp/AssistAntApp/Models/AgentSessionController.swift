@@ -275,9 +275,13 @@ final class AgentSessionController: ObservableObject {
     // MARK: - Send to session (PTY)
 
     /// Delay between writing command text and sending CR, so the TUI
-    /// registers the text as input before Enter arrives. Mirrors Galaxy
-    /// `Session.commandSubmitDelay` (100ms).
-    private static let commandSubmitDelay: TimeInterval = 0.1
+    /// registers the text as input before Enter arrives.
+    ///
+    /// Read from `SessionSubmit` rather than restated here. The value is
+    /// calibrated against the TUI's render loop and is already stated once in
+    /// the submit seam; a second copy of one number would drift, and the second
+    /// copy is the one that would drift unnoticed.
+    private static let commandSubmitDelay: TimeInterval = SessionSubmit.inputPacingDelay
 
     /// Delay after a submit CR before the next queued prompt's paste, so the TUI
     /// finishes accepting one prompt before the next arrives (batched task fires).

@@ -128,18 +128,15 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     /// The shell pane routes scrollback sends into the Claude session's
     /// terminal, not its own. Disabled while the agent isn't running.
     ///
-    /// Goes through the controller rather than its backend so the send
-    /// inherits the same running-state gate every other write to the agent's
-    /// PTY uses. The second gate refuses to send while the agent pane's own
-    /// scrollback is frozen open, since the text would arrive somewhere the
-    /// user cannot see it.
+    /// Goes through the controller's prompt queue rather than its backend so
+    /// the send inherits the readiness wait and the pacing every other
+    /// automated write to the agent's PTY uses. The second gate refuses to
+    /// send while the agent pane's own scrollback is frozen open, since the
+    /// text would arrive somewhere the user cannot see it.
     var sendToClaudeTarget: SendToClaudeTarget? {
         let controller = self.controller
         return SendToClaudeTarget(
-            sendText: { text in
-                controller.send(text: text, asPaste: true)
-            },
-            sendCR: { controller.submit() },
+            send: { controller.enqueuePrompt($0) },
             disabledReason: {
                 // Agent-stopped takes precedence — it is the more
                 // fundamental block, and saying "close scrollback" to
