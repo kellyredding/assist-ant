@@ -213,8 +213,8 @@ enum ScrollbackHTMLRenderer {
             --font-size: \(fontSize)px;
             --line-height: \(cellHeight)px;
             --delete-color: #d63031;
-            --annotation-active-border: rgba(255, 220, 50, 0.5);
-            --annotation-active-bg: rgba(255, 255, 120, 0.12);
+            --card-active-border: rgba(255, 220, 50, 0.5);
+            --card-active-bg: rgba(255, 255, 120, 0.12);
         }
         \(noteUXTokens(textSize: "var(--font-size)"))
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -696,8 +696,8 @@ enum ScrollbackHTMLRenderer {
             border-color: \(cardBorderHover);
         }
         .note-card.expanded {
-            border-color: var(--annotation-active-border);
-            background: var(--annotation-active-bg);
+            border-color: var(--card-active-border);
+            background: var(--card-active-bg);
         }
         .note-card-header {
             display: flex;
