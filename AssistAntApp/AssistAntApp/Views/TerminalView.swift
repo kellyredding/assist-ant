@@ -661,7 +661,15 @@ final class TerminalHostView: NSView {
         // Without this the overlay keeps the metrics it opened with, so a
         // zoom leaves frozen cells misaligned against the live ones behind.
         // Only the size can change here — the colour theme is fixed.
+        // `dropFirst` because the size is `@Published` and replays its current
+        // value to every new subscriber. Subscribing here means that replay
+        // arrives on each open, against a page that has not finished loading —
+        // so the re-render read a scroll position that was not there yet and
+        // landed the reader at the top of the buffer instead of where they
+        // were looking.
         pane.fontSizePublisher
+            .removeDuplicates()
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySettingsToScrollback()
