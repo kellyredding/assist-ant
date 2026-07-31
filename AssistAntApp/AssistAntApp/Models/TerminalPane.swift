@@ -128,19 +128,5 @@ protocol TerminalPane: AnyObject {
 /// Both panes produce one of these; the scrollback overlay consults
 /// `disabledReason()` to decide whether the button is enabled, and calls
 /// `send` when the user clicks Send.
-struct SendToClaudeTarget {
-    /// Hand composed text to the agent session, which pastes it and commits it.
-    ///
-    /// One closure rather than a write and a submit the caller paces itself.
-    /// `AgentSessionController.enqueuePrompt` already owns that sequence — wait
-    /// for the child to be able to read, paste, pace, then submit — and a
-    /// second implementation of it drifted: it paced with a number of its own
-    /// and never gained the readiness wait at all. Nothing here resolves the
-    /// submit bytes either, deliberately, because which ones work depends on
-    /// what Return currently means in that pane.
-    let send: (String) -> Void
-
-    /// Preflight: nil enables the button, a string disables it and supplies
-    /// the tooltip.
-    let disabledReason: () -> String?
-}
+// The type itself now ships with the scrollback surface that consumes it.
+// `AgentSessionController.enqueuePrompt` is the send closure this app supplies.

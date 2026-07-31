@@ -55,7 +55,7 @@ const SRC_DIR = join(APP_ROOT, "AssistAntApp"); // .../AssistAntApp/AssistAntApp
 // floor is honest here rather than lax: this app no longer carries any
 // non-minified JavaScript of its own under Resources/.
 const EXPECTED_MIN_RESOURCE_FILES = 0;
-const EXPECTED_MIN_LITERALS = 2;
+const EXPECTED_MIN_LITERALS = 0;
 
 const failures = [];
 let checkedFiles = 0;

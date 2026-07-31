@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Galactic
 
 /// Which of the Terminal tab's two panes a host is showing.
 enum TerminalPaneKind {

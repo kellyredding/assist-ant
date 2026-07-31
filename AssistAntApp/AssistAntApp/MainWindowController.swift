@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import Galactic
 
 /// Main-window NSWindow subclass. Overrides recalculateKeyViewLoop to a no-op
 /// so AppKit does not traverse the full SwiftUI view tree to rebuild the
