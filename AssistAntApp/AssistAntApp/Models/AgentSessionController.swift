@@ -375,9 +375,14 @@ final class AgentSessionController: ObservableObject {
 
     /// Send a slash command and submit it after `commandSubmitDelay`.
     /// Mirrors the send-text → delay → CR core of Galaxy
-    /// `Session.sendCommand`, minus Galaxy's socket-driven verify/retry and
-    /// synthetic-turn bookkeeping (which depend on turn-state events the
-    /// embedded session does not observe).
+    /// `Session.sendCommand`, minus the synthetic-turn bookkeeping (which
+    /// depends on turn-state events the embedded session does not observe).
+    ///
+    /// Verification is wired and switched off, rather than absent. The
+    /// mechanism lives in Galactic; what it needs is a report from the agent
+    /// that a prompt was taken, and the embedded session observes no such
+    /// event yet. Passing nil is the opt-out, so adopting it later means
+    /// supplying a `SubmitVerification` here and nothing else.
     func sendCommand(_ command: String) {
         guard state == .running, let backend else {
             AssistAntLog.submit("sendCommand refused — session not running")
@@ -415,6 +420,10 @@ final class AgentSessionController: ObservableObject {
             ) { [weak self] in
                 guard let self, self.state == .running else { return }
                 self.backend?.submitPrompt()
+                // See the note above: opted out by value, not by omission.
+                self.backend?.verifySubmission(
+                    text: text, verification: nil
+                )
             }
         }
     }
