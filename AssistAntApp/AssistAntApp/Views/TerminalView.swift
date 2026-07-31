@@ -149,6 +149,14 @@ final class TerminalHostView: NSView {
     /// teardown.
     private var sendButtonStateCancellables = Set<AnyCancellable>()
 
+    /// The frozen buffer behind an open overlay, held so a font change can
+    /// render it again rather than re-capturing — re-capturing would swap what
+    /// the reader is looking at for whatever the live terminal has become.
+    private var currentSnapshot: ScrollbackSnapshot?
+
+    /// Subscriptions whose lifetime is the open overlay's.
+    private var scrollbackCancellables = Set<AnyCancellable>()
+
     init(pane: TerminalPane) {
         self.pane = pane
         super.init(frame: .zero)
@@ -577,6 +585,7 @@ final class TerminalHostView: NSView {
         guard let snapshot = pane.captureScrollbackSnapshot() else {
             return
         }
+        currentSnapshot = snapshot
 
         let font = pane.font
         let theme = TerminalColorTheme.theme(
@@ -660,6 +669,17 @@ final class TerminalHostView: NSView {
             frame: paddedBounds(),
             scrollbackView: webView
         )
+        // Re-lay the frozen buffer when the type changes underneath it.
+        // Without this the overlay keeps the metrics it opened with, so a
+        // zoom leaves frozen cells misaligned against the live ones behind.
+        // Only the size can change here — the colour theme is fixed.
+        pane.fontSizePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.applySettingsToScrollback()
+            }
+            .store(in: &scrollbackCancellables)
+
         overlay.autoresizingMask = []
         // Mount the overlay above the drag-highlight view so, while
         // scrollback is open, the overlay's ScrollbackDropWebView intercepts
@@ -704,6 +724,8 @@ final class TerminalHostView: NSView {
         overlay.scrollbackView.teardown()
         overlay.removeFromSuperview()
         scrollbackOverlay = nil
+        currentSnapshot = nil
+        scrollbackCancellables.removeAll()
         sendButtonStateCancellables.removeAll()
         if paneKind == .session {
             TerminalPanes.shared.setSessionPaneScrollbackActive(false)
@@ -716,6 +738,22 @@ final class TerminalHostView: NSView {
     ///
     /// The reason text is escaped before interpolation so wording that
     /// contains an apostrophe can never break the inline script.
+    /// Render the frozen buffer again against the current type.
+    private func applySettingsToScrollback() {
+        guard let overlay = scrollbackOverlay,
+              let snapshot = currentSnapshot else { return }
+        let settings = SettingsManager.shared.settings
+        overlay.reRender(
+            snapshot: snapshot,
+            theme: TerminalColorTheme.theme(
+                named: settings.terminalColorThemeName
+            ),
+            fontFamily: pane.font.fontName,
+            fontSize: pane.fontSize,
+            textEntry: settings.textEntry.jsPayload
+        )
+    }
+
     private func refreshSendButtonState() {
         guard let overlay = scrollbackOverlay else { return }
         let target = pane.sendToClaudeTarget
