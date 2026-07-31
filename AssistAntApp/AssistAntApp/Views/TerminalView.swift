@@ -758,102 +758,57 @@ final class TerminalHostView: NSView {
     /// on cancel.
     private func showDismissConfirmation() {
         guard let overlay = scrollbackOverlay, let window else { return }
-        let count = overlay.scrollbackView.notes.count
-        SheetAlert.confirm(
+        overlay.confirmDiscardNotes(
             in: window,
-            message: "Discard scrollback notes?",
-            detail: "You have \(count) unsaved "
-                + "note\(count == 1 ? "" : "s"). "
-                + "They will be lost if you exit scrollback.",
-            onConfirm: { [weak self] in self?.dismissScrollback() },
+            onDiscard: { [weak self] in self?.dismissScrollback() },
             onCancel: { [weak self] in self?.requestFocus() }
         )
     }
 
-    /// Confirm discarding unsaved text in the new-note form. Mirrors
-    /// Galaxy `showDiscardNoteFormConfirmation`.
     private func showDiscardNoteFormConfirmation() {
         guard let overlay = scrollbackOverlay, let window else { return }
-        SheetAlert.confirm(
-            in: window,
-            message: "Discard note?",
-            detail: "You have unsaved text in the note form. "
-                + "It will be lost if you dismiss.",
-            onConfirm: {
-                overlay.scrollbackView.webView.evaluateJavaScript(
-                    "ScrollbackManager.notes.forceDiscardForm()"
-                )
-            },
-            onCancel: { [weak self] in self?.requestFocus() }
-        )
+        overlay.confirmDiscardNoteForm(in: window) { [weak self] in
+            self?.requestFocus()
+        }
     }
 
-    /// Confirm discarding unsaved changes to a note being edited.
-    /// Mirrors Galaxy `showDiscardNoteEditConfirmation`.
     private func showDiscardNoteEditConfirmation() {
         guard let overlay = scrollbackOverlay, let window else { return }
-        SheetAlert.confirm(
-            in: window,
-            message: "Discard changes?",
-            detail: "You have unsaved changes to this note. "
-                + "They will be lost if you cancel editing.",
-            onConfirm: {
-                overlay.scrollbackView.webView.evaluateJavaScript(
-                    "ScrollbackManager.notes.forceDiscardEdit()"
-                )
-            },
-            onCancel: { [weak self] in self?.requestFocus() }
-        )
+        overlay.confirmDiscardNoteEdit(in: window) { [weak self] in
+            self?.requestFocus()
+        }
     }
 
-    /// Confirm replacing an unsaved note form with a fresh drag
-    /// selection. Mirrors Galaxy `showDragReplaceNoteConfirmation`.
     private func showDragReplaceNoteConfirmation(
         startLine: Int, endLine: Int
     ) {
         guard let overlay = scrollbackOverlay, let window else { return }
-        SheetAlert.confirm(
-            in: window,
-            message: "Discard note?",
-            detail: "You have unsaved text in the note form. "
-                + "It will be lost if you select different "
-                + "lines.",
-            onConfirm: {
-                overlay.scrollbackView.webView.evaluateJavaScript(
-                    "ScrollbackManager.notes"
-                    + ".showSelectionToolbar("
-                    + "\(startLine), \(endLine))"
-                )
-            },
-            onCancel: {
-                overlay.scrollbackView.webView.evaluateJavaScript(
-                    "ScrollbackManager.notes.focusForm()"
-                )
-            }
+        overlay.confirmReplaceSelection(
+            in: window, startLine: startLine, endLine: endLine
         )
     }
+
+    private func showSendWithUnsavedCommentConfirmation() {
+        guard let overlay = scrollbackOverlay, let window else { return }
+        overlay.confirmSendWithUnsavedComment(in: window) { [weak self] in
+            self?.requestFocus()
+        }
+    }
+
+    /// Confirm discarding unsaved text in the new-note form. Mirrors
+    /// Galaxy `showDiscardNoteFormConfirmation`.
+
+    /// Confirm discarding unsaved changes to a note being edited.
+    /// Mirrors Galaxy `showDiscardNoteEditConfirmation`.
+
+    /// Confirm replacing an unsaved note form with a fresh drag
+    /// selection. Mirrors Galaxy `showDragReplaceNoteConfirmation`.
 
     /// Confirm sending when an open note form or in-progress edit still
     /// holds comment text that Send would drop — only committed notes
     /// ship. On confirm, force the send past the JS guard; the open
     /// comment is discarded as teardown destroys the web view. Mirrors
     /// Galaxy `showSendWithUnsavedCommentConfirmation`.
-    private func showSendWithUnsavedCommentConfirmation() {
-        guard let overlay = scrollbackOverlay, let window else { return }
-        SheetAlert.confirm(
-            in: window,
-            message: "Send without unsaved comment?",
-            detail: "You have unsaved text in a comment that "
-                + "won't be included. It will be lost if you send.",
-            confirm: "Send",
-            onConfirm: {
-                overlay.scrollbackView.webView.evaluateJavaScript(
-                    "ScrollbackManager.notes.sendToClaude(true)"
-                )
-            },
-            onCancel: { [weak self] in self?.requestFocus() }
-        )
-    }
 
     // MARK: - File drag-and-drop (bracketed paste)
 
@@ -868,10 +823,15 @@ final class TerminalHostView: NSView {
         didSet { dragHighlightView?.isHighlighted = isReceivingDrag }
     }
 
-    /// Drops are accepted only while the hosted pane is accepting input —
-    /// for the session pane, while the embedded session is running.
+    /// Drops are accepted only while the hosted pane belongs to the selected
+    /// session and is willing to take them — for the session pane, while the
+    /// embedded session is running.
+    ///
+    /// The session half was lost when this was ported and is restored here:
+    /// with one session it can never be false, but a host shared with a
+    /// multi-session app must not register a hidden pane as a drop target.
     private var canAcceptDrop: Bool {
-        pane.isAcceptingInput
+        isActiveSession && pane.acceptsFileDrops
     }
 
     /// Register for file drops only while running; unregister otherwise so a

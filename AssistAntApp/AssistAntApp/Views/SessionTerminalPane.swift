@@ -59,7 +59,27 @@ final class SessionTerminalPane: TerminalPane {
 
     func reassertFollowIfIntended() { backend.reassertFollowIfIntended() }
 
-    var isAcceptingInput: Bool { controller.state == .running }
+    var acceptsFileDrops: Bool { controller.state == .running }
+
+    var paneKind: TerminalPaneKind { .session }
+
+    // MARK: - Wired but unused here
+
+    /// Present so adopting the behavior later is supplying a closure rather
+    /// than threading a new member through the protocol and both panes. This
+    /// app renders no bell today, so nothing assigns it.
+    var onBell: (() -> Void)?
+
+    /// Present for the same reason. Scroll-to-enter-scrollback is off here —
+    /// nothing assigns this, so a scroll-up is never consumed and ordinary
+    /// scrolling proceeds.
+    var onScrollUp: ((NSEvent) -> Bool)?
+
+    /// Answered honestly rather than stubbed false: the engine knows, and a
+    /// truthful answer is what lets scroll-to-enter be switched on here
+    /// without revisiting this file.
+    var hasScrollbackContent: Bool { backend.hasScrollbackContent }
+
 
     // MARK: - Font zoom
 

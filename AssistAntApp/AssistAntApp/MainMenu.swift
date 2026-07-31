@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 
 /// Builds and manages the application's menu bar (the menu strip at the top
 /// of the screen). Programmatic NSMenu construction, mirroring Galaxy's pattern

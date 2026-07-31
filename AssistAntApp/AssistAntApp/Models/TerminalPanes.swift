@@ -2,12 +2,6 @@ import AppKit
 import Combine
 import Galactic
 
-/// Which of the Terminal tab's two panes a host is showing.
-enum TerminalPaneKind {
-    case session
-    case shell
-}
-
 /// Coordinator for the Terminal tab's panes — the registries that need to
 /// reach across panes without either pane knowing about the other.
 ///
