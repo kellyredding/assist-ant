@@ -582,30 +582,18 @@ final class TerminalHostView: NSView {
     /// terminal buffer. Mirrors Galaxy `createScrollback` collapsed to the
     /// single surface (no isActiveSurface, no find, no timeline).
     private func createScrollback(initialScrollLine: Int) {
-        guard let snapshot = pane.captureScrollbackSnapshot() else {
-            return
-        }
-        currentSnapshot = snapshot
+        guard let opened = ScrollbackFactory.open(
+            pane: pane,
+            theme: TerminalColorTheme.theme(
+                named: SettingsManager.shared.settings.terminalColorThemeName
+            ),
+            textEntry: SettingsManager.shared.settings.textEntry.jsPayload,
+            initialScrollLine: initialScrollLine
+        ) else { return }
 
-        let font = pane.font
-        let theme = TerminalColorTheme.theme(
-            named: SettingsManager.shared.settings.terminalColorThemeName
-        )
-        let html = ScrollbackHTMLRenderer.render(
-            snapshot: snapshot,
-            theme: theme,
-            fontFamily: font.fontName,
-            fontSize: font.pointSize,
-            cellHeight: pane.cellHeight,
-            textEntry: SettingsManager.shared.settings.textEntry.jsPayload
-        )
+        currentSnapshot = opened.snapshot
+        let webView = opened.webView
 
-        let webView = ScrollbackWebView(
-            frame: pane.view.bounds,
-            html: html,
-            initialScrollLine: initialScrollLine,
-            backgroundColor: theme.backgroundColorValue
-        )
         webView.onDismiss = { [weak self] in
             self?.dismissScrollback()
         }
