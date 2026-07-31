@@ -65,15 +65,23 @@ final class SessionTerminalPane: TerminalPane {
 
     // MARK: - Wired but unused here
 
-    /// Present so adopting the behavior later is supplying a closure rather
-    /// than threading a new member through the protocol and both panes. This
-    /// app renders no bell today, so nothing assigns it.
-    var onBell: (() -> Void)?
+    /// Forwarded to the engine so adopting bells here is genuinely supplying a
+    /// closure. Nothing assigns it today, so bells go nowhere — but the path
+    /// exists, which storage alone did not: a stored property would have
+    /// accepted a closure and then never called it, because nothing carried the
+    /// engine's callback to it.
+    var onBell: (() -> Void)? {
+        get { backend.onBell }
+        set { backend.onBell = newValue }
+    }
 
-    /// Present for the same reason. Scroll-to-enter-scrollback is off here —
+    /// Forwarded for the same reason. Scroll-to-enter-scrollback is off here —
     /// nothing assigns this, so a scroll-up is never consumed and ordinary
     /// scrolling proceeds.
-    var onScrollUp: ((NSEvent) -> Bool)?
+    var onScrollUp: ((NSEvent) -> Bool)? {
+        get { backend.onScrollUp }
+        set { backend.onScrollUp = newValue }
+    }
 
     /// Answered honestly rather than stubbed false: the engine knows, and a
     /// truthful answer is what lets scroll-to-enter be switched on here
