@@ -23,7 +23,10 @@ struct ShellPaneView: View {
             // `.equatable()` opts into FocusableTerminalView's Equatable
             // conformance so SwiftUI skips updateNSView when neither the pane
             // nor its active state changed.
-            FocusableTerminalView(pane: pane, isActive: isActive)
+            FocusableTerminalView(
+                pane: pane,
+                isActiveSession: true,
+                isVisibleSurface: isActive)
                 .equatable()
         }
     }

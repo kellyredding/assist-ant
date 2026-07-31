@@ -27,7 +27,11 @@ struct SessionPaneView: View {
                     FocusableTerminalView(
                         pane: paneHolder.pane(
                             for: controller, backend: backend),
-                        isActive: navigator.selectedTab == .terminal)
+                        // One session here, so it is always the active one.
+                        // Visibility is purely the tab.
+                        isActiveSession: true,
+                        isVisibleSurface:
+                            navigator.selectedTab == .terminal)
                         .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,
