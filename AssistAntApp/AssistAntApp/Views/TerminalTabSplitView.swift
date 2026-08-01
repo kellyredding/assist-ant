@@ -18,7 +18,7 @@ struct TerminalTabSplitView: View {
     /// made once.
     private static let bounds = PaneSplitBounds.standard
 
-    private var isActive: Bool { navigator.selectedTab == .terminal }
+    private var isVisibleSurface: Bool { navigator.selectedTab == .terminal }
 
     var body: some View {
         GeometryReader { geo in
@@ -36,7 +36,7 @@ struct TerminalTabSplitView: View {
                     if let shellPane = state.shellPane {
                         ShellPaneView(
                             pane: shellPane,
-                            isActive: isActive,
+                            isVisibleSurface: isVisibleSurface,
                             onBarDragBegan: {
                                 state.split.beginDrag()
                             },

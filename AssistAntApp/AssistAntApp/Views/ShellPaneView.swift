@@ -6,7 +6,7 @@ import Galactic
 /// Built by `TerminalTabSplitView` while the split is open.
 struct ShellPaneView: View {
     @ObservedObject var pane: ShellTerminalPane
-    let isActive: Bool
+    let isVisibleSurface: Bool
     let onBarDragBegan: () -> Void
     let onBarDrag: (CGFloat) -> Void
     let onBarDragEnded: () -> Void
@@ -49,10 +49,10 @@ struct ShellPaneView: View {
                 surfaceEndings: .never,
                 sendBlockerChanges: sendBlockerChanges,
                 isActiveSession: true,
-                isVisibleSurface: isActive,
+                isVisibleSurface: isVisibleSurface,
                 // This app never hides a pane, so the tab ceasing to show is
                 // the whole question.
-                shouldResignFocus: !isActive)
+                shouldResignFocus: !isVisibleSurface)
                 .equatable()
         }
     }

@@ -79,12 +79,14 @@ struct SessionPaneView: View {
                 } else {
                     // Defensive: running with no backend should not happen,
                     // but never show an empty pane.
-                    placeholder(caption: "Starting…", showSpinner: true)
+                    AgentPlaceholderView(
+                        caption: "Starting…", showSpinner: true)
                 }
             case .starting:
-                placeholder(caption: "Starting…", showSpinner: true)
+                AgentPlaceholderView(
+                    caption: "Starting…", showSpinner: true)
             case .stopped:
-                stoppedView
+                StoppedAgentView { controller.startFresh() }
             case .failed(let reason):
                 AgentFailureView(reason: reason) {
                     controller.startFresh()
@@ -102,50 +104,6 @@ struct SessionPaneView: View {
         }
     }
 
-    // MARK: - Stopped
-
-    /// Stopped state: the calm placeholder plus a primary-colored Start
-    /// button. Start always begins a fresh session — a new id rather than a
-    /// resume of the stored one — so persona and CLAUDE.md edits are picked
-    /// up on the next run.
-    private var stoppedView: some View {
-        VStack(spacing: 16) {
-            placeholderGlyph
-
-            Text("Agent stopped")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            Button("Start") {
-                controller.startFresh()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        }
-    }
-
-    // MARK: - Placeholder building blocks
-
-    private var placeholderGlyph: some View {
-        Image(systemName: "terminal")
-            .font(.system(size: 44, weight: .light))
-            .foregroundStyle(.tertiary)
-    }
-
-    private func placeholder(
-        caption: String, showSpinner: Bool
-    ) -> some View {
-        VStack(spacing: 12) {
-            placeholderGlyph
-            if showSpinner {
-                ProgressView()
-                    .controlSize(.small)
-            }
-            Text(caption)
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-        }
-    }
 }
 
 /// Caches one `SessionTerminalPane` per `SessionPaneView` lifetime, returning
