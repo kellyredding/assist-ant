@@ -151,18 +151,19 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
     private func subscribeToSettings() {
         let mgr = SettingsManager.shared
 
-        // Re-apply the settings model on any change. `applySettings` covers
-        // the GalacticConfiguration members (font family, scrollback, theme);
-        // per-pane font size sits outside that model and is applied after.
-        // `dropFirst()` skips the initial value, which
+        // Re-apply the settings model on any change, handing it this pane's
+        // own size — the configured default is where a pane starts, not where
+        // it is now. `dropFirst()` skips the initial value, which
         // `applyInitialAppearance` pushes explicitly at start time.
         mgr.$settings
             .removeDuplicates()
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] settings in
-                self?.backend.applySettings(settings)
-                self?.applyFontSize()
+                guard let self else { return }
+                self.backend.applySettings(
+                    settings, fontSize: self.fontSize
+                )
             }
             .store(in: &cancellables)
 
@@ -188,8 +189,7 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
 
     private func applyInitialAppearance() {
         let settings = SettingsManager.shared.settings
-        backend.applySettings(settings)
-        applyFontSize()
+        backend.applySettings(settings, fontSize: fontSize)
         // Show the engine's native caret explicitly, as the session backend
         // does — a shell relies on the terminal to render its cursor.
         backend.setCaretHidden(false)
@@ -199,9 +199,10 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
         )
     }
 
-    /// Apply the per-pane font-size override to the backend.
-    /// `applySettings` installs the global default size; this replaces it
-    /// with this pane's own value.
+    /// Push this pane's own size to the backend, for the zoom gestures.
+    ///
+    /// Only the font — a zoom has no business rebuilding the colour table or
+    /// reallocating scrollback, which is why this is not a settings re-apply.
     func applyFontSize() {
         let family = SettingsManager.shared.settings.terminalFontFamily
         backend.setFont(

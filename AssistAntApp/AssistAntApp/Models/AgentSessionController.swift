@@ -481,19 +481,14 @@ final class AgentSessionController: ObservableObject {
         )
 
         // Apply settings + font. AppSettings conforms to
-        // GalacticConfiguration, so applySettings reads font family, size,
-        // scrollback, and the hardcoded theme straight from it.
+        // GalacticConfiguration, so applySettings reads the family, scrollback
+        // and theme straight from it; the size is this surface's own.
         let settings = SettingsManager.shared.settings
-        backend.applySettings(settings)
-        backend.setFont(
-            resolveTerminalFont(
-                family: settings.terminalFontFamily,
-                size: settings.defaultTerminalFontSize
-            )
-        )
         // Seed the transient zoom level from the persisted default so a
-        // session restart returns to it (transient-reset semantics).
+        // session restart returns to it (transient-reset semantics). Seeded
+        // before the apply below, which now takes the size it should use.
         terminalFontSize = settings.defaultTerminalFontSize
+        backend.applySettings(settings, fontSize: terminalFontSize)
         // Show the engine's native caret — it IS Claude's prompt
         // cursor (Claude does not self-render one, so hiding it left
         // no visible cursor). Shape and blink come from settings; their
@@ -512,17 +507,17 @@ final class AgentSessionController: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] settings in
-                guard let backend = self?.backend else { return }
-                backend.applySettings(settings)
-                backend.setFont(
-                    resolveTerminalFont(
-                        family: settings.terminalFontFamily,
-                        size: settings.defaultTerminalFontSize
-                    )
+                guard let self, let backend = self.backend else { return }
+                // The size stays this surface's own. Changing the configured
+                // default used to overwrite the live zoom here, on the reasoning
+                // that a settings change should become the new baseline — but
+                // that silently discarded a zoom the user had set, and it moved
+                // the cell geometry, which makes the agent's full-screen UI
+                // repaint. The default is where a surface starts, not where it
+                // is now.
+                backend.applySettings(
+                    settings, fontSize: self.terminalFontSize
                 )
-                // A settings-driven font change is the new transient
-                // baseline, so live zoom and the persisted default agree.
-                self?.terminalFontSize = settings.defaultTerminalFontSize
                 // Cursor rides the same stream: applySettings covers only
                 // the GalacticConfiguration members, so shape and blink
                 // need their own call to take effect without a restart.
