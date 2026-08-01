@@ -2,15 +2,6 @@ import AppKit
 import Combine
 import Galactic
 
-/// Pair wrapper over (style, blink) so Combine can dedupe the two as a single
-/// unit. Without it, independent subscriptions on `terminalCursorStyle` and
-/// `terminalCursorBlink` would each fire `applyCursor` on init; this lets one
-/// `.removeDuplicates()` guard the combined signal.
-private struct ShellCursorConfig: Hashable {
-    let style: ShellCursorStyle
-    let blink: Bool
-}
-
 /// Non-Claude interactive shell pane. Runs the user's login shell (`-il`)
 /// in their home directory with the Claude context variables stripped.
 ///
@@ -22,8 +13,8 @@ private struct ShellCursorConfig: Hashable {
 /// Ported from Galaxy's pane of the same name, minus its bell pipeline
 /// (AssistAnt has no bell subsystem to route into) and its cross-session
 /// focus-event suppression (no analog with a single session).
-final class ShellTerminalPane: TerminalPane, ObservableObject {
-    private let backend: TerminalBackend
+final class ShellTerminalPane: BackendBackedPane, ObservableObject {
+    let backend: TerminalBackend
 
     /// The Claude session this pane sits beside — the Send-to-Claude target.
     /// A singleton here, where Galaxy holds a weak per-session reference.
@@ -38,7 +29,6 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     /// the owning container observes to tear the pane down.
     @Published private(set) var isRunning: Bool = false
 
-    var view: NSView { backend.view }
     var acceptsFileDrops: Bool { isRunning }
 
     var paneKind: TerminalPaneKind { .shell }
@@ -55,30 +45,7 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
         set { backend.onBell = newValue }
     }
 
-    /// Forwarded for the same reason. Scroll-to-enter-scrollback is off here —
-    /// nothing assigns this, so a scroll-up is never consumed and ordinary
-    /// scrolling proceeds.
-    var onScrollUp: ((NSEvent) -> Bool)? {
-        get { backend.onScrollUp }
-        set { backend.onScrollUp = newValue }
-    }
-
-    /// Answered honestly rather than stubbed false: the engine knows, and a
-    /// truthful answer is what lets scroll-to-enter be switched on here
-    /// without revisiting this file.
-    var hasScrollbackContent: Bool { backend.hasScrollbackContent }
-
-
     var onProcessExit: ((Int32) -> Void)?
-
-    var viewportRow: Int { backend.viewportRow }
-    func clearSelection() { backend.clearSelection() }
-
-    var font: NSFont { backend.font }
-    var cellHeight: CGFloat { backend.cellHeight }
-    func snapViewportToBottom() { backend.snapViewportToBottom() }
-
-    func redraw() { backend.redraw() }
 
     var fontSizePublisher: AnyPublisher<CGFloat, Never> {
         $fontSize.eraseToAnyPublisher()
@@ -133,24 +100,6 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
         backend.terminateProcess(signal: SIGHUP)
     }
 
-    // MARK: - Terminal surface
-
-    func captureScrollbackSnapshot() -> ScrollbackSnapshot? {
-        backend.captureScrollbackSnapshot()
-    }
-
-    func send(text: String, asPaste: Bool) {
-        backend.send(text: text, asPaste: asPaste)
-    }
-
-    func focus() { backend.focus() }
-
-    func trimBuffer() { backend.trimBuffer() }
-
-    func reflowBuffer() { backend.reflowBuffer() }
-
-    func reassertFollowIfIntended() { backend.reassertFollowIfIntended() }
-
     // MARK: - Send to Claude
 
     /// The shell pane routes scrollback sends into the Claude session's
@@ -181,35 +130,10 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
         )
     }
 
-    // MARK: - Font size
-
-    func increaseFontSize() {
-        let step = AppSettings.terminalFontSizeStep
-        let range = AppSettings.terminalFontSizeRange
-        fontSize = min(fontSize + step, range.upperBound)
-        applyPerPaneFontSize()
-    }
-
-    func decreaseFontSize() {
-        let step = AppSettings.terminalFontSizeStep
-        let range = AppSettings.terminalFontSizeRange
-        fontSize = max(fontSize - step, range.lowerBound)
-        applyPerPaneFontSize()
-    }
-
-    /// Reset to the global default terminal font size, so View ▸ Default
-    /// behaves the same in either pane.
-    func resetFontSize() {
-        fontSize = SettingsManager.shared.settings.defaultTerminalFontSize
-        applyPerPaneFontSize()
-    }
-
-    var canIncreaseFontSize: Bool {
-        fontSize < AppSettings.terminalFontSizeRange.upperBound
-    }
-
-    var canDecreaseFontSize: Bool {
-        fontSize > AppSettings.terminalFontSizeRange.lowerBound
+    /// Where View ▸ Default returns to. The pane's own size is per-instance
+    /// and in memory; this is the configured one every pane starts from.
+    var defaultFontSize: CGFloat {
+        SettingsManager.shared.settings.defaultTerminalFontSize
     }
 
     // MARK: - Private
@@ -238,7 +162,7 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] settings in
                 self?.backend.applySettings(settings)
-                self?.applyPerPaneFontSize()
+                self?.applyFontSize()
             }
             .store(in: &cancellables)
 
@@ -247,7 +171,7 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
         // settings drive the session pane's caret.
         mgr.$settings
             .map {
-                ShellCursorConfig(
+                TerminalCursorConfig(
                     style: $0.terminalCursorStyle,
                     blink: $0.terminalCursorBlink
                 )
@@ -265,7 +189,7 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     private func applyInitialAppearance() {
         let settings = SettingsManager.shared.settings
         backend.applySettings(settings)
-        applyPerPaneFontSize()
+        applyFontSize()
         // Show the engine's native caret explicitly, as the session backend
         // does — a shell relies on the terminal to render its cursor.
         backend.setCaretHidden(false)
@@ -278,7 +202,7 @@ final class ShellTerminalPane: TerminalPane, ObservableObject {
     /// Apply the per-pane font-size override to the backend.
     /// `applySettings` installs the global default size; this replaces it
     /// with this pane's own value.
-    private func applyPerPaneFontSize() {
+    func applyFontSize() {
         let family = SettingsManager.shared.settings.terminalFontFamily
         backend.setFont(
             resolveTerminalFont(family: family, size: fontSize)

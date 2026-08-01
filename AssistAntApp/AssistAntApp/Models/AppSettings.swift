@@ -73,8 +73,12 @@ struct AppSettings: Codable, Equatable {
 
     // Constraints for the Terminal settings tab fields (the tab clamps typed
     // values into these ranges).
-    static let terminalFontSizeRange: ClosedRange<CGFloat> = 10...24
-    static let terminalFontSizeStep: CGFloat = 1
+    // The zoom window every terminal surface shares, derived from it rather
+    // than restated so a pane and the settings that bound it cannot disagree.
+    static let terminalFontSizeRange: ClosedRange<CGFloat> =
+        TerminalFontSizeBounds.standard.range
+    static let terminalFontSizeStep: CGFloat =
+        TerminalFontSizeBounds.standard.step
     static let terminalScrollbackRange: ClosedRange<Int> = 500...100_000
 
     /// Bounds on the shell pane's share of the Terminal tab — the window the
