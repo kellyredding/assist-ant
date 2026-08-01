@@ -516,6 +516,15 @@ extension MenuActions {
             .map { _ in () }
             .eraseToAnyPublisher()
     }
+
+    /// The ⌘S notification above, as a terminal host consumes it. Same shape
+    /// and same reasoning as the find gesture beside it.
+    static var scrollbackActivations: ScrollbackActivations {
+        NotificationCenter.default
+            .publisher(for: .enterScrollback)
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
 }
 
 // MARK: - Menu validation

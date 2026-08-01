@@ -35,15 +35,24 @@ struct ShellPaneView: View {
             // nor its active state changed.
             FocusableTerminalView(
                 pane: pane,
-                isActiveSession: true,
-                isVisibleSurface: isActive,
-                paneRegistry: TerminalPanes.shared,
-                findActivations: MenuActions.findActivations,
+                // No timeline here, so there is nowhere to record into.
+                timelineRecorder: nil,
                 settings: SettingsManager.shared,
+                findActivations: MenuActions.findActivations,
+                scrollbackActivations: MenuActions.scrollbackActivations,
+                // No turns happen in a shell, so there is nothing here to
+                // interrupt.
+                turnInterrupt: nil,
+                paneRegistry: TerminalPanes.shared,
                 // A shell's own exit does not close its scrollback today, and
                 // the agent stopping is not this surface's ending either.
                 surfaceEndings: .never,
-                sendBlockerChanges: sendBlockerChanges)
+                sendBlockerChanges: sendBlockerChanges,
+                isActiveSession: true,
+                isVisibleSurface: isActive,
+                // This app never hides a pane, so the tab ceasing to show is
+                // the whole question.
+                shouldResignFocus: !isActive)
                 .equatable()
         }
     }

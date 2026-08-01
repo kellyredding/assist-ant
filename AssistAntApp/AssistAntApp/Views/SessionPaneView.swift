@@ -51,16 +51,30 @@ struct SessionPaneView: View {
                     FocusableTerminalView(
                         pane: paneHolder.pane(
                             for: controller, backend: backend),
+                        // No timeline here, so there is nowhere to record
+                        // into and nothing is recorded. The describing stays
+                        // in shared code either way.
+                        timelineRecorder: nil,
+                        settings: SettingsManager.shared,
+                        findActivations: MenuActions.findActivations,
+                        scrollbackActivations:
+                            MenuActions.scrollbackActivations,
+                        // Nothing here reports a turn, so there is nothing to
+                        // record when one is cut short.
+                        turnInterrupt: nil,
+                        paneRegistry: TerminalPanes.shared,
+                        surfaceEndings: surfaceEndings,
+                        sendBlockerChanges: sendBlockerChanges,
                         // One session here, so it is always the active one.
                         // Visibility is purely the tab.
                         isActiveSession: true,
                         isVisibleSurface:
                             navigator.selectedTab == .terminal,
-                        paneRegistry: TerminalPanes.shared,
-                        findActivations: MenuActions.findActivations,
-                        settings: SettingsManager.shared,
-                        surfaceEndings: surfaceEndings,
-                        sendBlockerChanges: sendBlockerChanges)
+                        // This app never hides a pane, so the tab ceasing to
+                        // show is the whole question — there is no
+                        // deselection to hang it off.
+                        shouldResignFocus:
+                            navigator.selectedTab != .terminal)
                         .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,
