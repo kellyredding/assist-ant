@@ -174,40 +174,32 @@ final class SplitState: ObservableObject {
     }
 }
 
-/// Pub/sub hub for Terminal-tab menu commands, and the home of the ⌘W
-/// interceptor. Galaxy keys each command by session id so only the active
-/// session's split responds; with one embedded session the signal carries no
-/// payload.
-final class TerminalTabCommands {
-    static let shared = TerminalTabCommands()
-
-    let openShell = PassthroughSubject<Void, Never>()
-    let focusSession = PassthroughSubject<Void, Never>()
-    let closeFocusedShell = PassthroughSubject<Void, Never>()
+/// App-wide ⌘W interceptor for the Terminal tab's shell pane.
+///
+/// Consumes ⌘W only when focus sits in the shell pane. Every other ⌘W passes
+/// through to Close Window unchanged. The command carries no session — there is
+/// one — so it addresses the only split there is.
+///
+/// Still app-side because the walk below names this app's host and pane types.
+/// It moves once those do; the command it sends, and the ⌘W match itself,
+/// already come from the engine.
+final class ShellCloseKeyMonitor {
+    static let shared = ShellCloseKeyMonitor()
 
     /// Held for the life of the app so the monitor is never torn down.
-    private var cmdWMonitor: Any?
+    private var monitor: Any?
 
     private init() {
-        installCmdWMonitor()
+        install()
     }
 
-    /// Intercept ⌘W app-wide, consuming it only when the first responder sits
-    /// inside a host showing a shell pane — in which case it closes that
-    /// shell. Every other ⌘W passes through to Close Window, unchanged.
-    private func installCmdWMonitor() {
-        cmdWMonitor = NSEvent.addLocalMonitorForEvents(
+    private func install() {
+        monitor = NSEvent.addLocalMonitorForEvents(
             matching: .keyDown
-        ) { [weak self] event in
-            guard let self = self else { return event }
-            let modsOfInterest: NSEvent.ModifierFlags = [
-                .command, .option, .control, .shift,
-            ]
-            let mods = event.modifierFlags.intersection(modsOfInterest)
-            guard mods == .command else { return event }
-            guard
-                event.charactersIgnoringModifiers?.lowercased() == "w"
-            else { return event }
+        ) { event in
+            guard TerminalTabKeyCommand.isCloseWindow(event) else {
+                return event
+            }
 
             // With the find bar up, the key window is its panel and the walk
             // below finds no host — which would quietly turn ⌘W into "close
@@ -216,7 +208,7 @@ final class TerminalTabCommands {
             if FindBarPanelController.shared.isPresenting {
                 guard TerminalPanes.shared.lastFocusedPaneKind == .shell
                 else { return event }
-                self.closeFocusedShell.send(())
+                TerminalTabCommands.shared.closeFocusedShell.send(nil)
                 return nil
             }
 
@@ -228,7 +220,7 @@ final class TerminalTabCommands {
             while let v = view {
                 if let host = v as? TerminalHostView,
                    host.pane is ShellTerminalPane {
-                    self.closeFocusedShell.send(())
+                    TerminalTabCommands.shared.closeFocusedShell.send(nil)
                     return nil  // consume the event
                 }
                 view = v.superview

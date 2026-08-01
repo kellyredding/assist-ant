@@ -82,6 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // subclassed, so swizzle the base NSView method. Mirrors Galaxy.
         NSView.enableClickThrough()
 
+        // Install the Terminal tab's ⌘W interceptor at launch rather than
+        // lazily on first body evaluation. The monitor has to be in place
+        // before the user can possibly press ⌘W in a focused shell pane.
+        _ = ShellCloseKeyMonitor.shared
+
         AssistAntPaths.ensureDirectories()
 
         // Install/refresh app-owned workspace files (CLAUDE.md + agent skills)

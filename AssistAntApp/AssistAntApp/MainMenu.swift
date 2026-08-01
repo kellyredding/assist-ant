@@ -461,13 +461,13 @@ final class MenuActions: NSObject {
 
     /// Terminal ▸ Focus Session Pane (⌘T).
     @objc func focusSessionPane(_ sender: Any?) {
-        TerminalTabCommands.shared.focusSession.send(())
+        TerminalTabCommands.shared.focusSession.send(nil)
     }
 
     /// Terminal ▸ Open Shell Pane (⌘⇧T). Opens the split, or focuses the
     /// shell when one is already open.
     @objc func openShellPane(_ sender: Any?) {
-        TerminalTabCommands.shared.openShell.send(())
+        TerminalTabCommands.shared.openShell.send(nil)
     }
 
     /// Agent ▸ Clear / Compact session. Each trims the terminal scrollback
