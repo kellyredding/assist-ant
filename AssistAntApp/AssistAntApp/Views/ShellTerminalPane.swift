@@ -30,7 +30,7 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
 
     /// True while the shell process is running. Flips to false on exit, which
     /// the owning container observes to tear the pane down.
-    @Published private(set) var isRunning: Bool = false
+    @Published var isRunning: Bool = false
 
 
     var paneKind: TerminalPaneKind { .shell }
@@ -73,22 +73,13 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
 
     /// Launch the user's login shell in the resolved cwd.
     func start() {
-        let shell = ShellEnvironment.userLoginShell()
-        let cwd = ShellLauncher.resolveCwd()
-        let env = ShellLauncher.buildEnvironment()
-
-        applyCurrentSettings()
-
-        backend.startProcess(
-            executable: shell,
-            args: ["-il"],
-            environment: env,
-            execName: (shell as NSString).lastPathComponent,
-            currentDirectory: cwd
+        startShell(
+            ShellLaunch(
+                executable: ShellEnvironment.userLoginShell(),
+                workingDirectory: ShellLauncher.resolveCwd(),
+                environment: ShellLauncher.buildEnvironment()
+            )
         )
-
-        isRunning = true
-        NSLog("ShellTerminalPane: Started %@ in %@", shell, cwd)
     }
 
     // MARK: - Send to Claude
@@ -124,12 +115,6 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
     // MARK: - Private
 
     private func wireBackend() {
-        backend.onProcessTerminated = { [weak self] exitCode in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.isRunning = false
-                self.onProcessExit?(exitCode)
-            }
-        }
+        forwardProcessExit()
     }
 }
