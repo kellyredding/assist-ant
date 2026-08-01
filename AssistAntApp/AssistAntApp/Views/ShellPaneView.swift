@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import Galactic
 
@@ -10,6 +11,14 @@ struct ShellPaneView: View {
     let onBarDrag: (CGFloat) -> Void
     let onBarDragEnded: () -> Void
     let onBarDoubleClick: () -> Void
+
+    /// What can stop the agent beside this shell being written to. The shell
+    /// sends into that agent, so the shell's own state is not the question.
+    private var sendBlockerChanges: SendBlockerChanges {
+        AgentSessionController.shared.$state
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +38,12 @@ struct ShellPaneView: View {
                 isActiveSession: true,
                 isVisibleSurface: isActive,
                 paneRegistry: TerminalPanes.shared,
-                findActivations: MenuActions.findActivations)
+                findActivations: MenuActions.findActivations,
+                settings: SettingsManager.shared,
+                // A shell's own exit does not close its scrollback today, and
+                // the agent stopping is not this surface's ending either.
+                surfaceEndings: .never,
+                sendBlockerChanges: sendBlockerChanges)
                 .equatable()
         }
     }

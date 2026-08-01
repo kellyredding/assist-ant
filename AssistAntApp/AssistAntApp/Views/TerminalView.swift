@@ -40,11 +40,24 @@ struct FocusableTerminalView: NSViewRepresentable, Equatable {
     /// terminal's.
     let findActivations: FindActivations
 
+    /// Where the host reads configuration, and hears that it changed.
+    let settings: GalacticConfigurationSource
+
+    /// Told when the agent behind this surface has stopped, so anything left
+    /// open over it can be closed.
+    let surfaceEndings: SurfaceEndings
+
+    /// Told when something that could block sending has changed.
+    let sendBlockerChanges: SendBlockerChanges
+
     func makeNSView(context: Context) -> TerminalHostView {
         TerminalHostView(
             pane: pane,
             paneRegistry: paneRegistry,
-            findActivations: findActivations
+            findActivations: findActivations,
+            settings: settings,
+            surfaceEndings: surfaceEndings,
+            sendBlockerChanges: sendBlockerChanges
         )
     }
 
@@ -168,6 +181,15 @@ final class TerminalHostView: NSView {
     /// Told each time the user asks to find within this surface.
     private let findActivations: FindActivations
 
+    /// Where this host reads configuration, and hears that it changed.
+    private let settings: GalacticConfigurationSource
+
+    /// Told when whatever was behind this surface has ended.
+    private let surfaceEndings: SurfaceEndings
+
+    /// Told when something that could block sending has changed.
+    private let sendBlockerChanges: SendBlockerChanges
+
     /// Tokens for key-window transitions anywhere in the app. The find bar
     /// is its own window, so it taking or losing key is not a
     /// first-responder change in ours and the KVO below would never see it —
@@ -203,17 +225,25 @@ final class TerminalHostView: NSView {
     init(
         pane: TerminalPane,
         paneRegistry: any TerminalPaneRegistry,
-        findActivations: FindActivations
+        findActivations: FindActivations,
+        settings: GalacticConfigurationSource,
+        surfaceEndings: SurfaceEndings,
+        sendBlockerChanges: SendBlockerChanges
     ) {
         self.pane = pane
         self.paneRegistry = paneRegistry
         self.findActivations = findActivations
+        self.settings = settings
+        self.surfaceEndings = surfaceEndings
+        self.sendBlockerChanges = sendBlockerChanges
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
         observeFindActivation()
         observeWindowBecameKey()
         observeKeyWindowChanges()
+        observeSurfaceEnding()
+        observeAppTermination()
         setupKeyEventMonitor()
     }
 
@@ -517,6 +547,32 @@ final class TerminalHostView: NSView {
         }
     }
 
+    /// Close an open scrollback when the agent behind it stops.
+    ///
+    /// New behaviour here: the overlay used to stay up over a surface with
+    /// nothing left behind it, offering to send notes nowhere. No note
+    /// confirmation on this path for that reason — there is no longer anything
+    /// to send them to, so asking would offer a choice that cannot be taken.
+    ///
+    /// Deliberately no `receive(on:)`; the reason is recorded on the signal.
+    private func observeSurfaceEnding() {
+        surfaceEndings
+            .sink { [weak self] in
+                self?.dismissScrollback()
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Close an open scrollback as the app quits rather than letting the
+    /// surface vanish with notes still in it.
+    private func observeAppTermination() {
+        ApplicationLifecycle.willTerminate
+            .sink { [weak self] in
+                self?.dismissScrollback()
+            }
+            .store(in: &cancellables)
+    }
+
     /// Observe the app's find gesture, however it carries it.
     private func observeFindActivation() {
         findActivations
@@ -631,12 +687,13 @@ final class TerminalHostView: NSView {
     /// be absent here too, which is how the shared find panel came to be
     /// presentable from a tab the user had left.
     private func createScrollback(initialScrollLine: Int) {
+        let configuration = settings.configuration
         guard let opened = ScrollbackFactory.open(
             pane: pane,
             theme: TerminalColorTheme.theme(
-                named: SettingsManager.shared.settings.terminalColorThemeName
+                named: configuration.terminalColorThemeName
             ),
-            textEntry: SettingsManager.shared.settings.textEntry.jsPayload,
+            textEntry: configuration.textEntry.jsPayload,
             initialScrollLine: initialScrollLine
         ) else { return }
 
@@ -801,8 +858,7 @@ final class TerminalHostView: NSView {
     private func applyHostBackgroundColor() {
         TerminalHostBackground.apply(
             to: self,
-            themeNamed: SettingsManager.shared.settings
-                .terminalColorThemeName
+            themeNamed: settings.configuration.terminalColorThemeName
         )
     }
 
@@ -810,15 +866,15 @@ final class TerminalHostView: NSView {
     private func applySettingsToScrollback() {
         guard let overlay = scrollbackOverlay,
               let snapshot = currentSnapshot else { return }
-        let settings = SettingsManager.shared.settings
+        let configuration = settings.configuration
         overlay.reRender(
             snapshot: snapshot,
             theme: TerminalColorTheme.theme(
-                named: settings.terminalColorThemeName
+                named: configuration.terminalColorThemeName
             ),
             fontFamily: pane.font.fontName,
             fontSize: pane.fontSize,
-            textEntry: settings.textEntry.jsPayload
+            textEntry: configuration.textEntry.jsPayload
         )
     }
 
@@ -842,15 +898,16 @@ final class TerminalHostView: NSView {
         sendButtonStateCancellables.removeAll()
 
         // Both panes ultimately write into the agent's PTY, so both care
-        // whether it is running.
-        AgentSessionController.shared.$state
+        // whether it is there to write to. What counts as "there" is the app's
+        // to say, and it says so through this.
+        sendBlockerChanges
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.refreshSendButtonState() }
+            .sink { [weak self] in self?.refreshSendButtonState() }
             .store(in: &sendButtonStateCancellables)
 
         // Only the shell is additionally blocked by the agent pane's own
         // scrollback being frozen open.
-        if pane is ShellTerminalPane {
+        if paneKind == .shell {
             paneRegistry.sessionPaneScrollbackActivePublisher
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in self?.refreshSendButtonState() }

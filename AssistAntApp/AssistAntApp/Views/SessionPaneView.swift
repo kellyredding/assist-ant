@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import Galactic
 
@@ -9,6 +10,29 @@ struct SessionPaneView: View {
     @ObservedObject private var controller = AgentSessionController.shared
     @ObservedObject private var navigator = MainTabNavigator.shared
     @StateObject private var paneHolder = SessionPaneAdapterHolder()
+
+    /// The moment the agent behind this surface stops running.
+    ///
+    /// Mapped to a plain "still running or not" before deduplicating, because
+    /// the reasons it stopped are several and none of them change the answer.
+    /// The current value replays as `.running` — this view only exists in that
+    /// state — so the deduplicated stream starts closed and opens once.
+    private var surfaceEndings: SurfaceEndings {
+        controller.$state
+            .map { state in
+                if case .running = state { return false }
+                return true
+            }
+            .removeDuplicates()
+            .filter { $0 }
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    /// What can stop this agent being written to.
+    private var sendBlockerChanges: SendBlockerChanges {
+        controller.$state.map { _ in () }.eraseToAnyPublisher()
+    }
 
     var body: some View {
         ZStack {
@@ -33,7 +57,10 @@ struct SessionPaneView: View {
                         isVisibleSurface:
                             navigator.selectedTab == .terminal,
                         paneRegistry: TerminalPanes.shared,
-                        findActivations: MenuActions.findActivations)
+                        findActivations: MenuActions.findActivations,
+                        settings: SettingsManager.shared,
+                        surfaceEndings: surfaceEndings,
+                        sendBlockerChanges: sendBlockerChanges)
                         .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,
