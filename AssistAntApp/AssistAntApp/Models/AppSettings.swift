@@ -306,4 +306,13 @@ extension AppSettings: GalacticConfiguration {
     /// name falls back to the same default, so this is safe even across
     /// Galactic theme-catalog changes.
     var terminalColorThemeName: String { "galaxy-default" }
+
+    /// Scroll-up does not open the scrollback surface here.
+    ///
+    /// The agent terminal is scrolled to read what Claude just said, so a
+    /// gesture that swaps the live surface for a snapshot of it would fight
+    /// the most ordinary thing anyone does in this window. Answered as a value
+    /// rather than left out: the mechanism ships either way, so turning it on
+    /// is this line changing and nothing else.
+    var scrollToEnterScrollback: Bool { false }
 }
