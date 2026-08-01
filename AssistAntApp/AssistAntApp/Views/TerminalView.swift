@@ -179,7 +179,7 @@ final class TerminalHostView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
-        observeActivateFindNotification()
+        observeFindActivation()
         observeWindowBecameKey()
         observeKeyWindowChanges()
         setupKeyEventMonitor()
@@ -468,7 +468,7 @@ final class TerminalHostView: NSView {
         scrollbackObserver = NotificationCenter.default.addObserver(
             forName: .enterScrollback, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.enterScrollback()
+            self?.enterScrollbackFromMenu()
         }
     }
 
@@ -494,7 +494,7 @@ final class TerminalHostView: NSView {
     }
 
     /// Observe Edit ▸ Find (⌘F).
-    private func observeActivateFindNotification() {
+    private func observeFindActivation() {
         activateFindObserver = NotificationCenter.default.addObserver(
             forName: .activateFind, object: nil, queue: .main
         ) { [weak self] _ in
@@ -592,7 +592,7 @@ final class TerminalHostView: NSView {
     /// live viewport position, clear selection, and open the overlay
     /// there. Like Galaxy's menu path, an empty buffer is allowed — the
     /// user can still annotate what is currently visible.
-    private func enterScrollback() {
+    private func enterScrollbackFromMenu() {
         guard window != nil, scrollbackOverlay == nil else { return }
         guard window?.firstResponder === pane.view else { return }
         let scrollPosition = pane.viewportRow
