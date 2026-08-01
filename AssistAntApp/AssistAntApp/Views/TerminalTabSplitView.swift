@@ -13,13 +13,10 @@ struct TerminalTabSplitView: View {
     @ObservedObject private var navigator = MainTabNavigator.shared
     @StateObject private var state = SplitState()
 
-    /// Tightest allowed top-pane ratio. Below this the session pane is too
-    /// small to be useful, so a drag locks here rather than continuing.
-    private static let minRatio: CGFloat = 0.30
-
-    /// Loosest allowed top-pane ratio. Above this the shell is too small to
-    /// type into.
-    private static let maxRatio: CGFloat = 0.70
+    /// How far the divider may travel. The shared window, so the drag and the
+    /// configurable default cannot disagree about it — and so a change to it is
+    /// made once.
+    private static let bounds = PaneSplitBounds.standard
 
     private var isActive: Bool { navigator.selectedTab == .terminal }
 
@@ -41,22 +38,21 @@ struct TerminalTabSplitView: View {
                             pane: shellPane,
                             isActive: isActive,
                             onBarDragBegan: {
-                                state.beginDragPreview()
+                                state.split.beginDrag()
                             },
                             onBarDrag: { delta in
-                                state.updateDragPreview(
+                                state.split.updateDrag(
                                     cursorDeltaY: delta,
                                     totalHeight: totalHeight,
-                                    minRatio: Self.minRatio,
-                                    maxRatio: Self.maxRatio
+                                    bounds: Self.bounds
                                 )
                             },
                             onBarDragEnded: {
-                                state.commitDragPreview()
+                                state.split.commitDrag()
                             },
                             onBarDoubleClick: {
                                 withAnimation(.easeInOut(duration: 0.15)) {
-                                    state.ratio = Self.configuredTopRatio()
+                                    state.split.ratio = Self.configuredTopRatio()
                                 }
                             }
                         )
@@ -66,7 +62,7 @@ struct TerminalTabSplitView: View {
 
                 // Ghost line, shown only mid-drag. It tracks the cursor live
                 // so neither terminal buffer reflows until the drag commits.
-                if let preview = state.dragPreviewRatio,
+                if let preview = state.split.previewRatio,
                    state.shellPane != nil {
                     DragPreviewLineView(
                         shellPercentage: Int(
@@ -111,23 +107,18 @@ struct TerminalTabSplitView: View {
     }
 
     private func clampedTopHeight(totalHeight: CGFloat) -> CGFloat {
-        let clampedRatio = min(
-            max(state.ratio, Self.minRatio), Self.maxRatio
-        )
-        return totalHeight * clampedRatio
+        return totalHeight * state.split.clamped(to: Self.bounds)
     }
 
     /// Top-pane fraction derived from the configured default shell height.
     /// Clamped to the same window the drag enforces, so the setting can never
     /// disagree with live drag bounds. Used on shell open and on reset.
     static func configuredTopRatio() -> CGFloat {
-        let shellRatio = SettingsManager.shared.settings
-            .shellDefaultHeightRatio
-        let range = AppSettings.shellDefaultHeightRatioRange
-        let clampedShell = min(
-            max(shellRatio, range.lowerBound), range.upperBound
+        PaneSplitRatio.topRatio(
+            forBottomRatio: SettingsManager.shared.settings
+                .shellDefaultHeightRatio,
+            within: bounds
         )
-        return CGFloat(1.0 - clampedShell)
     }
 }
 
@@ -135,17 +126,11 @@ struct TerminalTabSplitView: View {
 /// Held as a `@StateObject` so it survives re-renders but is rebuilt cleanly
 /// if the view's identity changes.
 final class SplitState: ObservableObject {
-    /// Committed split ratio, driving the actual layout. Updated on drag
-    /// commit rather than on every cursor tick.
-    @Published var ratio: CGFloat = 0.5
-
-    /// Live drag-preview ratio, non-nil only while a drag is in progress.
-    /// The ghost line reads this; the panes stay at `ratio` until commit.
-    @Published var dragPreviewRatio: CGFloat?
-
-    /// Snapshot of `ratio` at drag start, so repeated updates compute from a
-    /// fixed base instead of compounding.
-    private var dragStartRatio: CGFloat?
+    /// Where the divider sits, committed and mid-drag.
+    ///
+    /// One published value rather than three properties kept in step by hand,
+    /// so every mutation of it announces itself to the view.
+    @Published var split = PaneSplitRatio()
 
     @Published var shellPane: ShellTerminalPane?
 
@@ -163,7 +148,7 @@ final class SplitState: ObservableObject {
         }
 
         pane.start()
-        ratio = TerminalTabSplitView.configuredTopRatio()
+        split.ratio = TerminalTabSplitView.configuredTopRatio()
         shellPane = pane
 
         // Focus the shell on open — the user just asked for it. Deliberately
@@ -186,65 +171,6 @@ final class SplitState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             TerminalPanes.shared.restoreFocus(kind: .session)
         }
-    }
-
-    /// Capture the current ratio as the drag baseline, on mouseDown.
-    /// `dragPreviewRatio` stays nil until the first movement so a click
-    /// without a drag never flashes the ghost line.
-    func beginDragPreview() {
-        dragStartRatio = ratio
-    }
-
-    /// Update the preview from the cursor's Y delta since drag start.
-    /// Dragging the bar up shrinks the session pane and grows the shell.
-    ///
-    /// Always computed from `dragStartRatio` rather than the current preview,
-    /// so each tick's delta doesn't stack on the previous frame's. Clamped to
-    /// the caller's window, so moving past a threshold locks at the boundary.
-    func updateDragPreview(
-        cursorDeltaY: CGFloat,
-        totalHeight: CGFloat,
-        minRatio: CGFloat,
-        maxRatio: CGFloat
-    ) {
-        guard totalHeight > 0, let startRatio = dragStartRatio else {
-            return
-        }
-        let newTop = (startRatio * totalHeight) - cursorDeltaY
-        let rawRatio = newTop / totalHeight
-        dragPreviewRatio = min(max(rawRatio, minRatio), maxRatio)
-    }
-
-    /// Commit the preview, applying the ratio in one step so both terminals
-    /// reflow once instead of on every drag tick. A click without a drag
-    /// leaves the committed ratio untouched.
-    func commitDragPreview() {
-        if let preview = dragPreviewRatio {
-            ratio = preview
-        }
-        dragStartRatio = nil
-        dragPreviewRatio = nil
-    }
-}
-
-/// Ghost line shown while the divider is being dragged: one thin line at the
-/// proposed divider, with a small label near the right edge. Both use
-/// `Color.primary`, which adapts to light and dark.
-struct DragPreviewLineView: View {
-    let shellPercentage: Int
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.85))
-            .overlay(
-                Text("Shell \(shellPercentage)%")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(Color.primary.opacity(0.85))
-                    .fixedSize()
-                    .padding(.trailing, 10)
-                    .offset(y: -14),
-                alignment: .trailing
-            )
     }
 }
 

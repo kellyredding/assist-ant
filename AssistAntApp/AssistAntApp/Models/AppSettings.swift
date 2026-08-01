@@ -77,10 +77,15 @@ struct AppSettings: Codable, Equatable {
     static let terminalFontSizeStep: CGFloat = 1
     static let terminalScrollbackRange: ClosedRange<Int> = 500...100_000
 
-    /// Bounds on the shell pane's share of the Terminal tab. The same window
-    /// the divider drag enforces, so a configured default can never disagree
-    /// with what a drag allows.
-    static let shellDefaultHeightRatioRange: ClosedRange<Double> = 0.30...0.70
+    /// Bounds on the shell pane's share of the Terminal tab — the window the
+    /// divider drag enforces, derived from it rather than restated, so a
+    /// configured default can never disagree with what a drag allows.
+    ///
+    /// Derived and not copied because the two are only the same numbers while
+    /// the window is symmetric: this one bounds the *shell* pane's share, the
+    /// drag bounds the pane above it.
+    static let shellDefaultHeightRatioRange: ClosedRange<Double> =
+        PaneSplitBounds.standard.bottomRange
     static let shellDefaultHeightRatioStep: Double = 0.01
 
     /// Estimated memory for a given scrollback line count. Assumes a
