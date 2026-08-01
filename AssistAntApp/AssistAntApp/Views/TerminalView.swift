@@ -24,8 +24,17 @@ struct FocusableTerminalView: NSViewRepresentable, Equatable {
     /// showing, and takes the caret back from whatever the user was typing in.
     var isVisibleSurface: Bool = true
 
+    /// The registry this pane's host coordinates through.
+    ///
+    /// Required rather than defaulted: a default would have to name this app's
+    /// singleton, and every type between here and the host is a candidate to
+    /// be shared with an app whose registries are per-session. Making the
+    /// caller say it keeps the app's answer in the app's own views, where it
+    /// stays visible instead of hiding in a parameter default.
+    let paneRegistry: any TerminalPaneRegistry
+
     func makeNSView(context: Context) -> TerminalHostView {
-        TerminalHostView(pane: pane)
+        TerminalHostView(pane: pane, paneRegistry: paneRegistry)
     }
 
     /// Pane identity plus active state is the whole of this view's input, so
@@ -38,6 +47,7 @@ struct FocusableTerminalView: NSViewRepresentable, Equatable {
         lhs.pane === rhs.pane
             && lhs.isActiveSession == rhs.isActiveSession
             && lhs.isVisibleSurface == rhs.isVisibleSurface
+            && lhs.paneRegistry === rhs.paneRegistry
     }
 
     func updateNSView(_ nsView: TerminalHostView, context: Context) {
@@ -107,10 +117,16 @@ final class TerminalHostView: NSView {
     /// it exists only while attached to a window, and torn down in `deinit`.
     private var firstResponderObservation: NSKeyValueObservation?
 
-    /// Which pane this host is showing.
-    private var paneKind: TerminalPaneKind {
-        pane is ShellTerminalPane ? .shell : .session
-    }
+    /// Which pane this host is showing, as the pane itself reports it.
+    private var paneKind: TerminalPaneKind { pane.paneKind }
+
+    /// The pane registry this host coordinates through.
+    ///
+    /// Handed in rather than fetched from `TerminalPanes.shared`, because the
+    /// same host serves an app that keeps one registry per session — where a
+    /// static answers about whichever session was asked about last. Holding it
+    /// as the protocol also means this host names nothing app-specific.
+    private let paneRegistry: any TerminalPaneRegistry
 
     /// Galactic-owned container that hosts the terminal full-bleed
     /// inside a `padding` inset. SwiftTerm clips its leftmost column
@@ -157,8 +173,9 @@ final class TerminalHostView: NSView {
     /// Subscriptions whose lifetime is the open overlay's.
     private var scrollbackCancellables = Set<AnyCancellable>()
 
-    init(pane: TerminalPane) {
+    init(pane: TerminalPane, paneRegistry: any TerminalPaneRegistry) {
         self.pane = pane
+        self.paneRegistry = paneRegistry
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
@@ -189,14 +206,14 @@ final class TerminalHostView: NSView {
             NSEvent.removeMonitor(keyEventMonitor)
         }
         firstResponderObservation?.invalidate()
-        TerminalPanes.shared.unregisterFocusRestorer(ObjectIdentifier(self))
-        TerminalPanes.shared.unregisterUnsavedWorkChecker(
+        paneRegistry.unregisterFocusRestorer(ObjectIdentifier(self))
+        paneRegistry.unregisterUnsavedWorkChecker(
             ObjectIdentifier(self)
         )
         // Going away with a scrollback still open would strand the flag, and
         // with it leave the shell's Send disabled for good.
         if paneKind == .session, scrollbackOverlay != nil {
-            TerminalPanes.shared.setSessionPaneScrollbackActive(false)
+            paneRegistry.setSessionPaneScrollbackActive(false)
         }
     }
 
@@ -230,14 +247,14 @@ final class TerminalHostView: NSView {
             // through requestFocus() rather than the backend is what lets an
             // open scrollback overlay keep focus instead of the live terminal
             // underneath it.
-            TerminalPanes.shared.registerFocusRestorer(
+            paneRegistry.registerFocusRestorer(
                 ObjectIdentifier(self), kind: paneKind
             ) { [weak self] in
                 self?.requestFocus()
             }
             // Let close and quit ask this pane whether discarding its
             // scrollback would lose anything.
-            TerminalPanes.shared.registerUnsavedWorkChecker(
+            paneRegistry.registerUnsavedWorkChecker(
                 ObjectIdentifier(self), kind: paneKind
             ) { [weak self] completion in
                 guard let self = self else {
@@ -308,7 +325,7 @@ final class TerminalHostView: NSView {
     /// Without the gate both hosts grab on every activation and whichever runs
     /// last wins, overwriting the very memory that was meant to decide it.
     func requestFocusIfPreferred() {
-        guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+        guard paneKind == paneRegistry.lastFocusedPaneKind else {
             return
         }
         requestFocus()
@@ -426,7 +443,7 @@ final class TerminalHostView: NSView {
         // memory pointing at the pane the user was actually typing in, so
         // coming back lands them where they left off.
         if isFocusInPane {
-            TerminalPanes.shared.lastFocusedPaneKind = paneKind
+            paneRegistry.lastFocusedPaneKind = paneKind
         }
     }
 
@@ -488,7 +505,7 @@ final class TerminalHostView: NSView {
     /// check: once the find panel takes key no pane holds first responder,
     /// and a ⌘F re-press would then reach nobody.
     private func activateFindOnScrollback() {
-        guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+        guard paneKind == paneRegistry.lastFocusedPaneKind else {
             return
         }
         if let overlay = scrollbackOverlay {
@@ -520,7 +537,7 @@ final class TerminalHostView: NSView {
             guard let window = notification.object as? NSWindow,
                   window === self.window else { return }
             self.pane.redraw()
-            guard paneKind == TerminalPanes.shared.lastFocusedPaneKind else {
+            guard paneKind == paneRegistry.lastFocusedPaneKind else {
                 return
             }
             if window.firstResponder !== self.pane.view {
@@ -690,7 +707,7 @@ final class TerminalHostView: NSView {
         // Tell the other pane its target just froze, and start tracking the
         // blockers that decide whether this pane's own Send stays live.
         if paneKind == .session {
-            TerminalPanes.shared.setSessionPaneScrollbackActive(true)
+            paneRegistry.setSessionPaneScrollbackActive(true)
         }
         subscribeToSendButtonStateChanges()
         // Seed the overlay's focus tint. The observer is already running, but
@@ -724,7 +741,7 @@ final class TerminalHostView: NSView {
         scrollbackCancellables.removeAll()
         sendButtonStateCancellables.removeAll()
         if paneKind == .session {
-            TerminalPanes.shared.setSessionPaneScrollbackActive(false)
+            paneRegistry.setSessionPaneScrollbackActive(false)
         }
         requestFocus()
     }
@@ -779,7 +796,7 @@ final class TerminalHostView: NSView {
         // Only the shell is additionally blocked by the agent pane's own
         // scrollback being frozen open.
         if pane is ShellTerminalPane {
-            TerminalPanes.shared.$sessionPaneScrollbackActive
+            paneRegistry.sessionPaneScrollbackActivePublisher
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] _ in self?.refreshSendButtonState() }
                 .store(in: &sendButtonStateCancellables)

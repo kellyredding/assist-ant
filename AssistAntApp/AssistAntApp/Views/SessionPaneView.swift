@@ -31,7 +31,8 @@ struct SessionPaneView: View {
                         // Visibility is purely the tab.
                         isActiveSession: true,
                         isVisibleSurface:
-                            navigator.selectedTab == .terminal)
+                            navigator.selectedTab == .terminal,
+                        paneRegistry: TerminalPanes.shared)
                         .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,

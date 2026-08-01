@@ -26,7 +26,8 @@ struct ShellPaneView: View {
             FocusableTerminalView(
                 pane: pane,
                 isActiveSession: true,
-                isVisibleSurface: isActive)
+                isVisibleSurface: isActive,
+                paneRegistry: TerminalPanes.shared)
                 .equatable()
         }
     }
