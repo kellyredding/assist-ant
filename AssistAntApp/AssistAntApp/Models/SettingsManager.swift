@@ -159,3 +159,23 @@ final class SettingsManager: ObservableObject {
         }
     }
 }
+
+/// Where shared terminal code reads configuration and hears about changes.
+///
+/// The deduplication happens here rather than in the engine because it needs the
+/// concrete `AppSettings`, which is `Equatable`; the protocol the engine sees
+/// cannot be. `dropFirst` because a published property replays its current value
+/// to each new subscriber, and this contract promises changes only — the current
+/// value is available synchronously and does not need announcing.
+extension SettingsManager: GalacticConfigurationSource {
+    var configuration: GalacticConfiguration { settings }
+
+    var configurationChanges: AnyPublisher<GalacticConfiguration, Never> {
+        $settings
+            .removeDuplicates()
+            .dropFirst()
+            .map { $0 as GalacticConfiguration }
+            .receive(on: DispatchQueue.main)
+            .eraseToAnyPublisher()
+    }
+}

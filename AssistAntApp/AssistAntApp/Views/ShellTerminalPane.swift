@@ -16,6 +16,9 @@ import Galactic
 final class ShellTerminalPane: BackendBackedPane, ObservableObject {
     let backend: TerminalBackend
 
+    /// Where configuration comes from, and how a change to it arrives.
+    var settings: GalacticConfigurationSource { SettingsManager.shared }
+
     /// The Claude session this pane sits beside — the Send-to-Claude target.
     /// A singleton here, where Galaxy holds a weak per-session reference.
     private let controller: AgentSessionController
@@ -29,7 +32,6 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
     /// the owning container observes to tear the pane down.
     @Published private(set) var isRunning: Bool = false
 
-    var acceptsFileDrops: Bool { isRunning }
 
     var paneKind: TerminalPaneKind { .shell }
 
@@ -64,7 +66,7 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
         )
         self.fontSize = controller.terminalFontSize
         wireBackend()
-        subscribeToSettings()
+        observeSettings(storingIn: &cancellables)
     }
 
     // MARK: - Lifecycle
@@ -75,7 +77,7 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
         let cwd = ShellLauncher.resolveCwd()
         let env = ShellLauncher.buildEnvironment()
 
-        applyInitialAppearance()
+        applyCurrentSettings()
 
         backend.startProcess(
             executable: shell,
@@ -87,17 +89,6 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
 
         isRunning = true
         NSLog("ShellTerminalPane: Started %@ in %@", shell, cwd)
-    }
-
-    /// Ask the shell to exit. Sends SIGHUP via the backend, which escalates
-    /// to SIGTERM and then SIGKILL if the shell doesn't go. SIGHUP is the
-    /// canonical terminal-hangup signal: most shells exit gracefully and
-    /// flush history in response, with the harsher signals as the fallback
-    /// for a misbehaving plugin. Exit fires `onProcessTerminated`, which
-    /// clears `isRunning` and prompts teardown.
-    func requestClose() {
-        guard isRunning else { return }
-        backend.terminateProcess(signal: SIGHUP)
     }
 
     // MARK: - Send to Claude
@@ -130,12 +121,6 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
         )
     }
 
-    /// Where View ▸ Default returns to. The pane's own size is per-instance
-    /// and in memory; this is the configured one every pane starts from.
-    var defaultFontSize: CGFloat {
-        SettingsManager.shared.settings.defaultTerminalFontSize
-    }
-
     // MARK: - Private
 
     private func wireBackend() {
@@ -146,67 +131,5 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
                 self.onProcessExit?(exitCode)
             }
         }
-    }
-
-    private func subscribeToSettings() {
-        let mgr = SettingsManager.shared
-
-        // Re-apply the settings model on any change, handing it this pane's
-        // own size — the configured default is where a pane starts, not where
-        // it is now. `dropFirst()` skips the initial value, which
-        // `applyInitialAppearance` pushes explicitly at start time.
-        mgr.$settings
-            .removeDuplicates()
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] settings in
-                guard let self else { return }
-                self.backend.applySettings(
-                    settings, fontSize: self.fontSize
-                )
-            }
-            .store(in: &cancellables)
-
-        // Cursor rides its own stream because the engine fuses shape and
-        // blink into one style, so the pair is deduped as a unit. The same
-        // settings drive the session pane's caret.
-        mgr.$settings
-            .map {
-                TerminalCursorConfig(
-                    style: $0.terminalCursorStyle,
-                    blink: $0.terminalCursorBlink
-                )
-            }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] config in
-                self?.backend.applyCursor(
-                    style: config.style, blink: config.blink
-                )
-            }
-            .store(in: &cancellables)
-    }
-
-    private func applyInitialAppearance() {
-        let settings = SettingsManager.shared.settings
-        backend.applySettings(settings, fontSize: fontSize)
-        // Show the engine's native caret explicitly, as the session backend
-        // does — a shell relies on the terminal to render its cursor.
-        backend.setCaretHidden(false)
-        backend.applyCursor(
-            style: settings.terminalCursorStyle,
-            blink: settings.terminalCursorBlink
-        )
-    }
-
-    /// Push this pane's own size to the backend, for the zoom gestures.
-    ///
-    /// Only the font — a zoom has no business rebuilding the colour table or
-    /// reallocating scrollback, which is why this is not a settings re-apply.
-    func applyFontSize() {
-        let family = SettingsManager.shared.settings.terminalFontFamily
-        backend.setFont(
-            resolveTerminalFont(family: family, size: fontSize)
-        )
     }
 }
