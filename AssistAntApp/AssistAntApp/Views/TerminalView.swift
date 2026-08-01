@@ -1061,6 +1061,12 @@ final class TerminalHostView: NSView {
         // performDragOperation (paste, no CR). Guarded by canAcceptDrop
         // above, which is what gates a send at a non-running session.
         pane.send(text: pathsText, asPaste: true)
+        // Kick a repaint before asking for focus. A drop can arrive from
+        // another application, so this window was not key and the engine's
+        // display refresh has been idle — without this the pasted paths can sit
+        // unpainted until the next keystroke moves something. The other host
+        // found this the hard way and the engine is the same one here.
+        pane.redraw()
         requestFocus()
         return true
     }
