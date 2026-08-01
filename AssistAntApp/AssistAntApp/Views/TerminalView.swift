@@ -336,29 +336,17 @@ final class TerminalHostView: NSView {
         requestFocus()
     }
 
-    /// Give up first responder when the Terminal tab goes inactive, but only
-    /// when this pane is the one holding it — so keystrokes on another tab
-    /// (e.g. j/k list navigation) fall to the responder chain instead of
-    /// bleeding into the live PTY. Leaves other responders alone.
+    /// Give up first responder if this host holds it, and close the find bar.
     ///
-    /// Checks descendants, not just the terminal view, so an open scrollback
-    /// overlay's web view resigns too. Doing this before the pane is hidden
-    /// also sidesteps AppKit's own auto-resign path inside `setHidden:`, which
-    /// does a large amount of synchronous work when the first responder is a
-    /// descendant of the view being hidden.
+    /// Called as the Terminal tab goes inactive. This pane is never hidden, so
+    /// which tab is showing is the whole question here.
     func resignFocusIfHeld() {
-        // Close find as the tab goes inactive. The bar lives in its own
-        // panel, so unlike everything else in this pane it is not a
-        // descendant and would otherwise be left floating over whichever
-        // tab the user switched to.
-        scrollbackOverlay?.findController.isVisible = false
-        guard let window else { return }
-        let responder = window.firstResponder
-        let holdsFocus =
-            responder === pane.view
-            || (responder as? NSView)?.isDescendant(of: self) == true
-        guard holdsFocus else { return }
-        window.makeFirstResponder(nil)
+        TerminalFocus.resignIfHeld(
+            in: window,
+            host: self,
+            paneView: pane.view,
+            findController: scrollbackOverlay?.findController
+        )
     }
 
     // MARK: - Unsaved scrollback work
