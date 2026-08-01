@@ -110,7 +110,18 @@ final class TerminalHostView: NSView {
     /// Whether this pane is the surface in front of the user. Supplied by the
     /// representable; see its declaration for why this is not the same
     /// question as `isActiveSession`.
-    var isVisibleSurface: Bool = true
+    var isVisibleSurface: Bool = true {
+        didSet {
+            guard oldValue != isVisibleSurface else { return }
+            // An open overlay holds the shared find panel only while its
+            // surface is the one in front of the user, and it is an NSView deep
+            // in the hierarchy with no way to learn that it no longer is. The
+            // host is the only thing that knows, and this is the moment it
+            // finds out. Left unsaid, the panel stays up over whatever the user
+            // moved to, bound to a surface that is no longer showing.
+            scrollbackOverlay?.refreshFindBarPanelPresentation()
+        }
+    }
 
     /// KVO on `window.firstResponder`, driving the focus dim and the record
     /// of which pane the user was last in. Bound in `viewDidMoveToWindow` so
