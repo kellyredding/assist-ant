@@ -403,7 +403,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reopening is the honest response — the app is about to ask a
     /// question, so it needs to be visible to ask it.
     func windowForConfirmation() -> NSWindow? {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow { return window }
+        // Resolved by the engine, which refuses a window that cannot be main:
+        // the find bar is a floating panel that takes key, and a sheet hung
+        // from it renders in its corner against a frame that cannot hold it.
+        if let window = SheetAlert.hostWindow() { return window }
         openMainWindow()
         return mainWindow?.window
     }
