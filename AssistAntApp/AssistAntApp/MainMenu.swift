@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Galactic
 
 /// Builds and manages the application's menu bar (the menu strip at the top
@@ -500,6 +501,21 @@ extension Notification.Name {
     static let showPreferences = Notification.Name("showPreferences")
     static let enterScrollback = Notification.Name("enterScrollback")
     static let activateFind = Notification.Name("activateFind")
+}
+
+extension MenuActions {
+    /// The ⌘F notification above, as a terminal host consumes it.
+    ///
+    /// A host is told that the user asked to find; how the menu said so is
+    /// this app's business, and a broadcast is how it says so here because the
+    /// menu has no handle on whichever host should answer. Mapping it where the
+    /// notification is declared keeps both halves of that decision together.
+    static var findActivations: FindActivations {
+        NotificationCenter.default
+            .publisher(for: .activateFind)
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
 }
 
 // MARK: - Menu validation

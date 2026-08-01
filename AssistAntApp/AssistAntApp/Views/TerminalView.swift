@@ -33,8 +33,19 @@ struct FocusableTerminalView: NSViewRepresentable, Equatable {
     /// stays visible instead of hiding in a parameter default.
     let paneRegistry: any TerminalPaneRegistry
 
+    /// Told each time the user asks to find, however this app carries that.
+    ///
+    /// The host answers ⌘F but does not own the gesture — a menu does, and how
+    /// a menu reaches the right surface is this app's business, not the
+    /// terminal's.
+    let findActivations: FindActivations
+
     func makeNSView(context: Context) -> TerminalHostView {
-        TerminalHostView(pane: pane, paneRegistry: paneRegistry)
+        TerminalHostView(
+            pane: pane,
+            paneRegistry: paneRegistry,
+            findActivations: findActivations
+        )
     }
 
     /// Pane identity plus active state is the whole of this view's input, so
@@ -154,8 +165,8 @@ final class TerminalHostView: NSView {
     /// Observer token for our window becoming key.
     private var didBecomeKeyObserver: Any?
 
-    /// Observer token for the `.activateFind` menu notification.
-    private var activateFindObserver: Any?
+    /// Told each time the user asks to find within this surface.
+    private let findActivations: FindActivations
 
     /// Tokens for key-window transitions anywhere in the app. The find bar
     /// is its own window, so it taking or losing key is not a
@@ -184,9 +195,19 @@ final class TerminalHostView: NSView {
     /// Subscriptions whose lifetime is the open overlay's.
     private var scrollbackCancellables = Set<AnyCancellable>()
 
-    init(pane: TerminalPane, paneRegistry: any TerminalPaneRegistry) {
+    /// Subscriptions whose lifetime is this host's, alongside the two narrower
+    /// sets above. Named as the other host names it, since what belongs in it
+    /// is the same question there.
+    private var cancellables = Set<AnyCancellable>()
+
+    init(
+        pane: TerminalPane,
+        paneRegistry: any TerminalPaneRegistry,
+        findActivations: FindActivations
+    ) {
         self.pane = pane
         self.paneRegistry = paneRegistry
+        self.findActivations = findActivations
         super.init(frame: .zero)
         wantsLayer = true
         observeScrollbackNotification()
@@ -206,9 +227,6 @@ final class TerminalHostView: NSView {
         }
         if let didBecomeKeyObserver {
             NotificationCenter.default.removeObserver(didBecomeKeyObserver)
-        }
-        if let activateFindObserver {
-            NotificationCenter.default.removeObserver(activateFindObserver)
         }
         for observer in keyWindowObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -337,13 +355,20 @@ final class TerminalHostView: NSView {
         )
     }
 
+    /// Whether this pane is the one the registry remembers the user typing in.
+    ///
+    /// The gate that keeps two panes of one split from both answering a command
+    /// meant for whichever the user was actually in. Named as the other host
+    /// names it, since it is asked in the same three places there.
+    private var isPreferredPane: Bool {
+        paneRegistry.lastFocusedPaneKind == paneKind
+    }
+
     /// Take focus only when this pane is the one the user was last typing in.
     /// Without the gate both hosts grab on every activation and whichever runs
     /// last wins, overwriting the very memory that was meant to decide it.
     func requestFocusIfPreferred() {
-        guard paneKind == paneRegistry.lastFocusedPaneKind else {
-            return
-        }
+        guard isPreferredPane else { return }
         requestFocus()
     }
 
@@ -492,13 +517,14 @@ final class TerminalHostView: NSView {
         }
     }
 
-    /// Observe Edit ▸ Find (⌘F).
+    /// Observe the app's find gesture, however it carries it.
     private func observeFindActivation() {
-        activateFindObserver = NotificationCenter.default.addObserver(
-            forName: .activateFind, object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.activateFindOnScrollback()
-        }
+        findActivations
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.activateFindOnScrollback()
+            }
+            .store(in: &cancellables)
     }
 
     /// Route ⌘F to this pane's scrollback, opening one at the current
@@ -509,9 +535,11 @@ final class TerminalHostView: NSView {
     /// check: once the find panel takes key no pane holds first responder,
     /// and a ⌘F re-press would then reach nobody.
     private func activateFindOnScrollback() {
-        guard paneKind == paneRegistry.lastFocusedPaneKind else {
-            return
-        }
+        // An overlay survives a switch away from the terminal tab, so without
+        // this it answers ⌘F pressed on another tab and binds the shared find
+        // panel to a surface nobody is looking at.
+        guard isVisibleSurface else { return }
+        guard isPreferredPane else { return }
         if let overlay = scrollbackOverlay {
             overlay.activateFind()
             return
@@ -541,9 +569,7 @@ final class TerminalHostView: NSView {
             guard let window = notification.object as? NSWindow,
                   window === self.window else { return }
             self.pane.redraw()
-            guard paneKind == paneRegistry.lastFocusedPaneKind else {
-                return
-            }
+            guard self.isPreferredPane else { return }
             if window.firstResponder !== self.pane.view {
                 self.requestFocus()
             }
@@ -600,8 +626,10 @@ final class TerminalHostView: NSView {
     }
 
     /// Build the scrollback overlay over an HTML rendering of the frozen
-    /// terminal buffer. Mirrors Galaxy `createScrollback` collapsed to the
-    /// single surface (no isActiveSurface, no find, no timeline).
+    /// terminal buffer. Mirrors the other host's, without the timeline
+    /// emission it has no recorder for. Find and the surface predicate used to
+    /// be absent here too, which is how the shared find panel came to be
+    /// presentable from a tab the user had left.
     private func createScrollback(initialScrollLine: Int) {
         guard let opened = ScrollbackFactory.open(
             pane: pane,
@@ -676,7 +704,15 @@ final class TerminalHostView: NSView {
 
         let overlay = ScrollbackOverlayView(
             frame: paddedBounds(),
-            scrollbackView: webView
+            scrollbackView: webView,
+            // The find bar's panel is shared, so an overlay has to be able to
+            // say whether it is still the surface entitled to hold it. Left to
+            // the default, an overlay claims it is always entitled — and an
+            // overlay outlives a switch away from the terminal tab, so it would
+            // put the bar up over whatever the user moved to.
+            isActiveSurface: { [weak self] in
+                self?.isVisibleSurface ?? false
+            }
         )
         // Re-lay the frozen buffer when the type changes underneath it.
         // Without this the overlay keeps the metrics it opened with, so a

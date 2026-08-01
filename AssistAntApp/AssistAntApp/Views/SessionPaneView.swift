@@ -32,7 +32,8 @@ struct SessionPaneView: View {
                         isActiveSession: true,
                         isVisibleSurface:
                             navigator.selectedTab == .terminal,
-                        paneRegistry: TerminalPanes.shared)
+                        paneRegistry: TerminalPanes.shared,
+                        findActivations: MenuActions.findActivations)
                         .equatable()
                 } else {
                     // Defensive: running with no backend should not happen,

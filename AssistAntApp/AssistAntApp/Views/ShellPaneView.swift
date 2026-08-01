@@ -28,7 +28,8 @@ struct ShellPaneView: View {
                 pane: pane,
                 isActiveSession: true,
                 isVisibleSurface: isActive,
-                paneRegistry: TerminalPanes.shared)
+                paneRegistry: TerminalPanes.shared,
+                findActivations: MenuActions.findActivations)
                 .equatable()
         }
     }
