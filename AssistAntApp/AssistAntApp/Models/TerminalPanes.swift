@@ -9,7 +9,14 @@ import Galactic
 /// and would become a pane coordinator too. Galaxy keeps the equivalent
 /// registries on its per-session model; with one embedded session here, a
 /// singleton is the same shape with the session dimension collapsed.
-final class TerminalPanes: ObservableObject {
+///
+/// The singleton is this app's *answer*, not the way consumers reach it.
+/// Anything hostable — the terminal host above all — is handed a
+/// `TerminalPaneRegistry` and never names `shared`, because the same host runs
+/// in an app that keeps one of these per session, where a static would answer
+/// about the wrong one. App-level chrome may name `shared` directly; that is
+/// the app choosing which registry, which is exactly its business.
+final class TerminalPanes: ObservableObject, TerminalPaneRegistry {
     static let shared = TerminalPanes()
 
     private init() {}
@@ -22,6 +29,10 @@ final class TerminalPanes: ObservableObject {
     /// neither has to know the other exists — and so it survives a pane being
     /// torn down and rebuilt.
     @Published private(set) var sessionPaneScrollbackActive: Bool = false
+
+    var sessionPaneScrollbackActivePublisher: AnyPublisher<Bool, Never> {
+        $sessionPaneScrollbackActive.eraseToAnyPublisher()
+    }
 
     func setSessionPaneScrollbackActive(_ active: Bool) {
         guard sessionPaneScrollbackActive != active else { return }
@@ -67,37 +78,34 @@ final class TerminalPanes: ObservableObject {
     /// Restore focus to whichever pane the user was last in, falling back to
     /// the other if the preferred one is gone — the shell they remember
     /// typing in may have since closed. No-op when nothing is registered.
+    ///
+    /// Every tier names its kind. The last resort used to take whichever
+    /// restorer the dictionary yielded first, which reads an unordered
+    /// collection: with two kinds that happens to be the same answer, but it
+    /// would make focus a function of hash order the moment a third exists.
     func restorePreferredPaneFocus() {
-        if let entry = focusRestorers.values
-            .first(where: { $0.kind == lastFocusedPaneKind }) {
-            entry.restore()
-            return
-        }
+        if restoreIfRegistered(kind: lastFocusedPaneKind) { return }
         // Session pane wins the fallback: it is the one that always exists.
-        if let entry = focusRestorers.values
-            .first(where: { $0.kind == .session }) {
-            entry.restore()
-            return
-        }
-        focusRestorers.values.first?.restore()
+        if restoreIfRegistered(kind: .session) { return }
+        _ = restoreIfRegistered(kind: .shell)
     }
 
-    /// Restore focus to the session pane specifically, regardless of which
-    /// pane was last focused. Used when a shell closes, where the memory
-    /// still reads `.shell` from the user's final keystroke in it.
-    func restoreSessionPaneFocus() {
-        focusRestorers.values
-            .first(where: { $0.kind == .session })?
-            .restore()
+    /// Restore focus to the pane of exactly `kind`, ignoring the focus memory.
+    ///
+    /// One method taking the kind rather than one per kind: every caller knows
+    /// statically which pane it means, so the kind is a value they already
+    /// hold rather than a method name they have to pick.
+    func restoreFocus(kind: TerminalPaneKind) {
+        _ = restoreIfRegistered(kind: kind)
     }
 
-    /// Restore focus to the shell pane specifically. Used when the open-shell
-    /// command arrives and a shell is already open, so the command means
-    /// "focus it" rather than "open one".
-    func restoreShellPaneFocus() {
-        focusRestorers.values
-            .first(where: { $0.kind == .shell })?
-            .restore()
+    /// Invoke the restorer for `kind`, reporting whether there was one.
+    private func restoreIfRegistered(kind: TerminalPaneKind) -> Bool {
+        guard
+            let entry = focusRestorers.values.first(where: { $0.kind == kind })
+        else { return false }
+        entry.restore()
+        return true
     }
 
     // MARK: - Unsaved scrollback work
@@ -162,29 +170,6 @@ final class TerminalPanes: ObservableObject {
 
         group.notify(queue: .main) {
             completion(panesWithWork)
-        }
-    }
-
-    /// Close the shell pane, confirming first when its scrollback holds notes
-    /// that closing would discard. Unlike stopping the agent, there is no
-    /// in-flight work to worry about here — unsaved notes are the only thing
-    /// a shell close can destroy.
-    func confirmAndCloseShellPane(onConfirm: @escaping () -> Void) {
-        checkUnsavedWork(kinds: [.shell]) { panesWithWork in
-            guard !panesWithWork.isEmpty else {
-                onConfirm()
-                return
-            }
-            guard let window = AppDelegate.shared?.windowForConfirmation()
-            else { return }
-            SheetAlert.confirm(
-                in: window,
-                message: "Close shell pane with unsaved scrollback notes?",
-                detail: "Unsaved notes will be lost when the shell pane "
-                    + "closes.",
-                confirm: "Close",
-                onConfirm: onConfirm
-            )
         }
     }
 }

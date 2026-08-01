@@ -87,7 +87,7 @@ struct TerminalTabSplitView: View {
                 // shell keeps focus instead of the live terminal behind it.
                 // Focusing the pane directly leaves the overlay visible but
                 // keyboard-dead, with Esc going to the shell as input.
-                TerminalPanes.shared.restoreShellPaneFocus()
+                TerminalPanes.shared.restoreFocus(kind: .shell)
             } else {
                 state.openShell()
             }
@@ -97,14 +97,14 @@ struct TerminalTabSplitView: View {
             // on the session pane, focusing the backend would land on the
             // live terminal hidden behind the overlay. Galaxy's own ⌘T goes
             // straight to the backend and has exactly that bug.
-            TerminalPanes.shared.restoreSessionPaneFocus()
+            TerminalPanes.shared.restoreFocus(kind: .session)
         }
         .onReceive(TerminalTabCommands.shared.closeFocusedShell) { _ in
             guard let pane = state.shellPane else { return }
             // Gate the close on a confirmation when the shell's scrollback
             // holds notes. The helper closes straight through when there is
             // nothing to lose, so the common case is unchanged.
-            TerminalPanes.shared.confirmAndCloseShellPane {
+            AppDelegate.shared?.confirmAndCloseShellPane {
                 pane.requestClose()
             }
         }
@@ -184,7 +184,7 @@ final class SplitState: ObservableObject {
         // the focus memory still reads `.shell` from the user's last
         // keystroke in the pane that just went away.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            TerminalPanes.shared.restoreSessionPaneFocus()
+            TerminalPanes.shared.restoreFocus(kind: .session)
         }
     }
 

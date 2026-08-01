@@ -277,6 +277,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// Close the shell pane, confirming first when its scrollback holds notes
+    /// that closing would discard. Unlike stopping the agent, there is no
+    /// in-flight work to worry about here — unsaved notes are the only thing a
+    /// shell close can destroy.
+    ///
+    /// Lives here rather than on the pane registry so that registry stays a
+    /// registry: this reaches for a window and puts a sheet on screen, which
+    /// is app chrome, and it is the same window question the quit above
+    /// answers. Keeping the two together is what stops them drifting apart on
+    /// the case where there is no window.
+    func confirmAndCloseShellPane(onConfirm: @escaping () -> Void) {
+        TerminalPanes.shared.checkUnsavedWork(kinds: [.shell]) {
+            panesWithWork in
+            guard !panesWithWork.isEmpty else {
+                onConfirm()
+                return
+            }
+            guard let window = self.windowForConfirmation() else { return }
+            SheetAlert.confirm(
+                in: window,
+                message: "Close shell pane with unsaved scrollback notes?",
+                detail: "Unsaved notes will be lost when the shell pane "
+                    + "closes.",
+                confirm: "Close",
+                onConfirm: onConfirm
+            )
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Terminate the embedded agent's child process tree at a controlled
         // point so it doesn't outlive the app or leave a lingering process
