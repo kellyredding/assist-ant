@@ -113,7 +113,7 @@ final class TerminalHostView: NSView {
     /// Readable from outside so the ⌘W interceptor can ask which kind of pane
     /// a host is showing while walking up from the first responder.
     let pane: TerminalPane
-    private static let padding: CGFloat = 4
+    private static let terminalPadding: CGFloat = 4
     private var didSetUp = false
 
     /// Alpha applied to the pane's view when focus sits outside it. Tuned so
@@ -164,7 +164,7 @@ final class TerminalHostView: NSView {
     private let paneRegistry: any TerminalPaneRegistry
 
     /// Galactic-owned container that hosts the terminal full-bleed
-    /// inside a `padding` inset. SwiftTerm clips its leftmost column
+    /// inside a `terminalPadding` inset. SwiftTerm clips its leftmost column
     /// whenever the terminal view's own frame origin is offset from
     /// (0,0) of its superview, so the inset lives on the container,
     /// never on the terminal itself.
@@ -292,7 +292,7 @@ final class TerminalHostView: NSView {
             // clips its left column); the container carries the padding.
             let container = GalacticTerminalContainerView(
                 terminalView: pane.view,
-                inset: Self.padding
+                inset: Self.terminalPadding
             )
             container.frame = bounds
             container.autoresizingMask = []
@@ -352,7 +352,7 @@ final class TerminalHostView: NSView {
     }
 
     private func paddedBounds() -> NSRect {
-        bounds.insetBy(dx: Self.padding, dy: Self.padding)
+        bounds.insetBy(dx: Self.terminalPadding, dy: Self.terminalPadding)
     }
 
     func requestFocus() {
