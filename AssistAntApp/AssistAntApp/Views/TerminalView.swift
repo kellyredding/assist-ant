@@ -223,6 +223,11 @@ final class TerminalHostView: NSView {
         // attachment or leaks across a reattachment.
         startObservingFirstResponder()
         if !didSetUp && window != nil {
+            // Paint the strip the container's inset leaves exposed before the
+            // container goes in, so the padding reads as part of the terminal
+            // rather than as a gap around it.
+            applyHostBackgroundColor()
+
             // Host the terminal full-bleed inside the Galactic inset
             // container so SwiftTerm never sees an offset frame (which
             // clips its left column); the container carries the padding.
@@ -751,6 +756,21 @@ final class TerminalHostView: NSView {
     ///
     /// The reason text is escaped before interpolation so wording that
     /// contains an apostrophe can never break the inline script.
+    /// Paint the host's layer in the current theme's background colour, so the
+    /// strip left exposed by the container's inset matches the terminal.
+    ///
+    /// Called once at setup. There is deliberately no repaint subscription:
+    /// the colour theme is fixed in this app, so a sink on it would be dead
+    /// code. When a theme setting arrives, the repaint belongs beside the
+    /// font-size re-render that already reacts to type changes.
+    private func applyHostBackgroundColor() {
+        TerminalHostBackground.apply(
+            to: self,
+            themeNamed: SettingsManager.shared.settings
+                .terminalColorThemeName
+        )
+    }
+
     /// Render the frozen buffer again against the current type.
     private func applySettingsToScrollback() {
         guard let overlay = scrollbackOverlay,
