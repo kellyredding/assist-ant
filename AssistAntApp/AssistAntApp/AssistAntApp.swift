@@ -294,7 +294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onConfirm()
                 return
             }
-            guard let window = self.windowForConfirmation() else { return }
+            guard let window = self.windowForConfirmation() else {
+                // Refusing, for the same reason the quit refuses: closing is
+                // the destructive answer and the question never reached the
+                // user. Logged because the gesture came from a keystroke, so
+                // silence reads as the shortcut being broken.
+                AssistAntLog.info(
+                    "shell close: no window to confirm in; leaving open"
+                )
+                return
+            }
             SheetAlert.confirm(
                 in: window,
                 message: "Close shell pane with unsaved scrollback notes?",
