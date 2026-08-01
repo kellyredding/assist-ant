@@ -1,4 +1,5 @@
 import SwiftUI
+import Galactic
 
 /// Container for the shell pane: the drag bar on top, the terminal below.
 /// Built by `TerminalTabSplitView` while the split is open.
