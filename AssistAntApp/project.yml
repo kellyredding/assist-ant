@@ -77,6 +77,9 @@ targets:
       - AssistAntApp/Models/CalendarAnnouncementSettings.swift
       - AssistAntApp/Models/CalendarAnnouncementDecisions.swift
       - AssistAntApp/Models/TemporaryMuteRule.swift
+      - AssistAntApp/Models/Keystrokes
+      - AssistAntApp/Models/MainTab.swift
+      - AssistAntApp/Models/CaptureKind.swift
       - ItemsSmoke
     dependencies:
       - package: GRDB

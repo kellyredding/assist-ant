@@ -80,7 +80,35 @@ final class MainMenu: NSObject {
         mainMenu.addItem(windowMenuItem)
         NSApp.windowsMenu = windowMenu
 
+        // Help menu — home for the ⌘/ keystroke cheat sheet, which is where
+        // people look for one. AppKit attaches its own search field to any
+        // menu titled exactly "Help"; that is standard behaviour, not a stray
+        // control of ours.
+        let helpMenu = NSMenu(title: "Help")
+        let helpMenuItem = NSMenuItem(
+            title: "Help", action: nil, keyEquivalent: ""
+        )
+        helpMenuItem.submenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
+        buildHelpMenu(helpMenu)
+
         NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - Help menu
+
+    /// Keyboard Shortcuts (⌘/) opens the in-window cheat sheet. A menu item
+    /// rather than another local key monitor: the app already runs several of
+    /// those and they have to reason about one another, whereas a menu item
+    /// gets dispatch, validation, and menu-bar discoverability for free.
+    private func buildHelpMenu(_ menu: NSMenu) {
+        let shortcutsItem = NSMenuItem(
+            title: "Keyboard Shortcuts",
+            action: #selector(MenuActions.showKeystrokeSheet(_:)),
+            keyEquivalent: "/"
+        )
+        shortcutsItem.target = MenuActions.shared
+        menu.addItem(shortcutsItem)
     }
 
     // MARK: - App menu
@@ -377,6 +405,16 @@ final class MenuActions: NSObject {
 
     @objc func showPreferences(_ sender: Any?) {
         NotificationCenter.default.post(name: .showPreferences, object: nil)
+    }
+
+    /// Help ▸ Keyboard Shortcuts (⌘/). Toggles, so the same keystroke that
+    /// summons the sheet puts it away.
+    ///
+    /// `assumeIsolated` rather than a hop: AppKit dispatches menu actions on
+    /// the main thread, and hopping would let the sheet's snapshot be taken a
+    /// runloop turn later than the keystroke that asked for it.
+    @objc func showKeystrokeSheet(_ sender: Any?) {
+        MainActor.assumeIsolated { KeystrokeSheetModel.shared.toggle() }
     }
 
     // MARK: - View menu actions

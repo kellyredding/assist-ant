@@ -1905,6 +1905,191 @@ check("due: a started meeting is never due") {
         items: [past], now: Date(), settings: settings).isEmpty
 }
 
+// MARK: - Keystroke cheat sheet
+
+/// A context snapshot with everything quiet unless overridden.
+func ksCtx(
+    tab: MainTab = .icebox,
+    readerOpen: Bool = false,
+    hasSelection: Bool = false,
+    terminalPaneFocused: Bool = false,
+    editableTextFocused: Bool = false,
+    findBarOpen: Bool = false
+) -> KeystrokeContext {
+    KeystrokeContext(
+        tab: tab, readerOpen: readerOpen, hasSelection: hasSelection,
+        terminalPaneFocused: terminalPaneFocused,
+        editableTextFocused: editableTextFocused, findBarOpen: findBarOpen)
+}
+
+// Availability: a batch chord is live on its own tab with a selection, and
+// nowhere else.
+check("availability: selection chord needs its tab and a selection") {
+    let a = KeystrokeAvailability.tabsWithSelection([.icebox])
+    return a.isActive(in: ksCtx(tab: .icebox, hasSelection: true))
+        && !a.isActive(in: ksCtx(tab: .icebox, hasSelection: false))
+        && !a.isActive(in: ksCtx(tab: .trash, hasSelection: true))
+}
+
+// Availability: an open reader suppresses the list chords beneath it.
+check("availability: list chords go inactive while the reader is open") {
+    !KeystrokeAvailability.tabs([.icebox])
+        .isActive(in: ksCtx(tab: .icebox, readerOpen: true))
+}
+
+// Availability: typing in a field suppresses the single-key chords. The
+// snapshot is taken before the sheet's own field takes focus, so this
+// describes the surface behind the sheet.
+check("availability: an editable field suppresses list chords") {
+    !KeystrokeAvailability.tabs([.icebox])
+        .isActive(in: ksCtx(tab: .icebox, editableTextFocused: true))
+}
+
+// Availability: view switching stands aside for a focused editor.
+check("availability: view switch yields to a focused editor") {
+    KeystrokeAvailability.viewSwitch.isActive(in: ksCtx())
+        && !KeystrokeAvailability.viewSwitch
+            .isActive(in: ksCtx(editableTextFocused: true))
+}
+
+// Availability: popover entries are documented but never active, since the
+// sheet only opens from the main window.
+check("availability: popover entries are never active") {
+    !KeystrokeAvailability.panel("Capture popover").isActive(in: ksCtx())
+}
+
+// Availability: a global hotkey is live no matter the surface.
+check("availability: global hotkeys are always active") {
+    KeystrokeAvailability.always
+        .isActive(in: ksCtx(readerOpen: true, editableTextFocused: true))
+}
+
+// Opening section: the sheet lands on the reader when one is open, on the
+// terminal section from the terminal tab, and on the lists otherwise.
+check("opening section: follows the snapshot") {
+    KeystrokeSection.opening(for: ksCtx(tab: .terminal)) == .terminal
+        && KeystrokeSection.opening(for: ksCtx(tab: .icebox)) == .lists
+        && KeystrokeSection.opening(
+            for: ksCtx(tab: .icebox, readerOpen: true)) == .reader
+}
+
+// Fuzzy: an empty query matches everything, so an unfiltered sheet is full.
+check("fuzzy: empty query matches") {
+    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "")
+}
+
+// Fuzzy: a plain substring matches.
+check("fuzzy: substring matches") {
+    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "icebox")
+}
+
+// Fuzzy: scattered subsequence matches — "mti" for Move To Icebox.
+check("fuzzy: scattered subsequence matches") {
+    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "mti")
+}
+
+// Fuzzy: out-of-order characters do not match.
+check("fuzzy: out-of-order query does not match") {
+    !KeystrokeFuzzyMatch.matches("Move to Icebox", query: "xobeci")
+}
+
+// Fuzzy: matching is case-insensitive in both directions.
+check("fuzzy: case-insensitive") {
+    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "ICEBOX")
+        && KeystrokeFuzzyMatch.matches("MOVE TO ICEBOX", query: "icebox")
+}
+
+// Fuzzy: a query longer than the candidate cannot match.
+check("fuzzy: over-long query does not match") {
+    KeystrokeFuzzyMatch.score("a i", query: "a icebox") == nil
+}
+
+// Fuzzy: a contiguous run outranks the same letters scattered.
+check("fuzzy: contiguous beats scattered") {
+    let contiguous = KeystrokeFuzzyMatch.score("Copy", query: "cop")
+    let scattered = KeystrokeFuzzyMatch.score("Change list opener", query: "cop")
+    guard let c = contiguous, let s = scattered else { return false }
+    return c > s
+}
+
+// Fuzzy: a chord keystroke is searchable, so "ai" finds `a i`.
+check("fuzzy: a chord keystroke is searchable") {
+    KeystrokeFuzzyMatch.matches("a i", query: "ai")
+}
+
+// Catalog: every entry is presentable — a blank label or literal would render
+// as an empty row.
+check("catalog: no entry has an empty label or literal binding") {
+    KeystrokeCatalog.all.allSatisfy { entry in
+        guard !entry.label.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return false }
+        if case .literal(let s) = entry.binding {
+            return !s.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        return true
+    }
+}
+
+// Catalog: no literal keystroke is documented twice within one section under
+// the same availability — that would be two rows claiming one key in one
+// context. The same key under *different* availability is legitimate (`a d`
+// means Done outside Trash and Delete inside it).
+check("catalog: no duplicate literal binding within a section and context") {
+    var seen: Set<String> = []
+    for e in KeystrokeCatalog.all {
+        guard case .literal(let keys) = e.binding else { continue }
+        let key = "\(e.section.rawValue)|\(keys)|\(e.availability)"
+        if seen.contains(key) { return false }
+        seen.insert(key)
+    }
+    return true
+}
+
+// Catalog: every section the sheet can render has content, so no bare headers.
+check("catalog: every section has at least one entry") {
+    KeystrokeSection.allCases.allSatisfy { section in
+        KeystrokeCatalog.all.contains { $0.section == section }
+    }
+}
+
+// Catalog: the `a` leader vocabulary matches what the chord tables implement.
+check("catalog: the a-leader chords are documented") {
+    let documented = Set(KeystrokeCatalog.all.compactMap { e -> String? in
+        guard case .literal(let k) = e.binding, k.hasPrefix("a ") else {
+            return nil
+        }
+        return k
+    })
+    return ["a d", "a r", "a i", "a v", "a c", "a l", "a p"]
+        .allSatisfy { documented.contains($0) }
+}
+
+// Catalog: the `l` leader vocabulary matches what the chord tables implement.
+check("catalog: the l-leader chords are documented") {
+    let documented = Set(KeystrokeCatalog.all.compactMap { e -> String? in
+        guard case .literal(let k) = e.binding, k.hasPrefix("l ") else {
+            return nil
+        }
+        return k
+    })
+    return ["l t", "l r", "l e", "l l", "l s", "l d", "l p"]
+        .allSatisfy { documented.contains($0) }
+}
+
+// Catalog: list chords are scoped to the surfaces that actually install
+// ActionableListChords — Terminal and Tasks install none.
+check("catalog: list chords are not claimed on Terminal or Tasks") {
+    !KeystrokeCatalog.listTabs.contains(.terminal)
+        && !KeystrokeCatalog.listTabs.contains(.tasks)
+}
+
+// Catalog: every capture kind has a documented global hotkey.
+check("catalog: every capture kind is documented") {
+    CaptureKind.allCases.allSatisfy { kind in
+        KeystrokeCatalog.all.contains { $0.binding == .capture(kind) }
+    }
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

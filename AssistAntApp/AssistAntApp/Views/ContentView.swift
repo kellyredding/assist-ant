@@ -16,6 +16,7 @@ struct ContentView: View {
     @ObservedObject private var layout = SidebarLayoutModel.shared
     @ObservedObject private var tabs = MainTabNavigator.shared
     @ObservedObject private var viewer = ItemViewerModel.shared
+    @ObservedObject private var sheet = KeystrokeSheetModel.shared
 
     /// Active state of the window hosting this view. ContentView is only ever
     /// hosted in the main window, so this tracks the main window specifically.
@@ -62,6 +63,16 @@ struct ContentView: View {
                 rightColumn
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Mounted at the root, above both columns, so ⌘/ reaches it from
+            // any tab and from the sidebar alike. Outside the right column's
+            // inactive dimming — a reference should stay legible.
+            .overlay {
+                if sheet.isPresented {
+                    KeystrokeSheetView()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.12), value: sheet.isPresented)
         }
     }
 
