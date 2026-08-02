@@ -37,7 +37,9 @@ final class DeskService {
         micObserver = MicActivityService.shared.$isMicInUse
             .removeDuplicates()
             .filter { !$0 }
-            .sink { [weak self] _ in self?.fireDeskAudioIfAllowed() }
+            .sink { [weak self] _ in
+                self?.fireDeskAudioIfAllowed(micInUse: false)
+            }
     }
 
     /// One-time consistency fixup at launch: if the desk was left
@@ -127,7 +129,10 @@ final class DeskService {
 
         if case .nudge = desk.timerPhase(at: now) {
             if repeatTimer == nil {
-                fireDeskAudioIfAllowed()      // first audible attempt
+                // First audible attempt. Outside a mic-publisher callback, so
+                // the live property is the settled value.
+                fireDeskAudioIfAllowed(
+                    micInUse: MicActivityService.shared.isMicInUse)
                 startRepeatTimer()
             }
         } else {
@@ -140,7 +145,9 @@ final class DeskService {
         // `.common` run-loop mode so it keeps firing through the settings
         // modal / menu tracking, like ClockService's ticker.
         let timer = Timer(timeInterval: Self.nudgeRepeat, repeats: true) {
-            [weak self] _ in self?.fireDeskAudioIfAllowed()
+            [weak self] _ in
+            self?.fireDeskAudioIfAllowed(
+                micInUse: MicActivityService.shared.isMicInUse)
         }
         RunLoop.main.add(timer, forMode: .common)
         repeatTimer = timer
@@ -155,14 +162,21 @@ final class DeskService {
     /// gate is open. Audio only — it deliberately does not surface or
     /// activate the app window, so a nudge never interrupts work in
     /// another app; the user relies on the audible cue.
-    private func fireDeskAudioIfAllowed() {
+    ///
+    /// `micInUse` is supplied by the caller rather than read here. A caller
+    /// reacting to the mic publisher must pass the emitted value: `@Published`
+    /// emits from `willSet`, so the stored property still reads as the
+    /// previous value while subscribers run. Reading it here closed the gate
+    /// on the very path that exists to reopen it, discarding the nudge with no
+    /// log and leaving it to the next repeat tick.
+    private func fireDeskAudioIfAllowed(micInUse: Bool) {
         let appSettings = SettingsManager.shared.settings
         let desk = appSettings.desk
         guard case .nudge(let from) = desk.timerPhase(at: Date()) else {
             return
         }
         guard appSettings.audioGateOpen(
-            at: Date(), micInUse: MicActivityService.shared.isMicInUse
+            at: Date(), micInUse: micInUse
         ) else { return }
         guard desk.playSound || desk.speakAlert else { return }
 
