@@ -5,7 +5,18 @@ import Galactic
 /// Container for the shell pane: the drag bar on top, the terminal below.
 /// Built by `TerminalTabSplitView` while the split is open.
 struct ShellPaneView: View {
-    @ObservedObject var pane: ShellTerminalPane
+    /// Held, not observed.
+    ///
+    /// The pane publishes `fontSize` and `isRunning` and this view reads
+    /// neither. Font size reaches the terminal through the host's own
+    /// subscription to `pane.fontSizePublisher`, not through a re-render.
+    /// `isRunning` is already true before this view is built — the split
+    /// starts the shell before it stores the pane — and when it goes false the
+    /// process-exit handler removes the pane, so the view is gone rather than
+    /// re-rendered. Observing it produced an identical body that
+    /// `FocusableTerminalView.==` then discarded, since that comparison does
+    /// not include either published value.
+    let pane: ShellTerminalPane
     let isVisibleSurface: Bool
     let onBarDragBegan: () -> Void
     let onBarDrag: (CGFloat) -> Void
