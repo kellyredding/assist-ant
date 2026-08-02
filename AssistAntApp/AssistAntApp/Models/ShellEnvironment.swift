@@ -1,4 +1,5 @@
 import Foundation
+import Galactic
 
 /// Captures the user's login-shell environment so the embedded agent
 /// session matches what a terminal gets — profile-exported secrets, the
@@ -40,15 +41,19 @@ enum ShellEnvironment {
     /// the shell what its environment is.
     ///
     /// `env -0` emits NUL-delimited records so values containing newlines
-    /// survive intact. Returns nil on any failure (launch failure, non-zero
-    /// exit, timeout, undecodable output) so callers fall back to the
-    /// process's own environment.
+    /// survive intact. stdin is fed empty so an interactive shell sees EOF
+    /// immediately and never blocks. Returns nil on any failure (launch
+    /// failure, non-zero exit, timeout, undecodable output) so callers fall
+    /// back to the process's own environment.
     ///
     /// Runs a subprocess synchronously — call OFF the main thread.
     static func loginShellEnvironment(timeout: TimeInterval = 10) -> [String]? {
         let shell = userLoginShell()
-        guard let data = runCapturing(
-            shell, ["-i", "-l", "-c", "env -0"], timeout: timeout
+        guard let data = try? ProcessRunner.runSync(
+            executableURL: URL(fileURLWithPath: shell),
+            arguments: ["-i", "-l", "-c", "env -0"],
+            stdin: Data(),   // EOF on stdin → interactive shell won't block
+            timeout: timeout
         ) else {
             return nil
         }
@@ -62,55 +67,4 @@ enum ShellEnvironment {
         return entries.isEmpty ? nil : entries
     }
 
-    /// Run `executable args` and return stdout, or nil on launch failure,
-    /// non-zero exit, or timeout.
-    ///
-    /// stdin is `/dev/null` so an interactive shell gets EOF immediately and
-    /// never blocks waiting for input. stdout is drained on a background
-    /// queue so output larger than the pipe buffer can't deadlock against
-    /// the exit wait. The wait is bounded by `timeout` and escalates to
-    /// SIGKILL, so a wedged profile can't park the caller forever.
-    private static func runCapturing(
-        _ executable: String,
-        _ args: [String],
-        timeout: TimeInterval
-    ) -> Data? {
-        let task = Process()
-        let outPipe = Pipe()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = args
-        task.standardOutput = outPipe
-        task.standardError = FileHandle.nullDevice
-        task.standardInput = FileHandle.nullDevice
-
-        let exited = DispatchSemaphore(value: 0)
-        task.terminationHandler = { _ in exited.signal() }
-
-        do {
-            try task.run()
-        } catch {
-            return nil
-        }
-
-        // Drain stdout concurrently (after a successful launch, so a launch
-        // failure can't leak a thread parked on a never-closing pipe).
-        var outData = Data()
-        let drained = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-            drained.signal()
-        }
-
-        if exited.wait(timeout: .now() + timeout) == .timedOut {
-            // Hard-kill a wedged shell; SIGTERM-ignoring profiles still die.
-            // Killing closes its stdout, which drives the drain to EOF.
-            kill(task.processIdentifier, SIGKILL)
-            return nil
-        }
-
-        // The process has exited, so its stdout EOF is imminent — bounded.
-        _ = drained.wait(timeout: .now() + 2)
-        guard task.terminationStatus == 0 else { return nil }
-        return outData
-    }
 }
