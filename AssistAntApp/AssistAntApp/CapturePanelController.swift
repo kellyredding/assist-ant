@@ -332,9 +332,16 @@ final class CapturePanelController {
 
 /// Panel that can take key focus (so its text field can receive typing + Wispr
 /// dictation) even though it's borderless.
+///
+/// Key only — deliberately never main, which is the default a panel inherits.
+/// Declining main is how a floating panel says it is not the window the app's
+/// content lives in, and app-global `NSApp.mainWindow` lookups rely on that to
+/// skip it: sheet hosts, editor centering, and tooltip bounds all resolve
+/// through it, and each renders against a frame this small borderless panel
+/// cannot hold. Keyboard input is governed entirely by key, so nothing this
+/// panel does needs main.
 final class CapturePanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
 
     /// While the capture popover is the key window it takes precedence over the
     /// app's keyboard shortcuts. AppKit normally hands an unclaimed key

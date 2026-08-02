@@ -23,9 +23,10 @@ final class RowFrameAnchor {
     /// to is always the one that actually hosts the hovered row. Returns nil if
     /// the view has been removed from its window.
     ///
-    /// The window must come from the row, not `NSApp.mainWindow`: the Capture
-    /// Popover is a panel that can become main, so an app-global lookup resolves
-    /// to the popover while it's open and strands the tooltip against its frame.
+    /// The window must come from the row, not an app-global lookup: only the
+    /// row knows which window hosts it, and any global answer is a guess that
+    /// goes wrong the moment a row lives somewhere other than the window that
+    /// lookup names — stranding the tooltip against a frame that never held it.
     func currentWindowAndFrame() -> (window: NSWindow, frame: NSRect)? {
         guard let view, let window = view.window else { return nil }
         let frameInWindow = view.convert(view.bounds, to: nil)

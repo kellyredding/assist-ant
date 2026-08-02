@@ -178,7 +178,14 @@ final class StatusPanelController {
 
 /// Panel that can take key focus so the desk controls' focus ring engages and
 /// arrow / space / return reach the SwiftUI content, even though it's borderless.
+///
+/// Key only — deliberately never main, which is the default a panel inherits.
+/// Declining main is how a floating panel says it is not the window the app's
+/// content lives in, and app-global `NSApp.mainWindow` lookups rely on that to
+/// skip it: sheet hosts, editor centering, and tooltip bounds all resolve
+/// through it, and each renders against a frame this small borderless panel
+/// cannot hold. Keyboard input is governed entirely by key, so nothing this
+/// panel does needs main.
 final class StatusPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
 }
