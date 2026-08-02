@@ -1777,6 +1777,134 @@ check("nextRun: manual / today / disabled have no next run") {
         && TaskSchedule.nextRun(off, after: now) == nil
 }
 
+// MARK: - Announcement catch-up decisions
+
+/// A timed calendar item starting `minutes` from now (negative = already
+/// started), for the catch-up checks below.
+func calendarItem(_ title: String, startingIn minutes: Double) -> Item {
+    newItem(
+        type: .calendar,
+        typeData: .calendar(CalendarData(
+            startAt: Date().addingTimeInterval(minutes * 60), allDay: false)),
+        title: title)
+}
+
+// TemporaryMuteRule: each temporary reason silences on its own.
+check("TemporaryMuteRule: mic, away, and manual each silence") {
+    TemporaryMuteRule.isSilenced(
+        muteWhileMicInUse: true, micInUse: true,
+        isAway: false, isManuallyMuted: false)
+        && TemporaryMuteRule.isSilenced(
+            muteWhileMicInUse: false, micInUse: false,
+            isAway: true, isManuallyMuted: false)
+        && TemporaryMuteRule.isSilenced(
+            muteWhileMicInUse: false, micInUse: false,
+            isAway: false, isManuallyMuted: true)
+}
+
+// TemporaryMuteRule: a live mic is ignored when the user opted out of
+// mic-muting — the whole point of the toggle.
+check("TemporaryMuteRule: mic ignored when mic-muting is off") {
+    !TemporaryMuteRule.isSilenced(
+        muteWhileMicInUse: false, micInUse: true,
+        isAway: false, isManuallyMuted: false)
+}
+
+// TemporaryMuteRule: nothing set means nothing temporary.
+check("TemporaryMuteRule: quiet inputs are not silenced") {
+    !TemporaryMuteRule.isSilenced(
+        muteWhileMicInUse: true, micInUse: false,
+        isAway: false, isManuallyMuted: false)
+}
+
+// catchUps: a meeting already started is dropped — the user most likely went
+// to it, which makes the reminder redundant.
+check("catchUps: a started meeting announces nothing") {
+    let past = calendarItem("Standup", startingIn: -3)
+    return CalendarAnnouncementDecisions.catchUps(
+        items: [past], missedItemIDs: [past.id], now: Date()).isEmpty
+}
+
+// catchUps: an upcoming meeting is re-announced with a lead recomputed from
+// now, not the lead that was swallowed.
+check("catchUps: upcoming meeting uses a freshly computed lead") {
+    let soon = calendarItem("Retro", startingIn: 4)
+    let out = CalendarAnnouncementDecisions.catchUps(
+        items: [soon], missedItemIDs: [soon.id], now: Date())
+    return out.count == 1 && out[0].minutesBefore == 4
+}
+
+// catchUps: a meeting starting right now reads as zero, which
+// SpeechAnnouncer.eventPhrase renders "starting now".
+check("catchUps: a meeting starting now is lead zero") {
+    let starting = calendarItem("Sync", startingIn: 0)
+    let out = CalendarAnnouncementDecisions.catchUps(
+        items: [starting], missedItemIDs: [starting.id], now: Date())
+    return out.count == 1 && out[0].minutesBefore == 0
+}
+
+// catchUps: several missed meetings come back soonest first.
+check("catchUps: multiple upcoming meetings are ordered soonest first") {
+    let far = calendarItem("Planning", startingIn: 25)
+    let near = calendarItem("One on one", startingIn: 6)
+    let mid = calendarItem("Review", startingIn: 12)
+    let out = CalendarAnnouncementDecisions.catchUps(
+        items: [far, near, mid],
+        missedItemIDs: [far.id, near.id, mid.id], now: Date())
+    return out.map(\.title) == ["One on one", "Review", "Planning"]
+}
+
+// catchUps: only the missed set is replayed; an untouched meeting stays quiet.
+check("catchUps: meetings outside the missed set are ignored") {
+    let missed = calendarItem("Missed", startingIn: 5)
+    let other = calendarItem("Other", startingIn: 5)
+    let out = CalendarAnnouncementDecisions.catchUps(
+        items: [missed, other], missedItemIDs: [missed.id], now: Date())
+    return out.map(\.title) == ["Missed"]
+}
+
+// catchUps: one meeting yields one announcement however many of its leads the
+// silence swallowed — the recomputed lead is the same answer for all of them.
+check("catchUps: a meeting appears once regardless of missed leads") {
+    let m = calendarItem("Standup", startingIn: 3)
+    let out = CalendarAnnouncementDecisions.catchUps(
+        items: [m], missedItemIDs: [m.id], now: Date())
+    return out.count == 1
+}
+
+// catchUps: an all-day item has no start to count toward.
+check("catchUps: all-day items are skipped") {
+    let allDay = newItem(
+        type: .calendar, typeData: .calendar(CalendarData(allDay: true)),
+        title: "Holiday")
+    return CalendarAnnouncementDecisions.catchUps(
+        items: [allDay], missedItemIDs: [allDay.id], now: Date()).isEmpty
+}
+
+// due: the existing lead-matching behaviour survives the move out of the
+// service.
+check("due: a lead minute matches, a non-lead minute does not") {
+    var settings = CalendarAnnouncementSettings.defaults
+    settings.leadMinutes = [5]
+    settings.announceStart = false
+    let at5 = calendarItem("Retro", startingIn: 5)
+    let at7 = calendarItem("Retro", startingIn: 7)
+    return CalendarAnnouncementDecisions.due(
+        items: [at5], now: Date(), settings: settings).count == 1
+        && CalendarAnnouncementDecisions.due(
+            items: [at7], now: Date(), settings: settings).isEmpty
+}
+
+// due: a past event never matches, even at a lead the settings select.
+check("due: a started meeting is never due") {
+    var settings = CalendarAnnouncementSettings.defaults
+    settings.leadMinutes = [5]
+    settings.announceStart = true
+    let past = calendarItem("Standup", startingIn: -5)
+    return CalendarAnnouncementDecisions.due(
+        items: [past], now: Date(), settings: settings).isEmpty
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

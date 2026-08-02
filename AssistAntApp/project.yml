@@ -73,6 +73,10 @@ targets:
       - AssistAntApp/Models/Items
       - AssistAntApp/Models/Paths.swift
       - AssistAntApp/Models/SessionReconciler.swift
+      - AssistAntApp/Models/AnnouncementSound.swift
+      - AssistAntApp/Models/CalendarAnnouncementSettings.swift
+      - AssistAntApp/Models/CalendarAnnouncementDecisions.swift
+      - AssistAntApp/Models/TemporaryMuteRule.swift
       - ItemsSmoke
     dependencies:
       - package: GRDB

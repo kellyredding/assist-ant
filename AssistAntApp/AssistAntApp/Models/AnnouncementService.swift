@@ -9,25 +9,25 @@ import Combine
 /// It no longer touches the audio players directly — it builds a
 /// coordinator `Job` (sound and/or speech, priority `.time`) and submits
 /// it, so time announcements and desk nudges share one serializer (time
-/// first, never overlapping) and one gate. Mic-engage cancellation is
-/// owned by the coordinator; this service only handles the mic-release
-/// catch-up.
+/// first, never overlapping) and one gate. Cancelling on silence is owned
+/// by the coordinator; this service only handles the catch-up for when
+/// silence lifts.
 final class AnnouncementService {
     static let shared = AnnouncementService()
 
     private var clockObserver: AnyCancellable?
-    private var micObserver: AnyCancellable?
+    private var muteObserver: AnyCancellable?
     private var lastFiredMinute: Date?
 
-    /// Set when a boundary that would otherwise have fired was
-    /// suppressed *specifically* because the mic was in use. When the
-    /// mic later frees (and the gate is otherwise open), this triggers a
-    /// one-shot spoken catch-up of the current time so the user isn't
-    /// left unaware of the time after a call. In-memory only — a
-    /// pending catch-up does not survive relaunch. A single flag, not
-    /// a queue: any number of mic-suppressed boundaries yields at most
-    /// one catch-up.
-    private var pendingMicCatchUp = false
+    /// Set when a boundary that would otherwise have fired was suppressed by
+    /// a temporary silence — a live mic, the manual mute, or being away. When
+    /// that silence lifts (and the gate is otherwise open), this triggers a
+    /// one-shot spoken catch-up of the current time so the user isn't left
+    /// unaware of the time afterwards. In-memory only — a pending catch-up
+    /// does not survive relaunch. A single flag, not a queue: any number of
+    /// suppressed boundaries yields at most one catch-up, because
+    /// re-announcing the current time answers all of them at once.
+    private var pendingCatchUp = false
 
     private init() {
         clockObserver = ClockService.shared.$currentTime
@@ -35,13 +35,11 @@ final class AnnouncementService {
                 self?.evaluate(at: now)
             }
 
-        // The coordinator owns cancel-on-mic-engage, so this service only
-        // reacts to the mic *freeing* (already debounced by
+        // The coordinator owns cancel-on-silence, so this service only reacts
+        // to silence *ending* (the mic release already debounced by
         // MicActivityService), where the spoken catch-up fires.
-        micObserver = MicActivityService.shared.$isMicInUse
-            .removeDuplicates()
-            .filter { !$0 }
-            .sink { [weak self] _ in self?.handleMicReleased() }
+        muteObserver = TemporaryMuteMonitor.shared.didLift
+            .sink { [weak self] in self?.handleSilenceLifted() }
     }
 
     /// Pure decision: should an announcement fire at `now`? Returns the
@@ -51,6 +49,12 @@ final class AnnouncementService {
     /// Checks master enable + interval + announcement hours, then the global
     /// manual mute (`isMuted`, passed in). It does not check `playSound` —
     /// that only decides which outputs the submitted job carries.
+    ///
+    /// A caller that wants to act on a suppressed boundary rather than lose it
+    /// passes `isMuted` and `isAway` clear and applies them itself, reducing
+    /// this to the boundary question alone — which is what `evaluate` does, so
+    /// that a silence can arm a catch-up instead of the boundary vanishing in
+    /// here.
     static func shouldFire(
         at now: Date,
         settings: AnnouncementSettings,
@@ -117,12 +121,16 @@ final class AnnouncementService {
             return
         }
 
+        // Boundary question only — interval, hours, master enable. The
+        // temporary silencers are passed as clear and applied below instead,
+        // so a boundary one of them swallows can arm a catch-up rather than
+        // vanishing inside this call.
         guard let boundary = Self.shouldFire(
             at: now,
             settings: settings,
             announcementHours: appSettings.announcementHours,
-            isMuted: appSettings.isMuted,
-            isAway: appSettings.desk.isAwayActive
+            isMuted: false,
+            isAway: false
         ) else { return }
 
         // Early-out if neither output is on. Still mark the minute as
@@ -133,16 +141,15 @@ final class AnnouncementService {
             return
         }
 
-        // Mic gate: if the mic is live and "mute while mic in use" is
-        // on, suppress this boundary and remember it so a spoken
-        // catch-up can fire when the mic frees. This is the only
-        // suppression path that sets the catch-up flag — timed mute
-        // and out-of-window are handled inside shouldFire and never
-        // reach here, so a catch-up only ever stands in for an
-        // announcement the mic specifically swallowed.
-        if appSettings.muteWhileMicInUse,
-           MicActivityService.shared.isMicInUse {
-            pendingMicCatchUp = true
+        // Temporary silence: suppress this boundary and remember it so a
+        // spoken catch-up can stand in for it when the silence lifts.
+        // Out-of-window and a disabled master switch never reach here —
+        // `shouldFire` already refused them — so a catch-up only ever stands
+        // in for an announcement an interruption swallowed.
+        if appSettings.isTemporarilySilenced(
+            micInUse: MicActivityService.shared.isMicInUse
+        ) {
+            pendingCatchUp = true
             lastFiredMinute = minuteKey
             return
         }
@@ -162,18 +169,18 @@ final class AnnouncementService {
 
         // A normal announcement just fired, so there's nothing for a
         // catch-up to stand in for.
-        pendingMicCatchUp = false
+        pendingCatchUp = false
         lastFiredMinute = minuteKey
     }
 
-    /// Mic freed (after MicActivityService's release cooldown). If a
-    /// boundary was swallowed by the mic while it was live, speak the
-    /// *current* time once as a catch-up — speech only, and only if the
-    /// shared gate is now open (inside the window, not snoozed). Submitted
-    /// at time priority so on a combined flush it precedes the desk nudge.
-    private func handleMicReleased() {
-        guard pendingMicCatchUp else { return }
-        pendingMicCatchUp = false
+    /// Temporary silence ended. If a boundary was swallowed while it held,
+    /// speak the *current* time once as a catch-up — speech only, and only if
+    /// the shared gate is now open (inside the window, master switch on).
+    /// Submitted at time priority so on a combined flush it precedes the desk
+    /// nudge.
+    private func handleSilenceLifted() {
+        guard pendingCatchUp else { return }
+        pendingCatchUp = false
 
         let appSettings = SettingsManager.shared.settings
         let settings = appSettings.announcement

@@ -133,6 +133,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // "mute while microphone in use" behavior.
         MicActivityService.shared.start()
 
+        // Watch the temporary silencers — a live mic, the manual mute, being
+        // away — so the announcement catch-ups have a lift signal to hang
+        // from. After the mic service so its opening snapshot reads a settled
+        // state, and before the services that subscribe to it.
+        TemporaryMuteMonitor.shared.start()
+
         // Warm the audio coordinator so its mic observer is live before
         // any announcement can fire — it owns cancel-on-mic-engage for
         // all audible output.
@@ -145,10 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // could pass its lead time before the service is first touched.
         _ = CalendarAnnouncementService.shared
 
-        // Warm DeskService so its launch fixup runs, its clock/mic
-        // observers wire up, and a nudge pending on launch begins its
-        // audible repeat. The visible countdown/nudge is derived live by
-        // the views.
+        // Warm DeskService so its launch fixup runs, its clock and
+        // silence-lifted observers wire up, and a nudge pending on launch
+        // begins its audible repeat. The visible countdown/nudge is derived
+        // live by the views.
         DeskService.shared.start()
 
         // Auto-away: flip to "away from desk" (which mutes announcements)

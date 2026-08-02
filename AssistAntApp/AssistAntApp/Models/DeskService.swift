@@ -17,7 +17,7 @@ final class DeskService {
     static let shared = DeskService()
 
     private var clockObserver: AnyCancellable?
-    private var micObserver: AnyCancellable?
+    private var muteObserver: AnyCancellable?
     private var repeatTimer: Timer?
 
     /// Cadence of the audible nudge repeat while a switch is pending.
@@ -29,15 +29,15 @@ final class DeskService {
         clockObserver = ClockService.shared.$currentTime
             .sink { [weak self] _ in self?.evaluateNudge() }
 
-        // Mic freeing: immediately re-attempt the desk audio so a pending
-        // nudge resumes the instant a call ends (rather than waiting up to
-        // 20s for the next repeat tick). The coordinator owns
-        // cancel-on-mic-engage, and `fireDeskAudioIfAllowed` re-checks the
-        // gate, so this is a no-op when no nudge is pending.
-        micObserver = MicActivityService.shared.$isMicInUse
-            .removeDuplicates()
-            .filter { !$0 }
-            .sink { [weak self] _ in
+        // Silence lifting: immediately re-attempt the desk audio so a pending
+        // nudge resumes the instant a call ends, a manual mute clears, or the
+        // user returns to the desk — rather than waiting up to 20s for the
+        // next repeat tick. The coordinator owns cancel-on-silence, and
+        // `fireDeskAudioIfAllowed` re-checks the gate, so this is a no-op when
+        // no nudge is pending. Returning from away resets the position start,
+        // so that case correctly no-ops on a fresh counting interval.
+        muteObserver = TemporaryMuteMonitor.shared.didLift
+            .sink { [weak self] in
                 self?.fireDeskAudioIfAllowed(micInUse: false)
             }
     }

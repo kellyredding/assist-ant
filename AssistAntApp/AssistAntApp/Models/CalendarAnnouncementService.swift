@@ -7,26 +7,39 @@ import Foundation
 /// `AudioAnnouncementCoordinator` at `.calendar` priority, so it serializes
 /// with time/desk audio and never overlaps.
 ///
-/// Gating is delegated entirely to `AppSettings.audioGateOpen` — the same
-/// speaker-icon gate the time chime uses — plus the feature's own `enabled`
-/// toggle. There is intentionally no mic-release "catch-up": a missed event
-/// announcement is stale, not worth replaying after a call.
+/// Gating is delegated to `AppSettings.audioGateOpen` — the same speaker-icon
+/// gate the time chime uses — plus the feature's own `enabled` toggle. A
+/// boundary that a *temporary* silence swallows is remembered per meeting and
+/// replayed when `TemporaryMuteMonitor` reports the silence lifted, with the
+/// lead recomputed for that moment; a meeting that has since started is
+/// dropped rather than announced late, since the likeliest reason for the
+/// silence is that the user went to it.
+///
+/// The decisions themselves live in `CalendarAnnouncementDecisions`, apart
+/// from the Combine wiring here so they can be exercised directly.
 @MainActor
 final class CalendarAnnouncementService {
     static let shared = CalendarAnnouncementService()
 
     private var clockObserver: AnyCancellable?
     private var itemsObserver: AnyCancellable?
+    private var muteObserver: AnyCancellable?
 
     /// Latest active calendar items from the store. Refreshed reactively;
     /// read on each clock tick.
     private var activeCalendarItems: [Item] = []
 
-    /// In-memory dedup of already-fired (itemID, minutesBefore) boundaries,
-    /// so a boundary fires at most once. Pruned to currently-active items
-    /// each tick so it can't grow without bound. Not persisted — a relaunch
-    /// starts clean (and past boundaries won't re-match anyway).
+    /// In-memory dedup of already-decided (itemID, minutesBefore) boundaries,
+    /// so a boundary is acted on at most once. Pruned to currently-active
+    /// items each tick so it can't grow without bound. Not persisted — a
+    /// relaunch starts clean (and past boundaries won't re-match anyway).
     private var firedKeys: Set<String> = []
+
+    /// Meetings whose announcement a temporary silence swallowed, keyed by
+    /// item so a meeting whose 10- and 5-minute leads were both missed still
+    /// yields one catch-up. In-memory only, matching the time catch-up: a
+    /// pending replay does not survive relaunch.
+    private var missedItemIDs: Set<String> = []
 
     private init() {
         itemsObserver = GRDBItemStore.shared.observeActive(type: .calendar)
@@ -37,42 +50,10 @@ final class CalendarAnnouncementService {
         clockObserver = ClockService.shared.$currentTime
             .receive(on: DispatchQueue.main)
             .sink { [weak self] now in self?.evaluate(at: now) }
-    }
 
-    /// One boundary that is due to announce right now.
-    struct DueBoundary: Equatable {
-        let itemID: String
-        let title: String
-        let minutesBefore: Int
-    }
-
-    /// Pure decision: which (item, lead) boundaries are due at `now`?
-    /// Side-effect-free. All-day and undated items are skipped explicitly
-    /// (defense in depth — the ingest path already excludes them). Past
-    /// events (negative minutesUntil) never match.
-    static func dueAnnouncements(
-        items: [Item],
-        now: Date,
-        settings: CalendarAnnouncementSettings
-    ) -> [DueBoundary] {
-        var leads = settings.leadMinutes
-        if settings.announceStart { leads.insert(0) }
-        guard !leads.isEmpty else { return [] }
-
-        var due: [DueBoundary] = []
-        for item in items {
-            guard case .calendar(let data) = item.typeData else { continue }
-            // Explicit all-day / undated skip.
-            guard !data.allDay, let start = data.startAt else { continue }
-            // Round to the nearest minute so a sub-minute start offset
-            // still lands on a whole-minute lead.
-            let minutesUntil = Int((start.timeIntervalSince(now) / 60).rounded())
-            guard minutesUntil >= 0, leads.contains(minutesUntil) else { continue }
-            due.append(DueBoundary(
-                itemID: item.id, title: item.title, minutesBefore: minutesUntil
-            ))
-        }
-        return due
+        muteObserver = TemporaryMuteMonitor.shared.didLift
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.handleSilenceLifted() }
     }
 
     private func evaluate(at now: Date) {
@@ -81,36 +62,78 @@ final class CalendarAnnouncementService {
 
         guard cal.enabled else { return }
         guard cal.playSound || cal.speakEvent else { return }
-        guard app.audioGateOpen(
-            at: now, micInUse: MicActivityService.shared.isMicInUse
-        ) else { return }
 
-        // Prune dedup keys for items no longer active so the set stays small.
+        // Prune both sets to items that are still active so neither grows
+        // without bound and a deleted meeting stops being a catch-up
+        // candidate.
         let activeIDs = Set(activeCalendarItems.map(\.id))
         firedKeys = firedKeys.filter { key in
             activeIDs.contains(String(key.prefix(while: { $0 != ":" })))
         }
+        missedItemIDs = missedItemIDs.filter { activeIDs.contains($0) }
 
-        let due = Self.dueAnnouncements(
-            items: activeCalendarItems, now: now, settings: cal
-        )
+        // The gate is consulted per boundary rather than up front: a boundary
+        // silenced right now still has to be recorded, and that cannot happen
+        // from an early return above the due computation.
+        let micInUse = MicActivityService.shared.isMicInUse
+        let gateOpen = app.audioGateOpen(at: now, micInUse: micInUse)
+        let temporary = app.isTemporarilySilenced(micInUse: micInUse)
+
+        let due = CalendarAnnouncementDecisions.due(
+            items: activeCalendarItems, now: now, settings: cal)
         for boundary in due {
             let key = "\(boundary.itemID):\(boundary.minutesBefore)"
             guard !firedKeys.contains(key) else { continue }
             firedKeys.insert(key)
 
-            let job = AudioAnnouncementCoordinator.Job(
-                sound: cal.playSound ? cal.sound : nil,
-                soundCount: cal.playSound ? 1 : 0,
-                speech: cal.speakEvent
-                    ? SpeechAnnouncer.eventPhrase(
-                        title: boundary.title, minutesBefore: boundary.minutesBefore
-                    )
-                    : nil,
-                voiceIdentifier: cal.voiceIdentifier,
-                priority: .calendar
-            )
-            AudioAnnouncementCoordinator.shared.submit(job)
+            if gateOpen {
+                submit(boundary, settings: cal)
+            } else if temporary {
+                missedItemIDs.insert(boundary.itemID)
+            }
+            // Otherwise the silence is the hours window or the master switch —
+            // standing preferences, not interruptions, so nothing is owed.
         }
+    }
+
+    /// Temporary silence ended: announce every missed meeting that is still
+    /// ahead, soonest first, each with a lead recomputed for this moment.
+    /// Meetings that have since started are dropped silently.
+    private func handleSilenceLifted() {
+        guard !missedItemIDs.isEmpty else { return }
+        let missed = missedItemIDs
+        missedItemIDs.removeAll()
+
+        let app = SettingsManager.shared.settings
+        let cal = app.calendarAnnouncement
+        let now = Date()
+        guard cal.enabled, cal.playSound || cal.speakEvent,
+              app.audioGateOpen(at: now, micInUse: false)
+        else { return }
+
+        for boundary in CalendarAnnouncementDecisions.catchUps(
+            items: activeCalendarItems, missedItemIDs: missed, now: now
+        ) {
+            submit(boundary, settings: cal)
+        }
+    }
+
+    /// Build and hand off one announcement. Shared by the live path and the
+    /// catch-up so the two cannot drift in sound, voice, or priority.
+    private func submit(
+        _ boundary: CalendarAnnouncementDecisions.DueBoundary,
+        settings cal: CalendarAnnouncementSettings
+    ) {
+        AudioAnnouncementCoordinator.shared.submit(.init(
+            sound: cal.playSound ? cal.sound : nil,
+            soundCount: cal.playSound ? 1 : 0,
+            speech: cal.speakEvent
+                ? SpeechAnnouncer.eventPhrase(
+                    title: boundary.title,
+                    minutesBefore: boundary.minutesBefore)
+                : nil,
+            voiceIdentifier: cal.voiceIdentifier,
+            priority: .calendar
+        ))
     }
 }
