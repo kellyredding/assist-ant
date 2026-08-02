@@ -2,7 +2,7 @@ import Foundation
 
 /// How often announcements fire when the schedule allows them. The user
 /// picks one of these in Settings; the resulting `fireMinutes` set is the
-/// minute-of-hour gate inside `AnnouncementService.shouldFire`.
+/// minute-of-hour gate inside `AnnouncementService.dueBoundary`.
 enum AnnouncementInterval: String, Codable, CaseIterable {
     case hourly
     case halfHourly

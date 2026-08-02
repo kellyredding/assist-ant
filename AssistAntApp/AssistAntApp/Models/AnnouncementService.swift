@@ -42,25 +42,23 @@ final class AnnouncementService {
             .sink { [weak self] in self?.handleSilenceLifted() }
     }
 
-    /// Pure decision: should an announcement fire at `now`? Returns the
-    /// boundary type so the caller knows how many chimes to play.
-    /// Side-effect-free.
+    /// Pure decision: is `now` a minute the user asked to have announced?
+    /// Returns the boundary type so the caller knows how many chimes to play,
+    /// or nil when this minute is not one. Side-effect-free.
     ///
-    /// Checks master enable + interval + announcement hours, then the global
-    /// manual mute (`isMuted`, passed in). It does not check `playSound` —
-    /// that only decides which outputs the submitted job carries.
+    /// Scope is the standing schedule alone — master enable, interval, and the
+    /// announcement-hours window. The temporary silencers (a live mic, the
+    /// manual mute, being away) are deliberately absent: a boundary they
+    /// swallow still has to arm a catch-up, and folding them in here would
+    /// leave the caller unable to tell "not a boundary" apart from "a boundary
+    /// that was silenced" — the two answers a catch-up depends on separating.
     ///
-    /// A caller that wants to act on a suppressed boundary rather than lose it
-    /// passes `isMuted` and `isAway` clear and applies them itself, reducing
-    /// this to the boundary question alone — which is what `evaluate` does, so
-    /// that a silence can arm a catch-up instead of the boundary vanishing in
-    /// here.
-    static func shouldFire(
+    /// It does not check `playSound` — that only decides which outputs the
+    /// submitted job carries.
+    static func dueBoundary(
         at now: Date,
         settings: AnnouncementSettings,
         announcementHours: AnnouncementHours,
-        isMuted: Bool,
-        isAway: Bool,
         calendar: Calendar = .current
     ) -> AnnouncementBoundary? {
         guard settings.enabled else { return nil }
@@ -85,19 +83,6 @@ final class AnnouncementService {
         guard announcementHours.isActive(at: timeOfDay, weekday: weekday)
         else { return nil }
 
-        // Away override: stepping away from the desk silences time
-        // announcements too, superseding the manual mute and the
-        // announcement hours — the same way mic-in-use does.
-        if isAway {
-            return nil
-        }
-
-        // Mute override: the global manual mute. Applied last so the
-        // announcement-hours/interval reasoning is independent of mute state.
-        if isMuted {
-            return nil
-        }
-
         return AnnouncementBoundary.from(minute: minute)
     }
 
@@ -121,16 +106,13 @@ final class AnnouncementService {
             return
         }
 
-        // Boundary question only — interval, hours, master enable. The
-        // temporary silencers are passed as clear and applied below instead,
-        // so a boundary one of them swallows can arm a catch-up rather than
-        // vanishing inside this call.
-        guard let boundary = Self.shouldFire(
+        // The standing schedule only. Temporary silence is applied below
+        // instead, so a boundary it swallows can arm a catch-up rather than
+        // being lost here.
+        guard let boundary = Self.dueBoundary(
             at: now,
             settings: settings,
-            announcementHours: appSettings.announcementHours,
-            isMuted: false,
-            isAway: false
+            announcementHours: appSettings.announcementHours
         ) else { return }
 
         // Early-out if neither output is on. Still mark the minute as
@@ -144,7 +126,7 @@ final class AnnouncementService {
         // Temporary silence: suppress this boundary and remember it so a
         // spoken catch-up can stand in for it when the silence lifts.
         // Out-of-window and a disabled master switch never reach here —
-        // `shouldFire` already refused them — so a catch-up only ever stands
+        // `dueBoundary` already refused them — so a catch-up only ever stands
         // in for an announcement an interruption swallowed.
         if appSettings.isTemporarilySilenced(
             micInUse: MicActivityService.shared.isMicInUse
