@@ -16,6 +16,13 @@ import Galactic
 final class ShellTerminalPane: BackendBackedPane, ObservableObject {
     let backend: TerminalBackend
 
+    /// No ledger here, so nothing to attribute events to.
+    ///
+    /// Stated rather than left to a default: a recorder drops every event whose
+    /// session id is nil, so if this app ever gains a timeline, the events would
+    /// go missing silently and the omission would look like the answer.
+    var ledgerSessionId: Int64? { nil }
+
     /// Where configuration comes from, and how a change to it arrives.
     var settings: GalacticConfigurationSource { SettingsManager.shared }
 
@@ -77,7 +84,10 @@ final class ShellTerminalPane: BackendBackedPane, ObservableObject {
             ShellLaunch(
                 executable: ShellEnvironment.userLoginShell(),
                 workingDirectory: ShellLauncher.resolveCwd(),
-                environment: ShellLauncher.buildEnvironment()
+                environment: ShellLauncher.buildEnvironment(),
+                // A user sitting at a prompt: the profile a login shell reads,
+                // and the behaviour an interactive one has.
+                arguments: ["-il"]
             )
         )
     }

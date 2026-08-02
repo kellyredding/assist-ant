@@ -20,6 +20,13 @@ final class SessionTerminalPane: TerminalPane {
 
     var view: NSView { backend.view }
 
+    /// No ledger here, so nothing to attribute events to.
+    ///
+    /// Stated rather than left to a default: a recorder drops every event whose
+    /// session id is nil, so if this app ever gains a timeline, the events would
+    /// go missing silently and the omission would look like the answer.
+    var ledgerSessionId: Int64? { nil }
+
     /// The session pane ignores this — the controller's own
     /// `onProcessTerminated` wiring is the source of truth for session exit.
     var onProcessExit: ((Int32) -> Void)?
