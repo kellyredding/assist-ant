@@ -100,23 +100,26 @@ struct AppSettings: Codable, Equatable {
         return "~\(Int(megabytes)) MB"
     }
 
-    // Custom decoder so prefs.json files saved before a field existed (or
-    // written by a future version that drops fields) decode cleanly to
-    // defaults instead of failing the whole decode.
+    // Custom decoder so a prefs.json saved before a field existed decodes
+    // cleanly to defaults instead of failing the whole document.
+    //
+    // `decodeIfPresent` covers an *absent* key and nothing else. A key present
+    // with a value this build does not recognise still throws, and the loader
+    // above answers nil for the entire file without so much as a log line — so
+    // one unknown enum case would revert every setting the user has. Fields
+    // that can fail that way go through `lenient` instead, which spends the
+    // one field rather than all of them.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decodeIfPresent(
             Int.self, forKey: .version
         ) ?? AppSettings.current.version
-        self.themePreference = try container.decodeIfPresent(
-            ThemePreference.self, forKey: .themePreference
-        ) ?? AppSettings.current.themePreference
-        self.timeFormat = try container.decodeIfPresent(
-            TimeFormat.self, forKey: .timeFormat
-        ) ?? AppSettings.current.timeFormat
-        self.announcement = try container.decodeIfPresent(
-            AnnouncementSettings.self, forKey: .announcement
-        ) ?? AppSettings.current.announcement
+        self.themePreference = container.lenient(
+            .themePreference, default: AppSettings.current.themePreference)
+        self.timeFormat = container.lenient(
+            .timeFormat, default: AppSettings.current.timeFormat)
+        self.announcement = container.lenient(
+            .announcement, default: AppSettings.current.announcement)
 
         // One-time migration: `announcementHours` and `muteWhileMicInUse`
         // used to live nested under `announcement`. Read them from there as a
@@ -137,9 +140,12 @@ struct AppSettings: Codable, Equatable {
             )
         }
 
-        self.announcementHours = try container.decodeIfPresent(
-            AnnouncementHours.self, forKey: .announcementHours
-        ) ?? legacyAnnouncementHours ?? AppSettings.current.announcementHours
+        // Composite, and its own decoder is synthesized — an unrecognised
+        // weekday inside it throws with no tolerance of its own.
+        self.announcementHours = container.lenient(
+            .announcementHours,
+            default: legacyAnnouncementHours
+                ?? AppSettings.current.announcementHours)
         self.muteWhileMicInUse = try container.decodeIfPresent(
             Bool.self, forKey: .muteWhileMicInUse
         ) ?? legacyMuteMic ?? AppSettings.current.muteWhileMicInUse
@@ -149,12 +155,11 @@ struct AppSettings: Codable, Equatable {
         self.announcementsEnabled = try container.decodeIfPresent(
             Bool.self, forKey: .announcementsEnabled
         ) ?? AppSettings.current.announcementsEnabled
-        self.desk = try container.decodeIfPresent(
-            DeskSettings.self, forKey: .desk
-        ) ?? AppSettings.current.desk
-        self.calendarAnnouncement = try container.decodeIfPresent(
-            CalendarAnnouncementSettings.self, forKey: .calendarAnnouncement
-        ) ?? AppSettings.current.calendarAnnouncement
+        self.desk = container.lenient(
+            .desk, default: AppSettings.current.desk)
+        self.calendarAnnouncement = container.lenient(
+            .calendarAnnouncement,
+            default: AppSettings.current.calendarAnnouncement)
 
         self.terminalFontFamily = try container.decodeIfPresent(
             String.self, forKey: .terminalFontFamily
@@ -165,9 +170,9 @@ struct AppSettings: Codable, Equatable {
         self.terminalScrollbackLines = try container.decodeIfPresent(
             Int.self, forKey: .terminalScrollbackLines
         ) ?? AppSettings.current.terminalScrollbackLines
-        self.terminalCursorStyle = try container.decodeIfPresent(
-            ShellCursorStyle.self, forKey: .terminalCursorStyle
-        ) ?? AppSettings.current.terminalCursorStyle
+        self.terminalCursorStyle = container.lenient(
+            .terminalCursorStyle,
+            default: AppSettings.current.terminalCursorStyle)
         self.terminalCursorBlink = try container.decodeIfPresent(
             Bool.self, forKey: .terminalCursorBlink
         ) ?? AppSettings.current.terminalCursorBlink
@@ -189,9 +194,9 @@ struct AppSettings: Codable, Equatable {
         // Coerced on the way in: an empty submit list would leave a composer
         // with no way to commit and no save button to fall back on, and a
         // hand-edited file can arrive that way.
-        self.textEntry = (try container.decodeIfPresent(
-            TextEntryBindings.self, forKey: .textEntry
-        ) ?? AppSettings.current.textEntry).coercingEmptyLists()
+        self.textEntry = container.lenient(
+            .textEntry, default: AppSettings.current.textEntry
+        ).coercingEmptyLists()
     }
 
     init(
@@ -315,4 +320,22 @@ extension AppSettings: GalacticConfiguration {
     /// rather than left out: the mechanism ships either way, so turning it on
     /// is this line changing and nothing else.
     var scrollToEnterScrollback: Bool { false }
+}
+
+private extension KeyedDecodingContainer {
+    /// Decode a value that may not survive a round trip between builds,
+    /// falling back to `fallback` rather than failing the whole document.
+    ///
+    /// Written for enums and for the composite types that contain them, which
+    /// is where this bites. `decodeIfPresent` answers nil only for an *absent*
+    /// key — a key present with an unrecognised value throws instead, and the
+    /// settings loader answers nil for the entire file without logging, so a
+    /// single stale value silently reverts every preference the user has.
+    ///
+    /// Reachable three ways, none exotic: running an older build after a newer
+    /// one has written the file, editing the file by hand, and a case being
+    /// removed in a later version. Losing one field is the right price.
+    func lenient<T: Decodable>(_ key: Key, default fallback: T) -> T {
+        ((try? decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+    }
 }
