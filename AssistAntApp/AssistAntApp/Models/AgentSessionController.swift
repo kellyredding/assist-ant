@@ -170,7 +170,7 @@ final class AgentSessionController: ObservableObject {
         // its acceptance read as one exchange. An absent line here is the
         // symptom of a hook that never fired — which looks identical to a lost
         // prompt from every other vantage point.
-        AssistAntLog.submit("agent accepted a prompt (\(promptsAccepted) total)")
+        SessionSubmit.log("agent accepted a prompt (\(promptsAccepted) total)")
     }
 
     private init() {
@@ -323,25 +323,25 @@ final class AgentSessionController: ObservableObject {
 
     // MARK: - Send to session (PTY)
 
-    /// Delay between writing command text and sending CR, so the TUI
-    /// registers the text as input before Enter arrives.
+    /// Delay after one prompt is submitted before the next queued one is
+    /// written, so the TUI finishes accepting one before the next arrives
+    /// (batched task fires).
     ///
-    /// Read from the harness rather than restated here. The value is
-    /// calibrated against a particular agent's render loop, so it belongs to
-    /// the agent; a second copy of one number would drift, and the second copy
-    /// is the one that would drift unnoticed.
-    private var commandSubmitDelay: TimeInterval { harness.inputPacingDelay }
-
-    /// Delay after a submit CR before the next queued prompt's paste, so the TUI
-    /// finishes accepting one prompt before the next arrives (batched task fires).
+    /// This app's own number, unlike the gap between text and submit — that
+    /// one is the agent's, and lives on the harness. This one is about not
+    /// crowding a queue of the app's own making.
     private static let interPromptDelay: TimeInterval = 0.25
 
-    /// Serial queue of prompts awaiting delivery. Task prompts are multi-line and
-    /// go in as a bracketed paste, which the TUI holds as pending input ("[Pasted
-    /// text]"); the submit CR must arrive as a SEPARATE keystroke after the paste
-    /// registers, or it is swallowed into the paste instead of submitting. Draining
-    /// one prompt at a time (paste → delay → CR → delay) also keeps batched fires
-    /// from colliding in the input buffer.
+    /// Serial queue of prompts awaiting delivery.
+    ///
+    /// Task prompts are multi-line and are typed, not pasted — a bracketed
+    /// paste is held as pending input and can swallow the submit that follows
+    /// it. Typing is safe at any size because embedded newlines are LF and only
+    /// a carriage return or the reserved chord commits.
+    ///
+    /// Draining one at a time is this app's own concern: scheduled tasks can
+    /// fire together, and nothing else here keeps them from colliding in the
+    /// input buffer.
     private var promptQueue: [String] = []
     private var drainingPrompts = false
 
@@ -357,9 +357,14 @@ final class AgentSessionController: ObservableObject {
     }
 
     /// Submit whatever was last written — the automated counterpart to a
-    /// keyboard Return. `SessionSubmit` owns the bytes, so this keeps
-    /// working when text-entry settings change. Mirrors Galaxy's
-    /// `Session.sendCommand`, which submits through the same seam.
+    /// keyboard Return. The harness owns the bytes, so this keeps working when
+    /// text-entry settings change.
+    ///
+    /// Currently uncalled, and deliberately not the way to send anything:
+    /// `sendCommand` and `enqueuePrompt` go through the shared delivery seam,
+    /// which is what pairs a submit with a readiness wait, pacing and
+    /// verification. A bare submit skips all three, so reaching for this is
+    /// almost certainly a mistake.
     func submit() {
         guard state == .running, let backend else { return }
         backend.submitPrompt(harness: harness)
@@ -379,100 +384,58 @@ final class AgentSessionController: ObservableObject {
         guard !drainingPrompts, state == .running, let backend,
               !promptQueue.isEmpty else { return }
         drainingPrompts = true
+        let text = promptQueue.removeFirst()
 
-        // Composed through the harness, exactly as `sendCommand` is. This path
-        // carries raw captured text, so a prompt that happens to begin with a
-        // slash opens the completion popup and the popup eats the submit — the
-        // prompt then sits fully typed and uncommitted, silently, on a path
-        // nobody is watching. Composing here rather than only for known
-        // commands is what closes that.
-        let text = harness.composedCommand(promptQueue.removeFirst())
+        SessionSubmit.log("queued prompt accepted=\(promptsAccepted)")
 
-        // Gated for the same reason as `sendCommand`, and with more at stake: a
-        // task can fire the moment the session reports running, which is exactly
-        // the window where the child is up but not yet reading. The flag is
-        // released on every exit from here, or the queue would strand behind a
-        // prompt that never got written.
-        AssistAntLog.submit(
-            "queued prompt \(SessionSubmit.describe(text: text)) "
-                + "accepted=\(promptsAccepted)")
-        if !backend.isKittyKeyboardActive {
-            AssistAntLog.submit("  waiting for input readiness…")
-        }
-        let started = Date()
-        backend.whenAcceptingInput(harness: harness) { [weak self] ready in
-            guard let self else { return }
-            guard self.state == .running else {
-                self.drainingPrompts = false
-                return
-            }
-            // Typed, not pasted. A bracketed paste is held as pending input and
-            // the submit that follows can be swallowed into it — which is the
-            // bug the inter-prompt pacing was added to work around. Galaxy has
-            // never pasted an automated prompt, at any size, and its multi-line
-            // sends run to tens of thousands of bytes: embedded newlines are
-            // LF, and only CR or the reserved chord commits, so typing a
-            // multi-line payload inserts it without submitting early.
-            backend.send(text: text, asPaste: false)
-            AssistAntLog.submit(
-                String(
-                    format: "  input %@ (+%.0fms) — wrote prompt",
-                    ready ? "ready" : "TIMED OUT",
-                    Date().timeIntervalSince(started) * 1000)
-            )
-            let verification = self.submitVerification()
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + self.commandSubmitDelay
-            ) { [weak self] in
+        backend.deliverPrompt(
+            text,
+            harness: harness,
+            isAlive: { [weak self] in self?.state == .running },
+            verification: submitVerification(),
+            // Detected, never retyped, for two reasons — and the second is the
+            // load-bearing one.
+            //
+            // These prompts are unbounded captured text, so a retype doubles a
+            // prompt in the case where the text landed and only the submit was
+            // lost, which nothing here can distinguish from a total loss.
+            //
+            // More importantly, this queue submits while the agent may still be
+            // working, and Claude Code acknowledges a prompt when it dequeues
+            // one rather than when it is typed. A prompt sent mid-turn was
+            // measured acknowledged 20s after its submit — ten times the verify
+            // bound — and it landed correctly. Retyping on that signal would
+            // re-run a scheduled task, unattended, for no fault at all. The
+            // bound is honest for an idle agent and meaningless for a busy one,
+            // so the report is informational here.
+            //
+            // Fixing that properly needs a turn-end signal this app does not
+            // have (Galaxy installs a Stop hook for it), and gating the queue on
+            // turn end would make batched tasks drain a turn apart instead of
+            // together. Deliberately not done: the current behaviour is correct,
+            // only slower to confirm.
+            retry: .reportOnly,
+            then: { [weak self] in
                 guard let self else { return }
-                if self.state == .running {
-                    self.backend?.submitPrompt(harness: self.harness)
-                    // Detected, never retyped, for two reasons — and the
-                    // second is the load-bearing one.
-                    //
-                    // These prompts are unbounded captured text, so a retype
-                    // doubles a prompt in the case where the text landed and
-                    // only the submit was lost, which nothing here can
-                    // distinguish from a total loss.
-                    //
-                    // More importantly, this queue submits while the agent may
-                    // still be working, and Claude Code acknowledges a prompt
-                    // when it dequeues one rather than when it is typed. A
-                    // prompt sent mid-turn was measured acknowledged 20s after
-                    // its submit — ten times the verify bound — and it landed
-                    // correctly. Retyping on that signal would re-run a
-                    // scheduled task, unattended, for no fault at all. The
-                    // bound is honest for an idle agent and meaningless for a
-                    // busy one, so the report is informational here.
-                    //
-                    // Fixing that properly needs a turn-end signal this app
-                    // does not have (Galaxy installs a Stop hook for it), and
-                    // gating the queue on turn end would make batched tasks
-                    // drain a turn apart instead of together. Deliberately not
-                    // done: the current behaviour is correct, only slower to
-                    // confirm.
-                    self.backend?.verifySubmission(
-                        text: text,
-                        harness: self.harness,
-                        verification: verification,
-                        retry: .reportOnly
-                    )
-                }
+                // Released after the gap, on every path — an abandoned send
+                // must free the queue too, or it strands behind a prompt that
+                // never got written.
                 DispatchQueue.main.asyncAfter(
                     deadline: .now() + Self.interPromptDelay
-                ) { [weak self] in
-                    guard let self else { return }
+                ) {
                     self.drainingPrompts = false
                     self.drainPromptQueue()
                 }
             }
-        }
+        )
     }
 
-    /// Send a slash command and submit it after `commandSubmitDelay`.
-    /// Mirrors the send-text → delay → CR core of Galaxy
-    /// `Session.sendCommand`, minus the synthetic-turn bookkeeping (which
-    /// depends on turn-state events the embedded session does not observe).
+    /// Send a slash command and submit it.
+    ///
+    /// The gesture itself is shared with Galaxy; what stays here is this app's
+    /// policy. Missing, relative to Galaxy: the synthetic-turn bookkeeping,
+    /// which depends on turn-state events the embedded session does not
+    /// observe.
     ///
     /// Verified against the agent's own report that it took the prompt, which
     /// arrives over the socket from its UserPromptSubmit hook. Retyped on a
@@ -480,28 +443,9 @@ final class AgentSessionController: ObservableObject {
     /// so a second copy costs little and a missing `/clear` costs a lot.
     func sendCommand(_ command: String) {
         guard state == .running, let backend else {
-            AssistAntLog.submit("sendCommand refused — session not running")
+            SessionSubmit.log("sendCommand refused — session not running")
             return
         }
-
-        // Composed by the harness: for Claude Code that is a trailing space,
-        // which closes the completion popup any slash command opens. The popup
-        // filters on the token under the cursor, and a space ends that token so
-        // nothing matches. It rides in the same write rather than being paced
-        // after it — both land in the composer before the popup filters either.
-        let text = harness.composedCommand(command)
-
-        AssistAntLog.submit(
-            "sendCommand text=\(SessionSubmit.describe(text: text)) "
-                + "accepted=\(promptsAccepted)")
-
-        // A pane's readiness marks the *process* being up, not its input layer.
-        // Text written into that window is lost in silence, and a trailing space
-        // — last byte, and whitespace — is the first thing to go.
-        if !backend.isKittyKeyboardActive {
-            AssistAntLog.submit("  waiting for input readiness…")
-        }
-        let started = Date()
 
         // These bypass the agent's prompt pipeline, so its hook never fires for
         // them and no acceptance report is coming. Waiting on one would be
@@ -510,29 +454,15 @@ final class AgentSessionController: ObservableObject {
         let bypasses = harness.acceptanceBypassingCommands.contains(
             command.trimmingCharacters(in: .whitespaces))
 
-        backend.whenAcceptingInput(harness: harness) { [weak self] ready in
-            guard let self, self.state == .running else { return }
-            backend.send(text: text, asPaste: false)
-            AssistAntLog.submit(
-                String(
-                    format: "  input %@ (+%.0fms) — wrote text",
-                    ready ? "ready" : "TIMED OUT",
-                    Date().timeIntervalSince(started) * 1000)
-            )
-            let verification = bypasses ? nil : self.submitVerification()
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + self.commandSubmitDelay
-            ) { [weak self] in
-                guard let self, self.state == .running else { return }
-                self.backend?.submitPrompt(harness: self.harness)
-                // Opted out by value, never by omission.
-                self.backend?.verifySubmission(
-                    text: text,
-                    harness: self.harness,
-                    verification: verification
-                )
-            }
-        }
+        SessionSubmit.log(
+            "sendCommand accepted=\(promptsAccepted) bypasses=\(bypasses)")
+
+        backend.deliverPrompt(
+            command,
+            harness: harness,
+            isAlive: { [weak self] in self?.state == .running },
+            verification: bypasses ? nil : submitVerification()
+        )
     }
 
     /// Agent ▸ Clear session — trim the terminal scrollback first so the
