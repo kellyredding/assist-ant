@@ -437,6 +437,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let id = e.detailValue("session_id", as: String.self) else { break }
             let source = e.detailValue("source", as: String.self) ?? ""
             AgentSessionController.shared.reconcileSession(id: id, source: source)
+        case "agent:prompt-accepted":
+            // Deliberately unfiltered by session id. The controller runs one
+            // session, and a prompt reported against an id it has not yet
+            // reconciled is still a prompt the agent took — dropping it would
+            // make a send look lost precisely during a resume, which is the
+            // window where acceptance is slowest and verification matters most.
+            AgentSessionController.shared.recordPromptAccepted()
         case "ping":
             let message = e.detailValue("message", as: String.self) ?? "<no message>"
             NSLog("AssistAnt: ping — \(message)")

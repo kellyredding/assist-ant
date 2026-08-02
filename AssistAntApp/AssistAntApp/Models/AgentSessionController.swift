@@ -124,6 +124,55 @@ final class AgentSessionController: ObservableObject {
     /// one-shot post-resume reflow (replaces the old blind timer).
     private var awaitingResumeReady = false
 
+    /// The agent this controller drives. The only place the app names one:
+    /// everything vendor-specific about submitting a prompt — the bytes, the
+    /// pacing, the readiness bound, what closes a completion popup — is
+    /// reached through here rather than assumed.
+    private let harness: AgentHarness = ClaudeCodeHarness()
+
+    /// How many prompts the agent has reported taking, ever.
+    ///
+    /// A count rather than an in-turn flag, and the difference matters here.
+    /// Galaxy can use a boolean because it suppresses verification whenever a
+    /// turn is already running; this app queues prompts and drains them back
+    /// to back, so the second is submitted while the agent is still working on
+    /// the first. A flag would already be true, and every queued prompt after
+    /// the first would verify against its predecessor's acceptance — reporting
+    /// success without waiting for anything. Capturing the count at send time
+    /// asks the question that actually matters: did another prompt land after
+    /// mine went out.
+    private var promptsAccepted = 0
+
+    /// Verification for a prompt about to be sent.
+    ///
+    /// A function rather than a property because the baseline has to be read
+    /// at the moment of sending. Built per send for that reason.
+    private func submitVerification() -> SubmitVerification {
+        let baseline = promptsAccepted
+        return SubmitVerification(
+            isAccepted: { [weak self] in
+                guard let self else { return false }
+                return self.promptsAccepted > baseline
+            },
+            isAlive: { [weak self] in self?.state == .running }
+        )
+    }
+
+    /// The agent's UserPromptSubmit hook reported taking a prompt.
+    ///
+    /// The only honest evidence that an automated prompt landed. Everything
+    /// observable from the terminal — the keyboard protocol flag, bytes
+    /// received, screen content, output silence — was measured and every one
+    /// reported ready against a prompt that did not exist.
+    func recordPromptAccepted() {
+        promptsAccepted &+= 1
+        // Logged on the same channel as the sends it confirms, so a prompt and
+        // its acceptance read as one exchange. An absent line here is the
+        // symptom of a hook that never fired — which looks identical to a lost
+        // prompt from every other vantage point.
+        AssistAntLog.submit("agent accepted a prompt (\(promptsAccepted) total)")
+    }
+
     private init() {
         self.personaBinaryPath = Self.findBinaryPath(name: "claude-persona")
         self.sessionId = AgentStatePersistence.shared.loadSessionId()
@@ -277,11 +326,11 @@ final class AgentSessionController: ObservableObject {
     /// Delay between writing command text and sending CR, so the TUI
     /// registers the text as input before Enter arrives.
     ///
-    /// Read from `SessionSubmit` rather than restated here. The value is
-    /// calibrated against the TUI's render loop and is already stated once in
-    /// the submit seam; a second copy of one number would drift, and the second
-    /// copy is the one that would drift unnoticed.
-    private static let commandSubmitDelay: TimeInterval = SessionSubmit.inputPacingDelay
+    /// Read from the harness rather than restated here. The value is
+    /// calibrated against a particular agent's render loop, so it belongs to
+    /// the agent; a second copy of one number would drift, and the second copy
+    /// is the one that would drift unnoticed.
+    private var commandSubmitDelay: TimeInterval { harness.inputPacingDelay }
 
     /// Delay after a submit CR before the next queued prompt's paste, so the TUI
     /// finishes accepting one prompt before the next arrives (batched task fires).
@@ -313,14 +362,13 @@ final class AgentSessionController: ObservableObject {
     /// `Session.sendCommand`, which submits through the same seam.
     func submit() {
         guard state == .running, let backend else { return }
-        backend.submitPrompt()
+        backend.submitPrompt(harness: harness)
     }
 
-    /// Enqueue a (possibly multi-line) prompt for delivery, each submitted on its
-    /// own. The task runner's single delivery entry point: it pastes the prompt,
-    /// waits, sends CR to submit, then waits before the next — fixing the bug
-    /// where a CR fired in the same tick as a bracketed paste never submitted, and
-    /// serializing batched fires so prompts don't collide.
+    /// Enqueue a (possibly multi-line) prompt for delivery, each submitted on
+    /// its own. The task runner's single delivery entry point: it types the
+    /// prompt, waits, submits, then waits before the next — serializing
+    /// batched fires so prompts don't collide in the input buffer.
     func enqueuePrompt(_ text: String) {
         guard state == .running else { return }
         promptQueue.append(text)
@@ -331,7 +379,14 @@ final class AgentSessionController: ObservableObject {
         guard !drainingPrompts, state == .running, let backend,
               !promptQueue.isEmpty else { return }
         drainingPrompts = true
-        let text = promptQueue.removeFirst()
+
+        // Composed through the harness, exactly as `sendCommand` is. This path
+        // carries raw captured text, so a prompt that happens to begin with a
+        // slash opens the completion popup and the popup eats the submit — the
+        // prompt then sits fully typed and uncommitted, silently, on a path
+        // nobody is watching. Composing here rather than only for known
+        // commands is what closes that.
+        let text = harness.composedCommand(promptQueue.removeFirst())
 
         // Gated for the same reason as `sendCommand`, and with more at stake: a
         // task can fire the moment the session reports running, which is exactly
@@ -339,29 +394,70 @@ final class AgentSessionController: ObservableObject {
         // released on every exit from here, or the queue would strand behind a
         // prompt that never got written.
         AssistAntLog.submit(
-            "queued prompt \(SessionSubmit.describe(text: text))")
+            "queued prompt \(SessionSubmit.describe(text: text)) "
+                + "accepted=\(promptsAccepted)")
         if !backend.isKittyKeyboardActive {
             AssistAntLog.submit("  waiting for input readiness…")
         }
         let started = Date()
-        backend.whenAcceptingInput { [weak self] ready in
+        backend.whenAcceptingInput(harness: harness) { [weak self] ready in
             guard let self else { return }
             guard self.state == .running else {
                 self.drainingPrompts = false
                 return
             }
-            backend.send(text: text, asPaste: true)
+            // Typed, not pasted. A bracketed paste is held as pending input and
+            // the submit that follows can be swallowed into it — which is the
+            // bug the inter-prompt pacing was added to work around. Galaxy has
+            // never pasted an automated prompt, at any size, and its multi-line
+            // sends run to tens of thousands of bytes: embedded newlines are
+            // LF, and only CR or the reserved chord commits, so typing a
+            // multi-line payload inserts it without submitting early.
+            backend.send(text: text, asPaste: false)
             AssistAntLog.submit(
                 String(
                     format: "  input %@ (+%.0fms) — wrote prompt",
                     ready ? "ready" : "TIMED OUT",
                     Date().timeIntervalSince(started) * 1000)
             )
+            let verification = self.submitVerification()
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + Self.commandSubmitDelay
+                deadline: .now() + self.commandSubmitDelay
             ) { [weak self] in
                 guard let self else { return }
-                if self.state == .running { self.backend?.submitPrompt() }
+                if self.state == .running {
+                    self.backend?.submitPrompt(harness: self.harness)
+                    // Detected, never retyped, for two reasons — and the
+                    // second is the load-bearing one.
+                    //
+                    // These prompts are unbounded captured text, so a retype
+                    // doubles a prompt in the case where the text landed and
+                    // only the submit was lost, which nothing here can
+                    // distinguish from a total loss.
+                    //
+                    // More importantly, this queue submits while the agent may
+                    // still be working, and Claude Code acknowledges a prompt
+                    // when it dequeues one rather than when it is typed. A
+                    // prompt sent mid-turn was measured acknowledged 20s after
+                    // its submit — ten times the verify bound — and it landed
+                    // correctly. Retyping on that signal would re-run a
+                    // scheduled task, unattended, for no fault at all. The
+                    // bound is honest for an idle agent and meaningless for a
+                    // busy one, so the report is informational here.
+                    //
+                    // Fixing that properly needs a turn-end signal this app
+                    // does not have (Galaxy installs a Stop hook for it), and
+                    // gating the queue on turn end would make batched tasks
+                    // drain a turn apart instead of together. Deliberately not
+                    // done: the current behaviour is correct, only slower to
+                    // confirm.
+                    self.backend?.verifySubmission(
+                        text: text,
+                        harness: self.harness,
+                        verification: verification,
+                        retry: .reportOnly
+                    )
+                }
                 DispatchQueue.main.asyncAfter(
                     deadline: .now() + Self.interPromptDelay
                 ) { [weak self] in
@@ -378,26 +474,26 @@ final class AgentSessionController: ObservableObject {
     /// `Session.sendCommand`, minus the synthetic-turn bookkeeping (which
     /// depends on turn-state events the embedded session does not observe).
     ///
-    /// Verification is wired and switched off, rather than absent. The
-    /// mechanism lives in Galactic; what it needs is a report from the agent
-    /// that a prompt was taken, and the embedded session observes no such
-    /// event yet. Passing nil is the opt-out, so adopting it later means
-    /// supplying a `SubmitVerification` here and nothing else.
+    /// Verified against the agent's own report that it took the prompt, which
+    /// arrives over the socket from its UserPromptSubmit hook. Retyped on a
+    /// loss, unlike the queue path: these payloads are bounded slash commands,
+    /// so a second copy costs little and a missing `/clear` costs a lot.
     func sendCommand(_ command: String) {
         guard state == .running, let backend else {
             AssistAntLog.submit("sendCommand refused — session not running")
             return
         }
 
-        // The trailing space closes Claude Code's completion popup, which any
-        // slash command opens. The popup filters on the token under the cursor,
-        // and a space ends that token so nothing matches. Batched into the same
-        // write rather than paced after it: both land in the composer before the
-        // popup filters either of them.
-        let text = command + " "
+        // Composed by the harness: for Claude Code that is a trailing space,
+        // which closes the completion popup any slash command opens. The popup
+        // filters on the token under the cursor, and a space ends that token so
+        // nothing matches. It rides in the same write rather than being paced
+        // after it — both land in the composer before the popup filters either.
+        let text = harness.composedCommand(command)
 
         AssistAntLog.submit(
-            "sendCommand text=\(SessionSubmit.describe(text: text))")
+            "sendCommand text=\(SessionSubmit.describe(text: text)) "
+                + "accepted=\(promptsAccepted)")
 
         // A pane's readiness marks the *process* being up, not its input layer.
         // Text written into that window is lost in silence, and a trailing space
@@ -406,7 +502,15 @@ final class AgentSessionController: ObservableObject {
             AssistAntLog.submit("  waiting for input readiness…")
         }
         let started = Date()
-        backend.whenAcceptingInput { [weak self] ready in
+
+        // These bypass the agent's prompt pipeline, so its hook never fires for
+        // them and no acceptance report is coming. Waiting on one would be
+        // waiting on nothing — the opt-out is a value, and this is the reason
+        // for it.
+        let bypasses = harness.acceptanceBypassingCommands.contains(
+            command.trimmingCharacters(in: .whitespaces))
+
+        backend.whenAcceptingInput(harness: harness) { [weak self] ready in
             guard let self, self.state == .running else { return }
             backend.send(text: text, asPaste: false)
             AssistAntLog.submit(
@@ -415,14 +519,17 @@ final class AgentSessionController: ObservableObject {
                     ready ? "ready" : "TIMED OUT",
                     Date().timeIntervalSince(started) * 1000)
             )
+            let verification = bypasses ? nil : self.submitVerification()
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + Self.commandSubmitDelay
+                deadline: .now() + self.commandSubmitDelay
             ) { [weak self] in
                 guard let self, self.state == .running else { return }
-                self.backend?.submitPrompt()
-                // See the note above: opted out by value, not by omission.
+                self.backend?.submitPrompt(harness: self.harness)
+                // Opted out by value, never by omission.
                 self.backend?.verifySubmission(
-                    text: text, verification: nil
+                    text: text,
+                    harness: self.harness,
+                    verification: verification
                 )
             }
         }

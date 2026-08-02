@@ -1,33 +1,39 @@
 module AssistAnt
-  # Installs/removes AssistAnt's SessionStart hook in the embedded agent's
-  # workspace settings.json. Marker-based surgical merge (mirrors Galaxy's
-  # GalaxyLedger::HooksManager): touches only our own hook, preserves any other
-  # hooks and top-level keys. Idempotent and drift-correcting.
+  # Installs/removes AssistAnt's hooks in the embedded agent's workspace
+  # settings.json. Marker-based surgical merge (mirrors Galaxy's
+  # GalaxyLedger::HooksManager): touches only our own hooks, preserves any
+  # other hooks and top-level keys. Idempotent and drift-correcting.
   module HooksManager
     extend self
 
-    # The hook command. `~` is expanded by Claude Code; the ~/.local/bin
-    # symlink is created by `make install`. MARKER identifies our own hook for
-    # strip-and-replace so re-installs never duplicate and other hooks survive.
-    HOOK_COMMAND = "~/.local/bin/assist-ant session-event"
-    MARKER       = "assist-ant session-event"
+    # `~` is expanded by Claude Code; the ~/.local/bin symlink is created by
+    # `make install`.
+    BIN = "~/.local/bin/assist-ant"
 
-    # One SessionStart hook, no matcher — fires on startup, resume, clear, and
-    # compact, each carrying the current session id.
-    SESSION_START = [
-      {
-        "hooks" => [
-          {"type" => "command", "command" => HOOK_COMMAND, "timeout" => 10},
-        ],
-      },
-    ]
+    # Hook event => the subcommand its hook runs. The subcommand doubles as the
+    # marker that identifies our own entry for strip-and-replace, so
+    # re-installs never duplicate and other hooks survive.
+    #
+    # SessionStart fires on startup, resume, clear, and compact, each carrying
+    # the current session id — it keeps the resume target current.
+    #
+    # UserPromptSubmit fires when the agent takes a prompt. It is the only
+    # evidence that an automated prompt actually landed: nothing observable
+    # from the terminal answers that question, and every signal on that side
+    # reports ready against a prompt that does not exist. Without this hook the
+    # app can send prompts but never know whether they arrived — which matters
+    # most here, because this agent works unattended.
+    HOOKS = {
+      "SessionStart"     => "session-event",
+      "UserPromptSubmit" => "prompt-event",
+    }
 
     # The workspace settings file the agent loads (project scope).
     def settings_file : Path
       Paths.workspace_dir / ".claude" / "settings.json"
     end
 
-    # Install the hook. Returns false (no-op) when the workspace symlink is
+    # Install every hook. Returns false (no-op) when the workspace symlink is
     # absent — expected on a machine that doesn't run the agent.
     def install : Bool
       return false unless Dir.exists?(Paths.workspace_dir.to_s)
@@ -35,10 +41,12 @@ module AssistAnt
       settings = load_settings
       hooks = settings["hooks"]?.try(&.as_h?) || {} of String => JSON::Any
 
-      existing = hooks["SessionStart"]?.try(&.as_a?) || [] of JSON::Any
-      filtered = existing.reject { |h| ours?(h) }
-      SESSION_START.each { |h| filtered << JSON.parse(h.to_json) }
-      hooks["SessionStart"] = JSON.parse(filtered.to_json)
+      HOOKS.each do |event, subcommand|
+        existing = hooks[event]?.try(&.as_a?) || [] of JSON::Any
+        filtered = existing.reject { |h| ours?(h, subcommand) }
+        filtered << JSON.parse(entry_for(subcommand).to_json)
+        hooks[event] = JSON.parse(filtered.to_json)
+      end
 
       doc = settings.as_h
       doc["hooks"] = JSON.parse(hooks.to_json)
@@ -49,19 +57,20 @@ module AssistAnt
       false
     end
 
-    # Remove our hook, preserving others; drop empty containers.
+    # Remove our hooks, preserving others; drop empty containers.
     def uninstall : Bool
       return true unless File.exists?(settings_file)
       settings = load_settings
       hooks = settings["hooks"]?.try(&.as_h?) || {} of String => JSON::Any
       return true if hooks.empty?
 
-      if existing = hooks["SessionStart"]?.try(&.as_a?)
-        kept = existing.reject { |h| ours?(h) }
+      HOOKS.each do |event, subcommand|
+        next unless existing = hooks[event]?.try(&.as_a?)
+        kept = existing.reject { |h| ours?(h, subcommand) }
         if kept.empty?
-          hooks.delete("SessionStart")
+          hooks.delete(event)
         else
-          hooks["SessionStart"] = JSON.parse(kept.to_json)
+          hooks[event] = JSON.parse(kept.to_json)
         end
       end
 
@@ -78,21 +87,38 @@ module AssistAnt
       false
     end
 
+    # True only when every hook we own is present. A partial install reads as
+    # not installed, so a version that added a hook self-heals on next launch
+    # rather than reporting done with one of them missing.
     def installed? : Bool
       return false unless File.exists?(settings_file)
       settings = load_settings
       hooks = settings["hooks"]?.try(&.as_h?) || {} of String => JSON::Any
-      starts = hooks["SessionStart"]?.try(&.as_a?) || [] of JSON::Any
-      starts.any? { |h| ours?(h) }
+      HOOKS.all? do |event, subcommand|
+        entries = hooks[event]?.try(&.as_a?) || [] of JSON::Any
+        entries.any? { |h| ours?(h, subcommand) }
+      end
     rescue
       false
     end
 
-    private def ours?(entry : JSON::Any) : Bool
+    private def entry_for(subcommand : String)
+      {
+        "hooks" => [
+          {
+            "type"    => "command",
+            "command" => "#{BIN} #{subcommand}",
+            "timeout" => 10,
+          },
+        ],
+      }
+    end
+
+    private def ours?(entry : JSON::Any, subcommand : String) : Bool
       arr = entry["hooks"]?.try(&.as_a?) || [] of JSON::Any
       arr.any? do |h|
         cmd = h["command"]?.try(&.as_s?)
-        !cmd.nil? && cmd.includes?(MARKER)
+        !cmd.nil? && cmd.includes?("assist-ant #{subcommand}")
       end
     end
 

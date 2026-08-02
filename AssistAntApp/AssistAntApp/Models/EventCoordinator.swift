@@ -23,6 +23,7 @@ final class EventCoordinator {
         "spend.set",
         "priority.set",
         "session:ready",
+        "agent:prompt-accepted",
     ]
 
     var onEvent: ((EventEnvelope) -> Void)?

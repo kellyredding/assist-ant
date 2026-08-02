@@ -84,4 +84,75 @@ describe AssistAnt::HooksManager do
       AssistAnt::HooksManager.install.should be_false
     end
   end
+
+  it "creates the UserPromptSubmit hook" do
+    with_workspace do
+      AssistAnt::HooksManager.install.should be_true
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file))
+      cmd = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_s
+      cmd.should contain("assist-ant prompt-event")
+    end
+  end
+
+  it "is idempotent across every hook it owns" do
+    with_workspace do
+      AssistAnt::HooksManager.install
+      AssistAnt::HooksManager.install
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file))
+      settings["hooks"]["SessionStart"].as_a.size.should eq(1)
+      settings["hooks"]["UserPromptSubmit"].as_a.size.should eq(1)
+    end
+  end
+
+  it "preserves a foreign UserPromptSubmit hook through install and uninstall" do
+    with_workspace do
+      existing = {
+        "hooks" => {
+          "UserPromptSubmit" => [
+            {"hooks" => [{"type" => "command", "command" => "someone-elses"}]},
+          ],
+        },
+      }
+      FileUtils.mkdir_p(AssistAnt::HooksManager.settings_file.parent.to_s)
+      File.write(AssistAnt::HooksManager.settings_file, existing.to_json)
+
+      AssistAnt::HooksManager.install.should be_true
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file))
+      settings["hooks"]["UserPromptSubmit"].as_a.size.should eq(2)
+
+      AssistAnt::HooksManager.uninstall.should be_true
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file))
+      prompts = settings["hooks"]["UserPromptSubmit"].as_a
+      prompts.size.should eq(1)
+      prompts[0]["hooks"][0]["command"].as_s.should eq("someone-elses")
+    end
+  end
+
+  # A version that adds a hook must repair an install that predates it, rather
+  # than reporting done because the older hook is still there.
+  it "reports not-installed when only some of our hooks are present" do
+    with_workspace do
+      AssistAnt::HooksManager.install
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file)).as_h
+      hooks = settings["hooks"].as_h
+      hooks.delete("UserPromptSubmit")
+      settings["hooks"] = JSON.parse(hooks.to_json)
+      File.write(
+        AssistAnt::HooksManager.settings_file,
+        JSON.parse(settings.to_json).to_pretty_json)
+
+      AssistAnt::HooksManager.installed?.should be_false
+      AssistAnt::HooksManager.install
+      AssistAnt::HooksManager.installed?.should be_true
+    end
+  end
+
+  it "uninstall drops the hooks container only when nothing else remains" do
+    with_workspace do
+      AssistAnt::HooksManager.install
+      AssistAnt::HooksManager.uninstall.should be_true
+      settings = JSON.parse(File.read(AssistAnt::HooksManager.settings_file))
+      settings.as_h.has_key?("hooks").should be_false
+    end
+  end
 end

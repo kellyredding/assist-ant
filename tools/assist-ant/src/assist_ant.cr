@@ -14,6 +14,7 @@ require "./assist_ant/commands/spend"
 require "./assist_ant/commands/priority"
 require "./assist_ant/commands/briefing"
 require "./assist_ant/commands/session_event"
+require "./assist_ant/commands/prompt_event"
 require "./assist_ant/commands/install_hooks"
 require "./assist_ant/cli"
 

@@ -39,6 +39,8 @@ module AssistAnt
         Commands::Briefing.new.run(rest)
       when "session-event"
         Commands::SessionEvent.new.run(rest)
+      when "prompt-event"
+        Commands::PromptEvent.new.run(rest)
       when "install-hooks"
         Commands::InstallHooks.new.run(rest)
       else
@@ -83,8 +85,11 @@ module AssistAnt
                                         icebox).
           session-event                 Publish a session:ready event from the
                                         SessionStart hook (installed automatically).
-          install-hooks [uninstall]     Install/remove the SessionStart hook in
-                                        the agent workspace settings.json.
+          prompt-event                  Publish an agent:prompt-accepted event from
+                                        the UserPromptSubmit hook (installed
+                                        automatically).
+          install-hooks [uninstall]     Install/remove AssistAnt's hooks in the
+                                        agent workspace settings.json.
 
         Options:
           -h, --help       Show this help

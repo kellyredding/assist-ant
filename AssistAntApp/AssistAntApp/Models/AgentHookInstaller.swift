@@ -1,6 +1,6 @@
 import Foundation
 
-/// Installs AssistAnt's SessionStart hook into the workspace by invoking
+/// Installs AssistAnt's hooks into the workspace by invoking
 /// `assist-ant install-hooks` on launch. The merge logic lives in the CLI
 /// (single source of truth, unit-tested); this just triggers it — mirroring how
 /// `WorkspaceInstaller` seeds workspace files. Idempotent and best-effort: a
