@@ -254,13 +254,17 @@ struct ActionableRow: View {
     private var hoverCluster: some View {
         // Shared with the reader's control bar. The list row needs no onChange
         // callback — it re-renders from the model's regrouped snapshot. Today
-        // renders the slots as glyphs (`glyphs:`) to fit the narrow column. The
-        // Trash surface swaps in the scaled-back TrashActions cluster.
+        // renders the slots as glyphs (`glyphs:`) to fit the narrow column and
+        // leads with Copy (`copyFirst:`); the icebox and schedule rows keep the
+        // text labels and the Resolve-first order. The Trash surface swaps in
+        // the scaled-back TrashActions cluster.
         Group {
             if context == .trash {
                 TrashActions(items: [item], actions: actions)
             } else {
-                ItemActions(items: [item], actions: actions, glyphs: context == .today)
+                ItemActions(items: [item], actions: actions,
+                            glyphs: context == .today,
+                            copyFirst: context == .today)
             }
         }
         // Scrim so the floating buttons stay legible over the title/date.

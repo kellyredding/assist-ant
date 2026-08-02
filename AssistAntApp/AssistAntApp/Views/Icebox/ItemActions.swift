@@ -29,6 +29,11 @@ struct ItemActions: View {
     /// Symbols instead of text labels, to fit the narrow column. Default false
     /// keeps the text labels everywhere else. The ⋮ kind menu is already a glyph.
     var glyphs: Bool = false
+    /// The Today sidebar passes true → Copy leads the cluster. Copying an item
+    /// to hand off to an agent is the dominant action there, so it takes the
+    /// leftmost slot; every other surface keeps Resolve first. The Resolve and
+    /// Icebox opposites stay adjacent under either order.
+    var copyFirst: Bool = false
 
     @State private var kindMenuHovering = false
 
@@ -52,9 +57,15 @@ struct ItemActions: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            resolveButton
-            iceboxButton
-            CopyButton(text: ItemClipboard.serialize(items))
+            if copyFirst {
+                copyButton
+                resolveButton
+                iceboxButton
+            } else {
+                resolveButton
+                iceboxButton
+                copyButton
+            }
             linkButton
             kindMenu
                 .disabled(state.allResolved)
@@ -100,6 +111,12 @@ struct ItemActions: View {
 
     private var iceboxTitle: String {
         state.allIceboxed ? "Remove from Icebox" : "Move to Icebox"
+    }
+
+    // Extracted so both orderings share one construction of the serialized
+    // payload — the slot moves, the button does not change.
+    private var copyButton: some View {
+        CopyButton(text: ItemClipboard.serialize(items))
     }
 
     // External link: open every linked item's URL in the browser. Always shown
