@@ -114,6 +114,7 @@ enum KeystrokeSection: String, CaseIterable {
     case global
     case windowAndViews
     case lists
+    case scratch
     case reader
     case terminal
     case find
@@ -125,6 +126,7 @@ enum KeystrokeSection: String, CaseIterable {
         case .global: return "Global"
         case .windowAndViews: return "Window & Views"
         case .lists: return "Lists"
+        case .scratch: return "Scratch"
         case .reader: return "Item Reader"
         case .terminal: return "Terminal & Agent"
         case .find: return "Find"
@@ -140,10 +142,7 @@ enum KeystrokeSection: String, CaseIterable {
         switch ctx.tab {
         case .terminal: return .terminal
         case .schedule, .icebox, .trash, .tasks: return .lists
-        // Scratch has its own vocabulary rather than the shared list chords, so
-        // it opens on its own section once that section exists. Until then the
-        // lists are the nearest honest answer.
-        case .scratch: return .lists
+        case .scratch: return .scratch
         }
     }
 }

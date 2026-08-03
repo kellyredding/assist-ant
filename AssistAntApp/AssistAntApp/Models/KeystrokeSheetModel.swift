@@ -96,10 +96,8 @@ final class KeystrokeSheetModel: ObservableObject {
         case .icebox: return IceboxModel.shared.selection.hasSelection
         case .schedule: return ScheduleAgendaModel.shared.selection.hasSelection
         case .trash: return TrashModel.shared.selection.hasSelection
-        // Scratch owns a selection, but nothing acts on it until its chords
-        // land — reporting true would light up rows for bindings that do not
-        // exist yet.
-        case .terminal, .tasks, .scratch: return false
+        case .scratch: return ScratchModel.shared.selection.hasSelection
+        case .terminal, .tasks: return false
         }
     }
 }

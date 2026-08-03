@@ -28,6 +28,15 @@ struct TextEntryKeyMonitor: ViewModifier {
     /// Whether this composer wants newline handled too. False where the surface
     /// has no multi-line field to insert into.
     var handlesNewline: Bool = true
+    /// When false, no monitor is installed at all.
+    ///
+    /// The window check below is not enough when two composers live in the *same*
+    /// window — a pane's composer and a row being edited inline. Both monitors
+    /// match the keystroke, the submit branch consumes it unconditionally, and
+    /// whichever AppKit happens to call first wins. That reads as the submit
+    /// keystroke working intermittently. Callers that can have two composers up
+    /// use this to keep exactly one live.
+    var isEnabled: Bool = true
 
     @ObservedObject private var settingsManager = SettingsManager.shared
     @State private var monitor: Any?
@@ -45,10 +54,15 @@ struct TextEntryKeyMonitor: ViewModifier {
                 remove()
                 install()
             }
+            // Track the flag so a composer that stands down mid-life actually
+            // tears its monitor out rather than holding the keystroke.
+            .onChange(of: isEnabled) { _, enabled in
+                if enabled { install() } else { remove() }
+            }
     }
 
     private func install() {
-        guard monitor == nil else { return }
+        guard isEnabled, monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // Events bound for another window are none of this composer's
             // business, even while its monitor is alive.
@@ -102,10 +116,13 @@ private struct WindowReader: NSViewRepresentable {
 extension View {
     /// Resolve the configured submit and newline keystrokes for this composer.
     func onTextEntryKeystrokes(
-        handlesNewline: Bool = true, onSubmit: @escaping () -> Void
+        enabled: Bool = true,
+        handlesNewline: Bool = true,
+        onSubmit: @escaping () -> Void
     ) -> some View {
         modifier(
             TextEntryKeyMonitor(
-                onSubmit: onSubmit, handlesNewline: handlesNewline))
+                onSubmit: onSubmit, handlesNewline: handlesNewline,
+                isEnabled: enabled))
     }
 }

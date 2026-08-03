@@ -13,6 +13,10 @@ struct GrowingTextEditor: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String = ""
     var minHeight: CGFloat = 66
+    /// Point size of the editor's text. Defaults to the capture popover's 14pt;
+    /// surfaces that edit text in place pass the size that text renders at when
+    /// not being edited, so entering edit mode does not resize it.
+    var fontSize: CGFloat = 14
     /// Height ceiling. Past this the field stops growing and scrolls; ~440pt is
     /// roughly two dozen lines — a comfortable draft before the popover would
     /// otherwise dominate the screen.
@@ -29,7 +33,7 @@ struct GrowingTextEditor: NSViewRepresentable {
         tv.placeholder = placeholder
         tv.isRichText = false
         tv.allowsUndo = true
-        tv.font = .systemFont(ofSize: 14)
+        tv.font = .systemFont(ofSize: fontSize)
         tv.drawsBackground = false
         tv.textContainerInset = NSSize(width: 2, height: 4)
         tv.isVerticallyResizable = true
@@ -72,6 +76,12 @@ struct GrowingTextEditor: NSViewRepresentable {
         tv.onSend = onSend
         tv.minHeight = minHeight
         tv.minSize = NSSize(width: 0, height: minHeight)
+        // Re-applied rather than set once at creation, so an editor whose
+        // backing view SwiftUI reuses cannot keep a previous size's font.
+        if tv.font?.pointSize != fontSize {
+            tv.font = .systemFont(ofSize: fontSize)
+            tv.invalidateIntrinsicContentSize()
+        }
         scroll.maxHeight = maxHeight
         if tv.placeholder != placeholder {
             tv.placeholder = placeholder

@@ -193,7 +193,7 @@ struct KeystrokeSheetView: View {
                     entry.section.title,
                     entry.availability.conditionText,
                 ].joined(separator: " ")
-                guard KeystrokeFuzzyMatch.matches(haystack, query: query)
+                guard FuzzyMatch.matches(haystack, query: query)
                 else { return nil }
                 // The catalog index makes this unique even where two rows
                 // share a section, a keystroke, and a label.

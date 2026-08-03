@@ -1975,50 +1975,155 @@ check("opening section: follows the snapshot") {
 
 // Fuzzy: an empty query matches everything, so an unfiltered sheet is full.
 check("fuzzy: empty query matches") {
-    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "")
+    FuzzyMatch.matches("Move to Icebox", query: "")
 }
 
 // Fuzzy: a plain substring matches.
 check("fuzzy: substring matches") {
-    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "icebox")
+    FuzzyMatch.matches("Move to Icebox", query: "icebox")
 }
 
 // Fuzzy: scattered subsequence matches — "mti" for Move To Icebox.
 check("fuzzy: scattered subsequence matches") {
-    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "mti")
+    FuzzyMatch.matches("Move to Icebox", query: "mti")
 }
 
 // Fuzzy: out-of-order characters do not match.
 check("fuzzy: out-of-order query does not match") {
-    !KeystrokeFuzzyMatch.matches("Move to Icebox", query: "xobeci")
+    !FuzzyMatch.matches("Move to Icebox", query: "xobeci")
 }
 
 // Fuzzy: matching is case-insensitive in both directions.
 check("fuzzy: case-insensitive") {
-    KeystrokeFuzzyMatch.matches("Move to Icebox", query: "ICEBOX")
-        && KeystrokeFuzzyMatch.matches("MOVE TO ICEBOX", query: "icebox")
+    FuzzyMatch.matches("Move to Icebox", query: "ICEBOX")
+        && FuzzyMatch.matches("MOVE TO ICEBOX", query: "icebox")
 }
 
 // Fuzzy: a query longer than the candidate cannot match.
 check("fuzzy: over-long query does not match") {
-    KeystrokeFuzzyMatch.score("a i", query: "a icebox") == nil
+    FuzzyMatch.score("a i", query: "a icebox") == nil
 }
 
 // Fuzzy: a contiguous run outranks the same letters scattered.
 check("fuzzy: contiguous beats scattered") {
-    let contiguous = KeystrokeFuzzyMatch.score("Copy", query: "cop")
-    let scattered = KeystrokeFuzzyMatch.score("Change list opener", query: "cop")
+    let contiguous = FuzzyMatch.score("Copy", query: "cop")
+    let scattered = FuzzyMatch.score("Change list opener", query: "cop")
     guard let c = contiguous, let s = scattered else { return false }
     return c > s
 }
 
 // Fuzzy: a chord keystroke is searchable, so "ai" finds `a i`.
 check("fuzzy: a chord keystroke is searchable") {
-    KeystrokeFuzzyMatch.matches("a i", query: "ai")
+    FuzzyMatch.matches("a i", query: "ai")
 }
 
-// Catalog: every entry is presentable — a blank label or literal would render
-// as an empty row.
+// Ranges: the reported offsets are the characters that actually matched — what
+// the scratch feed highlights.
+check("fuzzy: reports matched offsets in order") {
+    guard let r = FuzzyMatch.result("Move to Icebox", query: "mti")
+    else { return false }
+    return r.matchedOffsets == [0, 5, 8]
+}
+
+// Ranges: a failed match yields nothing to highlight.
+check("fuzzy: a failed match yields no result") {
+    FuzzyMatch.result("Move to Icebox", query: "zzz") == nil
+}
+
+// Ranges: an empty query matches with no highlights, so an unfiltered feed
+// renders as plain text.
+check("fuzzy: empty query highlights nothing") {
+    FuzzyMatch.result("anything", query: "")?.matchedOffsets == []
+}
+
+// Ranges: offsets index the candidate positionally, so a highlight cannot slip
+// when the query's case differs from the text's.
+check("fuzzy: offsets align on mixed-case candidates") {
+    guard let r = FuzzyMatch.result("Move To Icebox", query: "TI")
+    else { return false }
+    return r.matchedOffsets == [5, 8]
+}
+
+// Ranges: a newline counts as a word boundary, so the first word of each line of
+// a multi-line note body scores as a word start.
+check("fuzzy: a newline starts a word") {
+    guard let across = FuzzyMatch.score("alpha\nbeta", query: "b"),
+          let mid = FuzzyMatch.score("alphaxbeta", query: "b")
+    else { return false }
+    return across > mid
+}
+
+// MARK: - Term matching (the scratch feed's search)
+
+/// The reported cases, verbatim: a three-bullet note, a note whose first word
+/// starts "th", one containing "the" mid-word, and one whose "e" precedes its
+/// "th".
+let bullets = "* one\n* two\n* three"
+let third = "third note"
+let another = "another test item"
+let precedingE = "test item\n\n`This is a thing`"
+
+// One term is a literal: "the" appears inside "another" but nowhere in the
+// others, since neither "three" nor "third" contains it contiguously.
+check("fuzzy/terms: one term is a contiguous literal") {
+    FuzzyMatch.matches(another, query: "the", scope: .terms)
+        && !FuzzyMatch.matches(bullets, query: "the", scope: .terms)
+        && !FuzzyMatch.matches(third, query: "the", scope: .terms)
+}
+
+// A space is a gap: "th e" is `th` then `e` somewhere after it.
+check("fuzzy/terms: a space allows a gap between terms") {
+    FuzzyMatch.matches(bullets, query: "th e", scope: .terms)
+        && FuzzyMatch.matches(third, query: "th e", scope: .terms)
+        && FuzzyMatch.matches(another, query: "th e", scope: .terms)
+}
+
+// Order is what the gap does NOT relax. This note holds both fragments, but its
+// only "e" comes before its only "th", so it must not match.
+check("fuzzy/terms: a later term must follow the earlier one") {
+    !FuzzyMatch.matches(precedingE, query: "th e", scope: .terms)
+}
+
+// "th e" over the bullets highlights inside "three" — the third line — rather
+// than pairing "th" there with an earlier "e".
+check("fuzzy/terms: the gap match lands after the first term") {
+    guard let r = FuzzyMatch.result(bullets, query: "th e", scope: .terms)
+    else { return false }
+    let th = bullets.range(of: "three")!
+    let start = bullets.distance(from: bullets.startIndex,
+                                 to: th.lowerBound)
+    // t, h from "three", then its first e — all within that word.
+    return r.matchedOffsets == [start, start + 1, start + 3]
+}
+
+// Terms may span more than two: each just has to follow the last.
+check("fuzzy/terms: three terms match in order") {
+    FuzzyMatch.matches(another, query: "an te it", scope: .terms)
+        && !FuzzyMatch.matches(another, query: "it te an", scope: .terms)
+}
+
+// Offsets are candidate-relative, so the highlight lands where the text is.
+check("fuzzy/terms: offsets are candidate-relative") {
+    guard let r = FuzzyMatch.result(another, query: "the", scope: .terms)
+    else { return false }
+    return r.matchedOffsets == [3, 4, 5]
+}
+
+// A whitespace-only query has no terms, so everything matches and nothing
+// highlights.
+check("fuzzy/terms: a blank query matches") {
+    FuzzyMatch.matches("anything at all", query: "  ", scope: .terms)
+        && FuzzyMatch.result("anything", query: "", scope: .terms)?
+            .matchedOffsets == []
+}
+
+// Subsequence scope is untouched, so the cheat sheet keeps its initials search —
+// which term scope deliberately refuses.
+check("fuzzy: subsequence still spans, unlike terms") {
+    FuzzyMatch.matches("Move to Icebox", query: "mti")
+        && !FuzzyMatch.matches("Move to Icebox", query: "mti", scope: .terms)
+}
+
 check("catalog: no entry has an empty label or literal binding") {
     KeystrokeCatalog.all.allSatisfy { entry in
         guard !entry.label.trimmingCharacters(in: .whitespaces).isEmpty

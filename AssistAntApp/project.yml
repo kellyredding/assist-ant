@@ -78,6 +78,7 @@ targets:
       - AssistAntApp/Models/CalendarAnnouncementDecisions.swift
       - AssistAntApp/Models/TemporaryMuteRule.swift
       - AssistAntApp/Models/Keystrokes
+      - AssistAntApp/Models/Search
       - AssistAntApp/Models/MainTab.swift
       - AssistAntApp/Models/CaptureKind.swift
       - ItemsSmoke

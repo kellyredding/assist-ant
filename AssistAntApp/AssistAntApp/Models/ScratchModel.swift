@@ -35,14 +35,43 @@ final class ScratchModel: ObservableObject {
         didSet {
             guard oldValue != filter else { return }
             // The two feeds are disjoint, so a selection carried across would
-            // reference entries the new feed cannot show.
+            // reference entries the new feed cannot show — and an open editor
+            // would belong to a row this feed does not contain, which is how it
+            // came back blank and still focused.
             selection.clearSelection()
+            cancelEdit()
             subscribe()
         }
     }
+
+    /// The row being edited in place, and its in-progress text.
+    ///
+    /// Both live here rather than in the row's own `@State` for two reasons: the
+    /// pane needs to know whether an abandoned edit would lose changes before it
+    /// lets a filter switch or a search discard it, and a row that re-mounts —
+    /// which a filter switch does — would otherwise come back with an empty
+    /// editor because its `@State` reset while the id said it was still editing.
+    @Published private(set) var editingID: String?
+    @Published var editDraft: String = ""
     @Published private(set) var entries: [Item] = []
     /// The composer's live text. Held across tab switches on purpose.
     @Published var draft: String = ""
+    /// The search box. Filters the feed without touching what is stored, so
+    /// clearing it restores every entry.
+    @Published var query: String = "" {
+        didSet {
+            guard oldValue != query else { return }
+            // Same reasoning as the filter: narrowing can hide the row being
+            // edited, and an editor attached to a row you cannot see is a trap.
+            cancelEdit()
+            // Focus and selection are expressed against the *visible* rows, so
+            // narrowing the feed can strand either on a row that is no longer
+            // shown. Reconciling against the new visible set reseats focus on
+            // the first match and drops selections that filtered out.
+            let visible = rows.map(\.id)
+            selection.reconcile(visible: visible, present: Set(visible))
+        }
+    }
     /// Selection + keyboard focus, for the batch actions that arrive with the
     /// chords. Present now so the row views can read it from the start.
     let selection = ActionableSelection()
@@ -64,16 +93,92 @@ final class ScratchModel: ObservableObject {
                 self.entries = items
                 // Drop ids that have left the feed — resolved, deleted, or
                 // converted — so a stale selection can't keep the batch toolbar
-                // up over rows that are gone.
-                let visible = items.map(\.id)
+                // up over rows that are gone. Reconciled against the *visible*
+                // rows rather than everything fetched, so focus lands on a row
+                // the query actually shows.
+                let visible = self.visibleIDs
                 self.selection.reconcile(
                     visible: visible, present: Set(visible))
             }
     }
 
-    /// The selected entries, in feed order.
+    /// One visible row: the entry plus where the query matched its body, so the
+    /// view highlights without re-running the match itself.
+    struct Row: Identifiable {
+        let item: Item
+        let matchedOffsets: [Int]
+        var id: String { item.id }
+    }
+
+    /// The feed as shown: filtered by the query, still newest-first.
+    ///
+    /// Ordering deliberately ignores match score. This is a chronological
+    /// buffer, and resorting it by relevance while typing would move a note out
+    /// from under the pointer — the feed's order is part of how you remember
+    /// where something was.
+    var rows: [Row] {
+        entries.compactMap { item in
+            // Word-scoped: notes are prose, and a subsequence allowed to span
+            // words matches nearly every note, which makes the filter useless.
+            // A space in the query opts back into spanning, one term per word.
+            guard let match = FuzzyMatch.result(
+                item.body ?? "", query: query, scope: .terms)
+            else { return nil }
+            return Row(item: item, matchedOffsets: match.matchedOffsets)
+        }
+    }
+
+    /// Visible ids in display order — what `j`/`k` step through and `*a` selects.
+    var visibleIDs: [String] { rows.map(\.id) }
+
+    /// The selected entries, in feed order. Scoped to what is visible so a batch
+    /// action can never touch a row the query has hidden.
     var selectedEntries: [Item] {
-        entries.filter { selection.selectedIDs.contains($0.id) }
+        rows.map(\.item).filter { selection.selectedIDs.contains($0.id) }
+    }
+
+    /// The row `j`/`k` focus currently sits on, if any.
+    var focusedEntry: Item? {
+        guard let id = selection.focusedItemID else { return nil }
+        return rows.first { $0.id == id }?.item
+    }
+
+    // MARK: - Inline editing
+
+    /// True when the open editor holds text differing from what is stored — the
+    /// only case where abandoning it actually costs anything.
+    var hasUnsavedEdit: Bool {
+        guard let editingID,
+              let entry = entries.first(where: { $0.id == editingID })
+        else { return false }
+        let trimmed = editDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed != (entry.body ?? "")
+    }
+
+    func beginEdit(id: String) {
+        guard let entry = entries.first(where: { $0.id == id }) else { return }
+        selection.focus(id)
+        editDraft = entry.body ?? ""
+        editingID = id
+    }
+
+    /// Save the open edit and close the editor. An edit emptied to nothing is
+    /// discarded rather than stored as a blank note — the delete glyph is how you
+    /// remove one.
+    func commitEdit() {
+        guard let id = editingID else { return }
+        let trimmed = editDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let original = entries.first(where: { $0.id == id })?.body ?? ""
+        if !trimmed.isEmpty, trimmed != original {
+            updateBody(id: id, to: trimmed)
+        }
+        cancelEdit()
+    }
+
+    /// Close the editor, discarding whatever it held.
+    func cancelEdit() {
+        editingID = nil
+        editDraft = ""
     }
 
     // MARK: - Batch actions

@@ -1,3 +1,4 @@
+import Galactic
 import SwiftUI
 
 /// Shared metrics for the Scratch pane and its rows, so the composer, the entry
@@ -31,12 +32,38 @@ struct ScratchPaneView: View {
     @ObservedObject private var model = ScratchModel.shared
     @ObservedObject private var tabs = MainTabNavigator.shared
     @ObservedObject private var selection = ScratchModel.shared.selection
+    @ObservedObject private var viewer = ItemViewerModel.shared
     @FocusState private var composerFocused: Bool
+    @FocusState private var searchFocused: Bool
+
+    @State private var chords = ScratchListChords()
+    /// Whether the composer is taking input.
+    ///
+    /// An explicit mode rather than "is the field focused", because the pane has
+    /// three keyboard owners — the composer, the search box, and the feed's
+    /// chords — and exactly one may hold the keys at a time.
+    ///
+    /// Starts *off*, so arriving at the tab hands the keyboard to the feed and
+    /// the chords answer immediately. Auto-focusing the composer on arrival read
+    /// as the tab hijacking the keyboard, and cost a press of Escape before any
+    /// navigation worked. The submit keystroke is how you ask for the composer.
+    @State private var isInputMode = false
+    /// Routes Escape between the three owners. A monitor because both text
+    /// fields are AppKit views that claim the key before SwiftUI sees it.
+    @State private var escapeMonitor: Any?
+    /// The submit keystroke, when the feed owns the keyboard, opens the composer.
+    @State private var inputModeMonitor: Any?
+
+    private var isEditingRow: Bool { model.editingID != nil }
 
     /// One line of the composer's 14pt font plus its text-container insets. The
     /// field starts here and grows with its content rather than reserving room
     /// for a note that has not been typed yet.
     private static let composerLineHeight: CGFloat = 26
+
+    /// The size note bodies render at. The composer and the inline row editors
+    /// use it too, so text does not change size on the way into a field.
+    static let bodyFontSize: CGFloat = 13
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,19 +74,223 @@ struct ScratchPaneView: View {
             feed
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { focusIfSelected() }
-        // Selecting the tab focuses the composer. Watching the navigator rather
+        // A click anywhere that is not one of the two fields gives the keyboard
+        // back to the feed. Applied as a background so it only catches taps the
+        // content itself did not handle; rows call `surrenderFields` directly.
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { surrenderFields() }
+        )
+        .onAppear {
+            syncChords()
+            installEscapeMonitor()
+            installInputModeMonitor()
+        }
+        // Selecting the tab enters input mode. Watching the navigator rather
         // than relying on onAppear alone: every pane stays mounted, so onAppear
         // fires once at launch and never again on a tab switch.
-        .onChange(of: tabs.selectedTab) { _, _ in focusIfSelected() }
+        .onChange(of: tabs.selectedTab) { _, tab in
+            // Leaving the tab surrenders the keyboard, so returning to it always
+            // starts with the feed in charge rather than a stale mode.
+            if tab != .scratch { isInputMode = false }
+            syncChords()
+        }
+        .onChange(of: viewer.openItem) { _, _ in syncChords() }
+        .onChange(of: model.editingID) { _, _ in syncChords() }
+        .onChange(of: isInputMode) { _, _ in syncChords() }
+        .onChange(of: searchFocused) { _, _ in syncChords() }
+        // Focus leaving the composer takes input mode with it, so the mode and
+        // the caret can never disagree about who owns the keyboard.
+        .onChange(of: composerFocused) { _, focused in
+            if !focused { leaveInputModeKeepingDraft() }
+        }
+        // ⌘F focuses the search box, matching Find everywhere else. A hidden
+        // zero-size button rather than a menu item: Find is already claimed by
+        // the terminal's scrollback search, and this only redirects it while the
+        // Scratch tab is the one on screen.
+        .background(findShortcut)
+        .onDisappear {
+            chords.remove()
+            removeEscapeMonitor()
+            removeInputModeMonitor()
+        }
     }
 
-    private func focusIfSelected() {
-        guard tabs.selectedTab == .scratch else { return }
-        // A turn later: the field has to exist and be hit-testable before it can
-        // take focus, and on a tab switch this runs while the pane is still
-        // transparent.
-        DispatchQueue.main.async { composerFocused = true }
+    /// ⌘F → search box. Guarded on the tab so it never steals Find from the
+    /// terminal.
+    private var findShortcut: some View {
+        Button("") { focusSearch() }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .disabled(tabs.selectedTab != .scratch)
+    }
+
+    // MARK: - Keyboard ownership
+
+    /// Hand the keys to the composer. Refuses while a row edit holds unsaved
+    /// text until the user says what to do with it.
+    private func enterInputMode() {
+        guardUnsavedEdit {
+            searchFocused = false
+            isInputMode = true
+            // A turn later: the field has to exist and be hit-testable before it
+            // can take focus, and on a tab switch this runs while the pane is
+            // still transparent.
+            DispatchQueue.main.async { composerFocused = true }
+        }
+    }
+
+    /// Leave input mode, discarding the draft. Escape is a deliberate abandon,
+    /// so the half-typed note goes with it rather than lingering invisibly.
+    private func exitInputMode() {
+        isInputMode = false
+        composerFocused = false
+        model.draft = ""
+    }
+
+    /// Leave input mode because focus went elsewhere — a click on a row, another
+    /// field, another pane.
+    ///
+    /// Keeps the draft, unlike Escape. Losing focus is incidental where Escape is
+    /// deliberate, and silently discarding a paste because the pointer moved
+    /// would be the worse failure. The resting composer shows the kept draft, so
+    /// it is never holding text invisibly.
+    private func leaveInputModeKeepingDraft() {
+        guard isInputMode else { return }
+        isInputMode = false
+    }
+
+    /// Give the keyboard back to the feed, keeping whatever the composer held.
+    /// The blur is what makes the chords live again.
+    private func surrenderFields() {
+        searchFocused = false
+        composerFocused = false
+        leaveInputModeKeepingDraft()
+    }
+
+    private func focusSearch() {
+        guardUnsavedEdit {
+            isInputMode = false
+            composerFocused = false
+            DispatchQueue.main.async { searchFocused = true }
+        }
+    }
+
+    /// Run `action`, but if an inline edit holds unsaved text, ask first — every
+    /// route out of an edit passes through here, so there is one place that can
+    /// lose a change and it always asks.
+    private func guardUnsavedEdit(_ action: @escaping () -> Void) {
+        guard model.hasUnsavedEdit, let window = SheetAlert.hostWindow() else {
+            model.cancelEdit()
+            action()
+            return
+        }
+        SheetAlert.confirm(
+            in: window,
+            message: "Discard changes to this note?",
+            detail: "The edit in progress has not been saved.",
+            confirm: "Discard",
+            onConfirm: {
+                model.cancelEdit()
+                action()
+            }
+        )
+    }
+
+    // MARK: - Keyboard
+
+    /// Install the chord monitor only while this pane is the live surface and
+    /// nothing is being edited. Only one such monitor should be alive at a time:
+    /// an inactive one returns the event unhandled, which revives keystrokes the
+    /// active surface already consumed.
+    private func syncChords() {
+        guard tabs.selectedTab == .scratch,
+              viewer.openItem == nil,
+              !isEditingRow,
+              !isInputMode,
+              !searchFocused
+        else { chords.remove(); return }
+
+        chords.install(.init(
+            selection: selection,
+            visibleIDs: { model.visibleIDs },
+            selectedItems: {
+                // Fall back to the focused row when nothing is ticked, so a
+                // chord is useful before you have built a selection — the same
+                // courtesy the hover toolbar gives the row under the pointer.
+                let selected = model.selectedEntries
+                if !selected.isEmpty { return selected }
+                return model.focusedEntry.map { [$0] } ?? []
+            },
+            focusedItem: { model.focusedEntry },
+            showingCompleted: { model.filter == .completed },
+            resolve: { $0.forEach { model.resolve(id: $0.id) } },
+            unresolve: { $0.forEach { model.unresolve(id: $0.id) } },
+            delete: { $0.forEach { model.delete(id: $0.id) } },
+            copy: { ItemClipboard.copy($0) },
+            edit: { model.beginEdit(id: $0.id) }
+        ))
+    }
+
+    /// Escape hands the keyboard back to the feed, from whichever owner has it.
+    ///
+    /// A monitor because both text fields are AppKit views that claim Escape
+    /// before SwiftUI's `onExitCommand` would see it — and without this the
+    /// chords can never fire at all, since the pane arrives in input mode and
+    /// the chord monitor stands down while an editable field holds focus.
+    ///
+    /// Row edits are handled by the row itself, so they are left alone here.
+    private func installEscapeMonitor() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            event in
+            guard event.keyCode == 53,                       // Escape
+                  tabs.selectedTab == .scratch,
+                  !isEditingRow
+            else { return event }
+
+            if searchFocused {
+                searchFocused = false
+                return nil
+            }
+            if isInputMode {
+                exitInputMode()
+                return nil
+            }
+            return event
+        }
+    }
+
+    /// The submit keystroke enters input mode when the feed has the keyboard.
+    ///
+    /// The same key that commits a note is the one that opens the composer to
+    /// write it — and it is free here, because no composer is up to claim it. Read
+    /// from the text-entry settings rather than hardcoded, so rebinding submit
+    /// moves this with it.
+    private func installInputModeMonitor() {
+        guard inputModeMonitor == nil else { return }
+        inputModeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            event in
+            guard tabs.selectedTab == .scratch,
+                  !isInputMode, !isEditingRow, !searchFocused,
+                  SettingsManager.shared.settings.textEntry
+                      .action(for: Keystroke(event: event)) == .submit
+            else { return event }
+            enterInputMode()
+            return nil
+        }
+    }
+
+    private func removeInputModeMonitor() {
+        if let inputModeMonitor { NSEvent.removeMonitor(inputModeMonitor) }
+        inputModeMonitor = nil
+    }
+
+    private func removeEscapeMonitor() {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
     }
 
     // MARK: - Composer
@@ -68,22 +299,65 @@ struct ScratchPaneView: View {
     /// reports a clamped intrinsic height, but a representable in a flexible
     /// stack otherwise accepts whatever height it is offered — which is how it
     /// came to swallow the pane.
+    @ViewBuilder
     private var composer: some View {
-        GrowingTextEditor(
-            text: $model.draft,
-            placeholder: "Paste or type a note…",
-            minHeight: Self.composerLineHeight,
-            maxHeight: 260,
-            onSend: { model.submitDraft() }
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .focused($composerFocused)
-        .padding(.leading, ScratchMetrics.composerLeading)
+        if isInputMode {
+            HStack(alignment: .top, spacing: 6) {
+                GrowingTextEditor(
+                    text: $model.draft,
+                    placeholder: "Paste or type a note…",
+                    minHeight: Self.composerLineHeight,
+                    fontSize: Self.bodyFontSize,
+                    maxHeight: 260,
+                    onSend: { model.submitDraft() }
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                .focused($composerFocused)
+                PointerIconButton(systemName: "xmark.circle",
+                                  help: "Cancel (esc)") {
+                    exitInputMode()
+                }
+            }
+            .padding(.leading, ScratchMetrics.composerLeading)
+            .padding(.trailing, ScratchMetrics.inset)
+            .padding(.vertical, 8)
+            // Only live while this is the composer taking input. Two text-entry
+            // monitors in one window both consume the submit keystroke and race
+            // for it, which is why an inline row edit stood the composer down
+            // rather than sharing the key.
+            .onTextEntryKeystrokes(enabled: !isEditingRow) {
+                model.submitDraft()
+            }
+        } else {
+            restingComposer
+        }
+    }
+
+    /// Out of input mode the composer is a prompt, not a field — so Escape has
+    /// somewhere visible to have landed, and clicking it gets back in.
+    private var restingComposer: some View {
+        HStack(spacing: 6) {
+            // A draft kept through a focus loss is shown here rather than hidden
+            // behind the placeholder, so the composer is never holding text you
+            // cannot see.
+            Text(model.draft.isEmpty
+                 ? "Paste or type a note…"
+                 : model.draft.replacingOccurrences(of: "\n", with: " "))
+                .font(.system(size: Self.bodyFontSize))
+                .foregroundStyle(model.draft.isEmpty ? .tertiary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text(restingHint)
+                .font(.system(size: 10))
+                .foregroundStyle(.quaternary)
+        }
+        .padding(.leading, ScratchMetrics.inset)
         .padding(.trailing, ScratchMetrics.inset)
+        .frame(height: Self.composerLineHeight)
         .padding(.vertical, 8)
-        // The submit keystroke comes from the text-entry settings, so it tracks
-        // whatever the user configured rather than hardcoding one.
-        .onTextEntryKeystrokes { model.submitDraft() }
+        .contentShape(Rectangle())
+        .onTapGesture { enterInputMode() }
     }
 
     // MARK: - Action bar
@@ -105,7 +379,9 @@ struct ScratchPaneView: View {
                 batchToolbar
             }
 
-            Spacer()
+            Spacer(minLength: 8)
+
+            searchField
 
             Picker("", selection: $model.filter) {
                 ForEach(ScratchModel.Filter.allCases, id: \.self) { f in
@@ -118,6 +394,34 @@ struct ScratchPaneView: View {
         }
         .padding(.horizontal, ScratchMetrics.inset).padding(.vertical, 6)
         .frame(height: 34)
+    }
+
+    /// Filters the feed as you type. Deliberately not auto-focused — the
+    /// composer owns arrival focus, since pasting is the common gesture and
+    /// searching is the occasional one.
+    private var searchField: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $model.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .focused($searchFocused)
+                .onSubmit {}
+            if !model.query.isEmpty {
+                PointerIconButton(systemName: "xmark.circle.fill",
+                                  help: "Clear search") {
+                    model.query = ""
+                }
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .frame(width: 200)
     }
 
     private var batchToolbar: some View {
@@ -147,42 +451,79 @@ struct ScratchPaneView: View {
         }
     }
 
+    /// Shows the filtered count against the total while a query narrows the
+    /// feed, so a small number never reads as "most of my notes vanished".
+    /// Names the keys that get you in, read from the text-entry settings so a
+    /// rebound submit key is advertised correctly.
+    private var restingHint: String {
+        if !model.draft.isEmpty { return "draft kept" }
+        let submit = SettingsManager.shared.settings.textEntry.submitHint
+        return submit.map { "\($0) to write · ⌘F to search" }
+            ?? "⌘F to search"
+    }
+
     private var countLabel: String {
-        let n = model.entries.count
-        return n == 1 ? "1 entry" : "\(n) entries"
+        let shown = model.rows.count
+        let total = model.entries.count
+        if !model.query.isEmpty, shown != total {
+            return "\(shown) of \(total)"
+        }
+        return shown == 1 ? "1 entry" : "\(shown) entries"
     }
 
     // MARK: - Feed
 
     @ViewBuilder
     private var feed: some View {
-        if model.entries.isEmpty {
+        if model.rows.isEmpty {
             emptyState
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.entries, id: \.id) { entry in
-                        ScratchRow(entry: entry, model: model)
-                        Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.rows) { row in
+                            ScratchRow(row: row, model: model,
+                                       onInteract: { surrenderFields() })
+                                .id(row.id)
+                            Divider()
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                // Keep the keyboard-focused row on screen as j/k walk past the
+                // viewport edge — the focus bar is useless if you cannot see it.
+                .onChange(of: selection.focusedItemID) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(id, anchor: nil)
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
         VStack(spacing: 6) {
-            Text(model.filter == .open
-                 ? "Nothing parked yet"
-                 : "Nothing completed yet")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(model.filter == .open
-                 ? "Paste or type a note above."
-                 : "Resolved notes collect here.")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+            if !model.query.isEmpty {
+                Text("No notes match “\(model.query)”")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("Clear the search to see the rest.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text(model.filter == .open
+                     ? "Nothing parked yet"
+                     : "Nothing completed yet")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(model.filter == .open
+                     ? "Paste or type a note above."
+                     : "Resolved notes collect here.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

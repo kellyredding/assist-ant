@@ -28,6 +28,7 @@ enum KeystrokeCatalog {
         out += global
         out += windowAndViews
         out += lists
+        out += scratch
         out += reader
         out += terminal
         out += find
@@ -133,6 +134,54 @@ enum KeystrokeCatalog {
               section: .lists,
               availability: .tabsWithSelection(nonTrashLists)),
     ]
+
+    // MARK: - Scratch
+
+    /// Scratch shares the lists' navigation verbatim — moving around a list is
+    /// the same act wherever you are — and deliberately diverges on the actions.
+    ///
+    /// Everything is on the `a` leader, with no `l` leader at all: on the index
+    /// surfaces `l` addresses the ⋮ menu's kind and list commands, and scratch
+    /// has no ⋮ menu. Its toolbar is the whole action set, so one leader covers
+    /// it.
+    ///
+    /// The chords need the feed to own the keyboard, which the composer holds on
+    /// arrival — Escape is what hands it over, so it leads the section.
+    private static let scratch: [KeystrokeEntry] = [
+        .init(binding: .literal("esc"),
+              label: "Leave input mode (discards the draft)",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .textEntryCommit, label: "Enter input mode",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("⌘F"), label: "Search notes",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("j"), label: "Focus next note",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("k"), label: "Focus previous note",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("x"), label: "Toggle selection on focused note",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("⏎"), label: "Edit focused note in place",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("* a"), label: "Select all shown",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("* n"), label: "Clear selection",
+              section: .scratch, availability: .tabs(scratchOnly)),
+        .init(binding: .literal("a r"), label: "Resolve (reopen when completed)",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        .init(binding: .literal("a o"), label: "Reopen",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        .init(binding: .literal("a c"), label: "Copy to clipboard",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        .init(binding: .literal("a d"), label: "Delete",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+    ]
+
+    private static let scratchOnly: Set<MainTab> = [.scratch]
 
     // MARK: - Reader
 

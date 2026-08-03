@@ -1,41 +1,48 @@
 import AppKit
 import SwiftUI
 
-/// One entry in the scratch feed: a selection checkbox, the timestamp with the
-/// hover toolbar beside it, and the body beneath.
+/// One entry in the scratch feed: a keyboard-focus bar, a selection checkbox,
+/// the timestamp with the hover toolbar beside it, and the body beneath.
 ///
 /// The body renders as plain text, not Markdown. Scratch holds verbatim parked
 /// values — ids, URLs, code fragments — and Markdown would silently eat the
-/// `*`, `_`, and `#` in them. Rendering raw is both truer to what was pasted
-/// and what makes a later search highlight tractable.
+/// `*`, `_`, and `#` in them. Rendering raw is both truer to what was pasted and
+/// what makes the search highlight tractable, since the highlight works in
+/// character offsets a rendered tree would have moved.
 ///
-/// No detail view: double-clicking anywhere on the row edits in place.
+/// No detail view: double-click, or Return on the focused row, edits in place.
 struct ScratchRow: View {
-    let entry: Item
+    let row: ScratchModel.Row
     @ObservedObject var model: ScratchModel
     /// Observed separately from `model`, and that is the point: the selection is
     /// its own `ObservableObject` that the model merely holds, so observing the
-    /// model does not subscribe to it. Without this the checkbox and the row
-    /// tint only refreshed when some *other* state change forced a re-render —
-    /// moving the pointer off the row — while the pane's count, which does
-    /// observe it, updated immediately.
+    /// model does not subscribe to it. Without this the checkbox, the focus bar,
+    /// and the row tint only refreshed when some *other* state change forced a
+    /// re-render — moving the pointer off the row.
     @ObservedObject var selection: ActionableSelection
 
-    init(entry: Item, model: ScratchModel) {
-        self.entry = entry
+    /// Called on any click in this row, so the pane can take focus off its text
+    /// fields. A row handles its own taps, so the pane's background gesture never
+    /// sees them — without this, clicking a row left the composer focused and the
+    /// chords inert.
+    let onInteract: () -> Void
+
+    init(row: ScratchModel.Row, model: ScratchModel,
+         onInteract: @escaping () -> Void) {
+        self.row = row
         self.model = model
+        self.onInteract = onInteract
         self._selection = ObservedObject(wrappedValue: model.selection)
     }
 
     @State private var isHovering = false
-    @State private var isEditing = false
-    @State private var editText = ""
     @FocusState private var editorFocused: Bool
 
+    private var entry: Item { row.item }
     private var isResolved: Bool { entry.resolvedAt != nil }
-    private var isSelected: Bool {
-        selection.selectedIDs.contains(entry.id)
-    }
+    private var isSelected: Bool { selection.selectedIDs.contains(entry.id) }
+    private var isFocused: Bool { selection.focusedItemID == entry.id }
+    private var isEditing: Bool { model.editingID == entry.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -55,6 +62,14 @@ struct ScratchRow: View {
         .padding(.horizontal, ScratchMetrics.inset).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
+        // Keyboard-focus bar: a row-height leading overlay rather than a
+        // flexible sibling, matching the index surfaces — an overlay is handed
+        // the row's already-resolved height, so the bar spans it exactly.
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(isFocused ? Color.accentColor : Color.clear)
+                .frame(width: 3)
+        }
         // Without this the row is only hit-testable where its content actually
         // draws, so hovering the empty space right of a short note registered as
         // leaving the row and the toolbar flickered away.
@@ -63,16 +78,32 @@ struct ScratchRow: View {
         // Double-click anywhere on the row — not just precisely on the text —
         // enters edit mode. The body carries no `textSelection`, which would
         // otherwise consume the gesture before it ever arrives.
-        .onTapGesture(count: 2) { beginEdit() }
+        .onTapGesture(count: 2) {
+            onInteract()
+            beginEdit()
+        }
+        // A single click seats keyboard focus here, so j/k continue from where
+        // the pointer last was rather than from wherever focus was stranded.
+        .onTapGesture {
+            onInteract()
+            selection.focus(entry.id)
+        }
+        .onChange(of: isEditing) { _, editing in
+            if editing { focusEditor() }
+        }
+        // Also on appear: a row that re-mounts already being edited — which a
+        // feed refresh does — never sees the change, and would come back with an
+        // unfocused editor.
+        .onAppear { if isEditing { focusEditor() } }
     }
 
     // MARK: - Pieces
 
     /// Selection outranks hover: a selected row stays tinted while the pointer
-    /// moves over its neighbours.
+    /// moves over its neighbours. Opacities match the index surfaces.
     private var rowBackground: Color {
         if isSelected { return Color.accentColor.opacity(0.12) }
-        if isHovering { return Color.primary.opacity(0.05) }
+        if isHovering { return Color.primary.opacity(0.10) }
         return .clear
     }
 
@@ -85,6 +116,8 @@ struct ScratchRow: View {
             .frame(width: Self.checkboxSize, height: Self.checkboxSize)
             .contentShape(Rectangle())
             .pointerButton(onHoverChange: { _ in }) {
+                onInteract()
+                selection.focus(entry.id)
                 selection.toggleSelected(entry.id)
             }
     }
@@ -94,8 +127,8 @@ struct ScratchRow: View {
     /// The checkbox sits inside this row rather than in an outer column so the
     /// stack's own vertical centering aligns it with the timestamp — an outer
     /// top-aligned column left the taller glyph riding low against a 10pt line.
-    /// The toolbar holds its space at all times, so revealing it on hover
-    /// cannot nudge the timestamp.
+    /// The toolbar holds its space at all times, so revealing it on hover cannot
+    /// nudge the timestamp.
     private var headerLine: some View {
         HStack(spacing: Self.gutterSpacing) {
             checkbox
@@ -109,24 +142,63 @@ struct ScratchRow: View {
     }
 
     private var bodyText: some View {
-        Text(entry.body ?? "")
-            .font(.system(size: 13))
+        Text(highlighted)
+            .font(.system(size: ScratchPaneView.bodyFontSize))
             .frame(maxWidth: .infinity, alignment: .leading)
             .strikethrough(isResolved, color: .secondary)
-            .foregroundStyle(isResolved ? .secondary : .primary)
     }
 
+    /// The body with the search's matched characters tinted.
+    ///
+    /// Built from the character offsets the model already computed, so the match
+    /// never runs twice and the view cannot disagree with the filter about what
+    /// matched. An empty query yields no offsets and this is a plain string.
+    private var highlighted: AttributedString {
+        var text = AttributedString(entry.body ?? "")
+        text.foregroundColor = isResolved ? .secondary : .primary
+        guard !row.matchedOffsets.isEmpty else { return text }
+
+        // Walked once rather than indexed per offset: `AttributedString` has no
+        // bounds-limited character offsetting, so stepping to an arbitrary
+        // offset risks running past the end. Advancing character by character
+        // is bounds-safe by the loop condition and single-pass either way.
+        let targets = Set(row.matchedOffsets)
+        var index = text.startIndex
+        var offset = 0
+        while index < text.endIndex {
+            let next = text.index(afterCharacter: index)
+            if targets.contains(offset) {
+                text[index..<next].backgroundColor = .yellow.opacity(0.35)
+                text[index..<next].foregroundColor = .primary
+            }
+            index = next
+            offset += 1
+        }
+        return text
+    }
+
+    /// Bound straight to the model's draft, so the text survives a re-mount and
+    /// the pane can see whether abandoning it would lose anything.
     private var editor: some View {
-        GrowingTextEditor(
-            text: $editText,
-            minHeight: 26,
-            maxHeight: 400,
-            onSend: { commitEdit() }
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .focused($editorFocused)
-        .onTextEntryKeystrokes { commitEdit() }
-        .onExitCommand { isEditing = false }
+        HStack(alignment: .top, spacing: 6) {
+            GrowingTextEditor(
+                text: $model.editDraft,
+                minHeight: 26,
+                fontSize: ScratchPaneView.bodyFontSize,
+                maxHeight: 400,
+                onSend: { model.commitEdit() }
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .focused($editorFocused)
+            PointerIconButton(systemName: "xmark.circle",
+                              help: "Cancel (esc)") {
+                model.cancelEdit()
+            }
+        }
+        // Only the editing row's monitor is live, so it cannot race the pane
+        // composer's for the submit keystroke.
+        .onTextEntryKeystrokes(enabled: isEditing) { model.commitEdit() }
+        .onExitCommand { model.cancelEdit() }
     }
 
     private var toolbar: some View {
@@ -150,20 +222,12 @@ struct ScratchRow: View {
 
     // MARK: - Editing
 
-    private func beginEdit() {
-        editText = entry.body ?? ""
-        isEditing = true
-        DispatchQueue.main.async { editorFocused = true }
-    }
+    private func beginEdit() { model.beginEdit(id: entry.id) }
 
-    /// Save and leave edit mode. An edit emptied to nothing is discarded rather
-    /// than saved as a blank note — the delete glyph is how you remove one.
-    private func commitEdit() {
-        let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty, trimmed != (entry.body ?? "") {
-            model.updateBody(id: entry.id, to: trimmed)
-        }
-        isEditing = false
+    /// Seat keyboard focus in the editor. The text itself is already in the
+    /// model, so this only has to claim focus.
+    private func focusEditor() {
+        DispatchQueue.main.async { editorFocused = true }
     }
 
     private static let checkboxSize: CGFloat = 16
