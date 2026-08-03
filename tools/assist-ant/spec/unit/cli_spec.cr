@@ -76,6 +76,28 @@ describe AssistAnt::CLI do
     end
   end
 
+  describe "#run with scratch" do
+    # Routing smoke (in-process) — each subcommand's `--help` reaches
+    # Commands::Scratch and returns without raising or exiting. A misroute would
+    # fall to the CLI's `else` branch and `exit 1`, killing the spec process.
+    # Envelope behavior + exit codes live in spec/integration/scratch_*_spec.cr.
+    it "routes `scratch` with no args to the command" do
+      with_sandbox { AssistAnt::CLI.new.run(["scratch"]) }
+    end
+
+    it "routes `scratch add --help` to the command" do
+      with_sandbox { AssistAnt::CLI.new.run(["scratch", "add", "--help"]) }
+    end
+
+    it "routes `scratch list --help` to the command" do
+      with_sandbox { AssistAnt::CLI.new.run(["scratch", "list", "--help"]) }
+    end
+
+    it "routes `scratch convert --help` to the command" do
+      with_sandbox { AssistAnt::CLI.new.run(["scratch", "convert", "--help"]) }
+    end
+  end
+
   describe "#run with spend" do
     # Routing smoke (in-process): `spend` and `spend set --help` reach
     # Commands::Spend and return without raising or exiting. Envelope behavior +

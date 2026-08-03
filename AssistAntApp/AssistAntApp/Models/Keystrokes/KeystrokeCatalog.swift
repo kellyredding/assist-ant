@@ -138,12 +138,13 @@ enum KeystrokeCatalog {
     // MARK: - Scratch
 
     /// Scratch shares the lists' navigation verbatim — moving around a list is
-    /// the same act wherever you are — and deliberately diverges on the actions.
+    /// the same act wherever you are — and diverges only partly on the actions.
     ///
-    /// Everything is on the `a` leader, with no `l` leader at all: on the index
-    /// surfaces `l` addresses the ⋮ menu's kind and list commands, and scratch
-    /// has no ⋮ menu. Its toolbar is the whole action set, so one leader covers
-    /// it.
+    /// The `a` leader covers the toolbar glyphs. The `l` leader addresses the ⋮
+    /// menu, as it does on every surface that has one, and scratch's ⋮ holds
+    /// exactly the convert commands — so `l t` / `l r` / `l e` are here, bound to
+    /// the same letters the lists use for reclassify, and the rest of that
+    /// surface's `l` vocabulary is not (a note has no list and no day).
     ///
     /// The chords need the feed to own the keyboard, which the composer holds on
     /// arrival — Escape is what hands it over, so it leads the section.
@@ -177,6 +178,17 @@ enum KeystrokeCatalog {
               section: .scratch,
               availability: .tabsWithSelection(scratchOnly)),
         .init(binding: .literal("a d"), label: "Delete",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        // "Convert to …", not the lists' "Change kind to …" — same keys,
+        // honestly different verbs, and matching the ⋮ menu titles exactly.
+        .init(binding: .literal("l t"), label: "Convert to To-do",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        .init(binding: .literal("l r"), label: "Convert to Reminder",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        .init(binding: .literal("l e"), label: "Convert to Explore",
               section: .scratch,
               availability: .tabsWithSelection(scratchOnly)),
     ]

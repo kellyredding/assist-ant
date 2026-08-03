@@ -10,8 +10,21 @@ enum ItemStoreError: Error {
     /// upstream fetch, not an intentional "clear the window."
     case emptyKeepPruneRefused
     /// `reclassify` is only valid among the actionable kinds (todo/reminder/
-    /// explore); calendar has an incompatible payload.
+    /// explore); calendar has an incompatible payload, and a note goes through
+    /// `convertScratch` instead — it needs a composed title, not a label swap.
     case reclassifyRequiresActionable
+    /// `convertScratch` promotes a note and only a note. An actionable row is
+    /// already work — `reclassify` relabels those — and a calendar row is
+    /// read-only, so neither is a source.
+    case convertRequiresScratch
+    /// `convertScratch`'s target must be one of `ItemType.actionableCases`.
+    /// Converting into `calendar` (read-only) or back into `scratch` (where the
+    /// row already sits) are both meaningless destinations.
+    case convertRequiresActionableTarget
+    /// A trashed note was asked to become live work. Refused: recovering a
+    /// discarded note and promoting it are two separate decisions, and folding
+    /// them into one would make the Trash a back door onto Today.
+    case convertTrashedRefused
 }
 
 /// Trend summary of the icebox (active, unresolved, iceboxed items) — counts and
@@ -123,8 +136,27 @@ protocol ItemStore {
 
     /// Swap an actionable item's kind, preserving payload/identity/schedule/
     /// resolution/position. Throws `reclassifyRequiresActionable` if the item
-    /// or the target is not actionable.
+    /// or the target is not actionable — a note is refused here and goes
+    /// through `convertScratch`.
     func reclassify(id: String, to type: ItemType) throws
+
+    /// Promote a scratch note into an actionable item IN PLACE: the same row
+    /// keeps its `id`, `createdAt`, source, and resolution, swapping its type
+    /// and payload for the actionable pair and taking the caller's composed
+    /// `title`, `body`, and `externalURL`.
+    ///
+    /// A blank `title` keeps the note's derived one (`title` is NOT NULL). A nil
+    /// `body` keeps the note's text — the body IS the note, so a conversion that
+    /// named only a title must not discard what it was composed from — while an
+    /// explicit blank clears it.
+    ///
+    /// The conversion `reclassify` refuses. Throws `convertRequiresScratch` for
+    /// a non-note source, `convertTrashedRefused` for a discarded one, and
+    /// `convertRequiresActionableTarget` for a non-actionable `kind`.
+    func convertScratch(
+        id: String, to kind: ItemType, title: String, body: String?,
+        externalURL: String?
+    ) throws
 
     /// Iceboxed actionable items (todo/reminder/explore) that are active and
     /// unresolved: deleted_at IS NULL, iceboxed_at IS NOT NULL, resolved_at IS

@@ -224,26 +224,11 @@ final class ScratchModel: ObservableObject {
             AssistAntLog.info("scratch: no workspace — dropping the note")
             return
         }
-        let now = Date()
-        let item = Item(
-            id: UUIDv7.generate(),
-            workspaceID: workspaceID,
-            type: ItemType.scratch.rawValue,
-            title: ScratchTitle.derive(from: text),
-            body: text,
-            source: "manual",
-            externalID: nil,
-            typeData: .scratch(ScratchData()),
-            iceboxedAt: nil,
-            deletedAt: nil,
-            scheduledOn: nil,
-            resolvedAt: nil,
-            position: nil,
-            createdAt: now,
-            updatedAt: now,
-            serverUpdatedAt: nil,
-            pending: false
-        )
+        // Shared with the `scratch.add` request handler, so a note the agent
+        // parks is the same row shape as one typed into the composer — there is
+        // one definition of what a note looks like, and it is not in here.
+        guard let item = ScratchItem.make(text: text, workspaceID: workspaceID)
+        else { return }
         perform { try self.store.create(item) }
     }
 
@@ -262,6 +247,79 @@ final class ScratchModel: ObservableObject {
     func resolve(id: String) { perform { try self.store.resolve(id: id) } }
     func unresolve(id: String) { perform { try self.store.unresolve(id: id) } }
     func delete(id: String) { perform { try self.store.softDelete(id: id) } }
+
+    // MARK: - Conversion
+
+    /// Hand notes to the agent to be re-made as actionable items.
+    ///
+    /// Fire and forget, and deliberately so. This writes nothing to the store,
+    /// so there is nothing here to reconcile and nothing to render in flight:
+    /// no pending badge, no spinner, no timeout. The agent's `scratch convert`
+    /// call comes back through this app's own socket, so `observeScratch`
+    /// re-emits and the row leaves the feed on its own. A failure is visible in
+    /// the agent transcript, which is where the work is visible anyway.
+    ///
+    /// The selection is NOT cleared here, unlike `resolveSelected` and friends.
+    /// Those land synchronously, so holding their ids would strand the batch bar
+    /// over rows already gone; a conversion lands seconds later, and clearing
+    /// eagerly would drop the ticks off rows still sitting there — which reads
+    /// as the gesture having done nothing. `subscribe`'s `reconcile` drops the
+    /// ids at the moment the rows actually leave, which is the honest instant.
+    ///
+    /// One payload and one slash command for the whole set rather than one per
+    /// note: `sendCommand` is immediate and unqueued, so N commands collide in
+    /// the input buffer, and it retypes on a lost submit — N gestures' worth of
+    /// retries for one gesture. The skill still converts each note with its own
+    /// CLI call, so a batch is not a transaction: some notes can land while
+    /// others fail.
+    func convert(_ items: [Item], to kind: ItemType) {
+        guard ItemType.actionableCases.contains(kind) else { return }
+        let notes = items.filter { !($0.body ?? "").isEmpty }
+        guard !notes.isEmpty else { return }
+        // Checked before the write, so a stopped agent doesn't leave a payload
+        // file in the runtime dir that nothing will ever read.
+        guard AgentSessionController.shared.state == .running else {
+            AssistAntLog.info("scratch: convert skipped — the agent isn't running")
+            return
+        }
+        do {
+            let path = try Self.writeConversionPayload(notes, kind: kind)
+            AgentSessionController.shared.sendCommand(
+                "/assist-ant-convert-scratch \(path)")
+            AssistAntLog.info(
+                "scratch: convert requested — \(notes.count) note(s) → \(kind.rawValue)")
+        } catch {
+            AssistAntLog.info("scratch: conversion payload write failed — \(error)")
+        }
+    }
+
+    /// Write the request as a transient `{kind, items:[{id, text}]}` JSON payload
+    /// under the runtime dir and return its path for the skill to read. Same
+    /// disposable-file idiom as the capture payload, and named
+    /// `convert-<uuid>.json` beside its `capture-<uuid>.json` so the prefix says
+    /// which skill is meant to pick it up.
+    ///
+    /// `text` is the note's body, which is the whole note. The stored title is
+    /// deliberately left out: it is a derived first-line excerpt that exists to
+    /// satisfy a NOT NULL column, and handing it over would invite the agent to
+    /// keep it instead of composing a real one.
+    private static func writeConversionPayload(
+        _ notes: [Item], kind: ItemType
+    ) throws -> String {
+        let dir = AssistAntPaths.runtimeDir
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(
+            "convert-\(UUID().uuidString.lowercased()).json")
+        let payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "items": notes.map { ["id": $0.id, "text": $0.body ?? ""] },
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+        return url.path
+    }
 
     /// Run a store mutation, logging rather than throwing.
     ///

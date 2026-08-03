@@ -29,6 +29,10 @@ module AssistAnt
         Commands::CalendarItem.new.run(rest)
       when "actionable-item"
         Commands::ActionableItem.new.run(rest)
+        # Scratch is the other item-family group, so it sits next to
+        # actionable-item and ahead of `task`.
+      when "scratch"
+        Commands::Scratch.new.run(rest)
       when "task"
         Commands::Task.new.run(rest)
       when "spend"
@@ -74,6 +78,12 @@ module AssistAnt
           actionable-item update <id>   Edit a manual item (title/body/schedule/
                                         list/url/icebox/trash).
           actionable-item remove <id>   Soft-delete a manual item (→ Trash).
+          scratch add                   Park one note in the Scratch feed (text
+                                        or --text-file for multi-line markdown).
+          scratch list                  List notes with their ids (JSON;
+                                        --state open|completed).
+          scratch convert               Promote one note into a to-do / reminder
+                                        / explore item (--body-file for body).
           task add|list|update|remove   Manage tasks (named prompt + trigger):
           task enable|disable           create, list, edit, remove, toggle.
           spend set                     Capture spend snapshots for the

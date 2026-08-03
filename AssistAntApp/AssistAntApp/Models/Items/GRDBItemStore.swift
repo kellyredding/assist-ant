@@ -674,11 +674,94 @@ final class GRDBItemStore: ItemStore {
             case .explore: item.typeData = .explore(data)
             // Neither is a label swap. Calendar is read-only, and turning a
             // note into real work needs a title composed from its body — a
-            // conversion, not a reclassification.
+            // conversion, not a reclassification. `convertScratch` is that
+            // conversion; refusing the pair here keeps the two paths from being
+            // mistaken for one, since only one of them can compose.
             case .calendar, .scratch:
                 throw ItemStoreError.reclassifyRequiresActionable
             }
             item.type = item.typeData.kind
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Promote a scratch note into real work: the SAME row becomes an actionable
+    // item, keeping its id, created_at, and source, swapping `type` and the
+    // `.scratch` payload for the actionable pair, and taking a title, body, and
+    // link the caller composed. `reclassify` refuses this pair on purpose — a
+    // note is body-only and its title is derived from that body, so promoting
+    // one needs a title (and usually an edited body) that only the caller can
+    // write. That composition is the entire difference between the two calls.
+    //
+    // In place rather than create-and-trash, for two reasons. A copy silently
+    // loses the id, which a selection or an agent transcript may already refer
+    // to, and created_at, which is when the thought was captured rather than
+    // when it was finally shaped. And in-place conversion is self-idempotent:
+    // the caller's slash command can be retyped on an unconfirmed submit, and a
+    // second run lands on `convertRequiresScratch` instead of minting a
+    // duplicate.
+    func convertScratch(
+        id: String, to kind: ItemType, title: String, body: String?,
+        externalURL: String?
+    ) throws {
+        // Checked before opening the transaction, like pruneMissing's empty-keep
+        // guard: a bad target is the caller's mistake, not a write to roll back.
+        guard ItemType.actionableCases.contains(kind) else {
+            throw ItemStoreError.convertRequiresActionableTarget
+        }
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            guard case .scratch = item.typeData else {
+                throw ItemStoreError.convertRequiresScratch
+            }
+            // A discarded note is not quietly revived as live work: put it back
+            // first, so recovery and promotion stay two visible steps.
+            guard item.deletedAt == nil else {
+                throw ItemStoreError.convertTrashedRefused
+            }
+            // A fresh actionable payload carrying only the link the caller
+            // followed. A note has no list, and that is editable the moment it
+            // lands.
+            var data = ActionableData()
+            if let externalURL, !externalURL.isEmpty {
+                data.externalURL = externalURL
+            }
+            switch kind {
+            case .todo: item.typeData = .todo(data)
+            case .reminder: item.typeData = .reminder(data)
+            case .explore: item.typeData = .explore(data)
+            // Unreachable — the actionableCases guard already refused these.
+            // Spelled out rather than defaulted so a sixth ItemType stops
+            // compiling here instead of quietly becoming a legal destination.
+            case .calendar, .scratch:
+                throw ItemStoreError.convertRequiresActionableTarget
+            }
+            item.type = item.typeData.kind
+            // Trimmed and required: a blank title leaves the note's derived one
+            // standing rather than writing an empty NOT NULL column, the same
+            // rule setTitleAndBody follows.
+            let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedTitle.isEmpty { item.title = trimmedTitle }
+            // nil means "carry the note over as it stands". Unlike
+            // setTitleAndBody, nil does NOT clear here — the body IS the note,
+            // and a conversion that named only a title would otherwise discard
+            // the text it was composed from. An explicit blank still clears.
+            if let body {
+                let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+                item.body = trimmedBody.isEmpty ? nil : trimmedBody
+            }
+            // `setIceboxed` is type-agnostic, so a scratch row CAN carry an
+            // iceboxed stamp even though no UI path sets one. Cleared here
+            // because a stale stamp would route the converted item into the
+            // Icebox instead of onto Today, invisibly.
+            item.iceboxedAt = nil
+            // Nothing else moves. resolved_at survives, so a completed note
+            // promotes as completed work that reopenActionable can revive;
+            // scheduled_on and position are nil on a note, so the converted item
+            // lands unscheduled on Today exactly like a fresh capture.
             item.updatedAt = Date()
             item.pending = true
             try item.update(db)

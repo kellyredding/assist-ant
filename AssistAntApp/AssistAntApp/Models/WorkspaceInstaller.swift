@@ -18,6 +18,7 @@ enum WorkspaceInstaller {
     private static let files: [(resource: String, destination: String)] = [
         ("WorkspaceMemory", "CLAUDE.md"),
         ("CaptureItemSkill", ".claude/skills/assist-ant-capture-item/SKILL.md"),
+        ("ConvertScratchSkill", ".claude/skills/assist-ant-convert-scratch/SKILL.md"),
         ("ManageTasksSkill", ".claude/skills/assist-ant-manage-tasks/SKILL.md"),
         ("ProgressSkill", ".claude/skills/assist-ant-progress/SKILL.md"),
     ]

@@ -9,6 +9,8 @@ require "./assist_ant/hooks_manager"
 require "./assist_ant/commands/ping"
 require "./assist_ant/commands/calendar_item"
 require "./assist_ant/commands/actionable_item"
+# Mirrors cli.cr's dispatch order (require order is cosmetic in Crystal).
+require "./assist_ant/commands/scratch"
 require "./assist_ant/commands/task"
 require "./assist_ant/commands/spend"
 require "./assist_ant/commands/priority"

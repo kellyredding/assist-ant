@@ -2380,6 +2380,172 @@ check("clipboard: an actionable item keeps its fenced form") {
     return out.hasPrefix("---\n# Buy milk") && out.hasSuffix("---")
 }
 
+// MARK: - Scratch conversion
+
+// The note shape both the composer and `scratch.add` write, so the two writers
+// cannot drift.
+check("ScratchItem.make: body-only disposition, blank refused") {
+    guard let note = ScratchItem.make(
+        text: "  remember the milk\nand the eggs  ", workspaceID: "local")
+    else { return false }
+    let shapeOK = note.type == "scratch"
+        && note.body == "remember the milk\nand the eggs"
+        && note.title == "remember the milk"
+        && note.typeData == .scratch(ScratchData())
+    let bareOK = note.source == "manual" && note.externalID == nil
+        && note.scheduledOn == nil && note.iceboxedAt == nil
+        && note.resolvedAt == nil && note.position == nil
+    return shapeOK && bareOK
+        && ScratchItem.make(text: "   \n ", workspaceID: "local") == nil
+}
+
+// Convert rewrites the SAME row: id and created_at survive, type and payload
+// swap, the composed title/body/link land. Both timestamps are read back from
+// the database so the comparison is text-vs-text, the way the upsert checks do
+// it — an in-memory Date carries precision the column does not.
+check("convertScratch: rewrites the row in place, keeping id + created_at") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("wire up the retry\nsecond line")
+    try store.create(note)
+    guard let before = try store.fetch(id: note.id) else { return false }
+    try store.convertScratch(
+        id: note.id, to: .todo, title: "  Wire up the retry  ",
+        body: "the plan", externalURL: "https://example.com/doc")
+    guard let after = try store.fetch(id: note.id) else { return false }
+    guard case .todo(let d) = after.typeData else { return false }
+    // Split into sub-expressions: one long `&&` chain over many optionals
+    // overwhelms the Swift type-checker.
+    let identityOK = after.id == before.id
+        && after.createdAt == before.createdAt && after.source == "manual"
+    let swapped = after.type == "todo" && d.externalURL == "https://example.com/doc"
+    let composed = after.title == "Wire up the retry" && after.body == "the plan"
+    let leftTheFeed = try scratchCount(store, resolved: false) == 0
+    let joinedTheWork = try store.fetchAllActionable().contains { $0.id == note.id }
+    return identityOK && swapped && composed && leftTheFeed && joinedTheWork
+}
+
+// A nil body carries the note's text over rather than clearing it — the body IS
+// the note, so a convert that composes only a title never discards what it was
+// composed from. An explicit blank still clears, and a blank title leaves the
+// derived one standing (`title` is NOT NULL).
+check("convertScratch: nil body keeps the text; blank body/title fall back") {
+    let (store, _) = try makeStore()
+    let keep = scratchItem("keep this text")
+    let clear = scratchItem("drop this text")
+    try store.create(keep)
+    try store.create(clear)
+    try store.convertScratch(
+        id: keep.id, to: .reminder, title: "Keep", body: nil, externalURL: nil)
+    try store.convertScratch(
+        id: clear.id, to: .reminder, title: "   ", body: "   ", externalURL: nil)
+    guard let k = try store.fetch(id: keep.id),
+          let c = try store.fetch(id: clear.id) else { return false }
+    return k.body == "keep this text" && k.title == "Keep"
+        && c.body == nil && c.title == "drop this text"
+}
+
+// A completed note promotes as completed work. Resolution is state the row
+// carries, not something a conversion is entitled to reverse.
+check("convertScratch: a completed note stays resolved") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("did this already")
+    try store.create(note)
+    try store.resolve(id: note.id)
+    try store.convertScratch(
+        id: note.id, to: .todo, title: "Did this already", body: nil,
+        externalURL: nil)
+    guard let after = try store.fetch(id: note.id) else { return false }
+    let offToday = try store.fetchActionable(asOf: CivilDate.today)
+        .contains { $0.id == note.id } == false
+    return after.resolvedAt != nil && after.type == "todo" && offToday
+}
+
+// A stale iceboxed stamp is cleared. `setIceboxed` is type-agnostic, so a note
+// can carry one; left in place it would route the converted item into the
+// Icebox instead of onto Today, invisibly.
+check("convertScratch: clears a stale iceboxed stamp") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("a thought")
+    try store.create(note)
+    try store.setIceboxed(id: note.id, true)
+    try store.convertScratch(
+        id: note.id, to: .todo, title: "A thought", body: nil, externalURL: nil)
+    guard let after = try store.fetch(id: note.id) else { return false }
+    let onToday = try store.fetchActionable(asOf: CivilDate.today)
+        .contains { $0.id == note.id }
+    return after.iceboxedAt == nil && onToday
+}
+
+// Only a note is convertible — an actionable row is `reclassify`'s job — and the
+// refusal leaves it untouched, since every guard runs before the first write.
+check("convertScratch: refuses a non-scratch row") {
+    let (store, _) = try makeStore()
+    let todo = newItem(
+        type: .todo, typeData: .todo(ActionableData(listName: "later")),
+        title: "already work")
+    try store.create(todo)
+    var refused = false
+    do {
+        try store.convertScratch(
+            id: todo.id, to: .reminder, title: "nope", body: nil, externalURL: nil)
+    } catch ItemStoreError.convertRequiresScratch {
+        refused = true
+    }
+    guard let after = try store.fetch(id: todo.id) else { return false }
+    return refused && after.type == "todo" && after.title == "already work"
+}
+
+// A trashed note stays trashed. Recovering it and promoting it are two
+// decisions, so the Trash is not a back door onto Today.
+check("convertScratch: refuses a trashed note") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("parked then discarded")
+    try store.create(note)
+    try store.softDelete(id: note.id)
+    var refused = false
+    do {
+        try store.convertScratch(
+            id: note.id, to: .todo, title: "Revive", body: nil, externalURL: nil)
+    } catch ItemStoreError.convertTrashedRefused {
+        refused = true
+    }
+    guard let after = try store.fetch(id: note.id) else { return false }
+    return refused && after.type == "scratch" && after.deletedAt != nil
+}
+
+// The target must be actionable: calendar is read-only and scratch is where the
+// row already sits, so neither is a destination.
+check("convertScratch: refuses a non-actionable target") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("a thought")
+    try store.create(note)
+    var refusals = 0
+    for target in [ItemType.calendar, .scratch] {
+        do {
+            try store.convertScratch(
+                id: note.id, to: target, title: "T", body: nil, externalURL: nil)
+        } catch ItemStoreError.convertRequiresActionableTarget {
+            refusals += 1
+        }
+    }
+    guard let after = try store.fetch(id: note.id) else { return false }
+    let stillInFeed = try scratchCount(store, resolved: false) == 1
+    return refusals == 2 && after.type == "scratch" && stillInFeed
+}
+
+// Catalog: scratch documents its own `l` leader. The existing l-leader check is
+// satisfied by the Lists section alone, so it would pass with these rows
+// missing — which is the drift that matters, since the two surfaces bind the
+// same three letters to different verbs.
+check("catalog: scratch documents the convert chords") {
+    let scratchKeys = Set(KeystrokeCatalog.all.compactMap { e -> String? in
+        guard e.section == .scratch, case .literal(let k) = e.binding
+        else { return nil }
+        return k
+    })
+    return ["l t", "l r", "l e"].allSatisfy { scratchKeys.contains($0) }
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

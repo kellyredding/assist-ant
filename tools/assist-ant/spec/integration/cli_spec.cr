@@ -82,6 +82,12 @@ describe "assist-ant binary" do
       result[:stdout].should contain "--no-reconcile"
     end
 
+    it "scratch with no subcommand prints group help" do
+      result = run_binary([binary, "scratch"])
+      result[:status].success?.should be_true
+      result[:stdout].should contain "SUBCOMMANDS:"
+    end
+
     it "calendar-item with no subcommand prints group help" do
       result = run_binary([binary, "calendar-item"])
       result[:status].success?.should be_true

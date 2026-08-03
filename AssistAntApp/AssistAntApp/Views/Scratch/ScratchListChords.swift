@@ -8,12 +8,23 @@ import AppKit
 /// (`j`/`k`/`x`, `*a`/`*n`), because moving around a list is the same act
 /// wherever you are.
 ///
-/// The *actions* deliberately diverge. Every one is on the `a` leader — `a r`
-/// resolve, `a o` reopen, `a c` copy, `a d` delete — with no `l` leader at all.
-/// On the index surfaces `l` addresses the ⋮ menu's kind and list commands, and
-/// scratch has no ⋮ menu: its toolbar is the whole action set. A leader whose
-/// only member was delete would be a letter to remember for no distinction
-/// worth making.
+/// The *actions* mostly diverge. Resolve, reopen, copy, and delete are on the
+/// `a` leader — `a r`, `a o`, `a c`, `a d` — one letter each for the glyphs in
+/// the row and batch toolbars.
+///
+/// `l` addresses the ⋮ menu, on every surface that has one, and scratch now has
+/// one: `l t` / `l r` / `l e` convert the selection into a to-do, a reminder, or
+/// an explore. Those are the same three letters `ActionableListChords` binds to
+/// `reclassify`, deliberately — "make this row that kind" is one gesture whether
+/// the row is an actionable being re-kinded or a note being converted, and it
+/// should not cost two chords to remember. The rest of that surface's `l`
+/// vocabulary has no counterpart here: a note has no list (`l l`), no scheduled
+/// day (`l s`), and its delete is already `a d`.
+///
+/// Both leaders arm only on an *unmodified* press: ⌘L is View ▸ Next view and
+/// ⌘A is Select all, and a local monitor sees a key before the menu bar does —
+/// so an ungated leader would eat both the moment anything was ticked. The
+/// reader's monitor gates the same two leaders the same way.
 ///
 /// Gating mirrors `ActionableListChords` exactly — this tab selected, no reader
 /// open, the key window ours, and no *editable* text view holding focus. That
@@ -36,6 +47,10 @@ final class ScratchListChords {
         let unresolve: ([Item]) -> Void
         let delete: ([Item]) -> Void
         let copy: ([Item]) -> Void
+        /// Convert the selection into an actionable item of `kind` — the ⋮
+        /// menu's one command, reached from the keyboard by `l t`/`l r`/`l e`.
+        /// Fire and forget: it returns nothing because nothing lands here.
+        let convert: ([Item], ItemType) -> Void
         /// Enter on the focused row: edit it in place, scratch's answer to the
         /// other lists opening a reader.
         let edit: (Item) -> Void
@@ -71,25 +86,41 @@ final class ScratchListChords {
         else { return event }
 
         let chars = event.charactersIgnoringModifiers?.lowercased()
+        // Plain keys only, for the leaders and for j/k/x. A local monitor is
+        // handed the event before the main menu's key equivalents, so without
+        // this the `l` leader swallows ⌘L (View ▸ Next view), `a` swallows ⌘A,
+        // and `x` swallows ⌘X — each of them the instant something is ticked.
+        // Shift is not excluded: `*` is ⇧8.
+        let plain = event.modifierFlags
+            .isDisjoint(with: [.command, .option, .control])
 
         // A leader is armed → the second key applies the chord, or cancels and
-        // falls through to normal single-key handling.
+        // falls through to normal single-key handling. The second key must be
+        // plain too: with `a` armed, ⌘D would otherwise delete the selection
+        // instead of reaching the menu bar.
         if let armed = leader.take() {
-            if applyChord(leader: armed, key: chars, ctx) { return nil }
+            if applyChord(leader: armed, key: plain ? chars : nil, ctx) {
+                return nil
+            }
         }
 
         // Arm a leader. `*` is always available — it is how you make a
-        // selection; `a` acts on one, so it needs one first.
-        if event.characters == "*" { leader.arm("*"); return nil }
-        if ctx.selection.hasSelection, chars == "a" {
+        // selection; `a` and `l` act on one, so they need one first.
+        if plain, event.characters == "*" { leader.arm("*"); return nil }
+        if plain, ctx.selection.hasSelection, chars == "a" {
             leader.arm("a"); return nil
         }
+        if plain, ctx.selection.hasSelection, chars == "l" {
+            leader.arm("l"); return nil
+        }
 
-        switch chars {
-        case "j": ctx.selection.moveFocus(by: 1, order: ctx.visibleIDs()); return nil
-        case "k": ctx.selection.moveFocus(by: -1, order: ctx.visibleIDs()); return nil
-        case "x": ctx.selection.toggleSelectedFocused(); return nil
-        default: break
+        if plain {
+            switch chars {
+            case "j": ctx.selection.moveFocus(by: 1, order: ctx.visibleIDs()); return nil
+            case "k": ctx.selection.moveFocus(by: -1, order: ctx.visibleIDs()); return nil
+            case "x": ctx.selection.toggleSelectedFocused(); return nil
+            default: break
+            }
         }
         // Bare Return edits the focused row. Modified Return is deliberately not
         // ours: the submit keystroke is how you open the composer for a *new*
@@ -121,6 +152,13 @@ final class ScratchListChords {
         case ("a", "o"): ctx.unresolve(selected)
         case ("a", "c"): ctx.copy(selected)
         case ("a", "d"): ctx.delete(selected)
+        // The same letters ActionableListChords binds to reclassify, on purpose.
+        // No completed-feed variant, unlike `a r`: converting a note you already
+        // ticked is minting new work out of parked text, not editing a finished
+        // item, so the chord means the same thing on both feeds.
+        case ("l", "t"): ctx.convert(selected, .todo)
+        case ("l", "r"): ctx.convert(selected, .reminder)
+        case ("l", "e"): ctx.convert(selected, .explore)
         default: return false
         }
         return true

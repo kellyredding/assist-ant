@@ -217,7 +217,16 @@ struct ScratchRow: View {
             PointerIconButton(systemName: "trash", help: "Delete") {
                 model.delete(id: entry.id)
             }
+            // Convert — the one verb with no glyph of its own, because it needs
+            // a target kind. Same component the batch bar uses; mnemonics off,
+            // since the `l` chords only fire on a selection.
+            ScratchConvertMenu(notes: [entry]) { model.convert($0, to: $1) }
         }
+        // The toolbar is drawn at opacity 0 when not hovered, and pointerButton
+        // tracking areas ignore opacity — so during an inline edit the invisible
+        // ⋮ would still claim the hand cursor and pop a menu over the editor.
+        // `disabled` is what drops those tracking areas.
+        .disabled(isEditing)
     }
 
     // MARK: - Editing

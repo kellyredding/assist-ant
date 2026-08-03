@@ -230,6 +230,7 @@ struct ScratchPaneView: View {
             unresolve: { $0.forEach { model.unresolve(id: $0.id) } },
             delete: { $0.forEach { model.delete(id: $0.id) } },
             copy: { ItemClipboard.copy($0) },
+            convert: { model.convert($0, to: $1) },
             edit: { model.beginEdit(id: $0.id) }
         ))
     }
@@ -445,6 +446,11 @@ struct ScratchPaneView: View {
             PointerIconButton(systemName: "trash", help: "Delete selected") {
                 model.deleteSelected()
             }
+            // Mnemonics on: `l t` / `l r` / `l e` are live exactly when this bar
+            // is, so the menu underlines the letters that fire them. Sits before
+            // Clear selection, which stays last as the only meta action here.
+            ScratchConvertMenu(notes: model.selectedEntries,
+                               showsMnemonics: true) { model.convert($0, to: $1) }
             PointerIconButton(systemName: "xmark", help: "Clear selection") {
                 selection.clearSelection()
             }

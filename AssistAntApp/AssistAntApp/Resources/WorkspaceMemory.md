@@ -76,6 +76,26 @@ schedule, list, URL, icebox, or trash), and `remove <id>` soft-deletes to the
 Trash. Only **manual** items are editable — synced Linear/calendar items are
 owned by their source.
 
+## Parking and converting notes
+
+The Scratch tab is a parking lot, not an inbox: unshaped notes — a pasted id, a
+link, half a thought — committed fast and shaped later. Nothing there is an item
+yet, and a scratch note has no real title, only a first-line excerpt the pad
+derives to fill the column. Park one yourself with `assist-ant scratch add`, and
+read the feed with `assist-ant scratch list` (JSON, ids included) when you need
+to find a note to talk about or convert.
+
+The `/assist-ant-convert-scratch` skill turns parked notes into real to-do,
+reminder, or explore items through `scratch convert` — composing a title and a
+Markdown body for each and following any public URL to enrich it. The note is
+rewritten in place, keeping its id and the time it was parked. The Scratch tab's
+convert gesture writes a payload of one or more notes plus the chosen kind and
+invokes the skill for you; reach for it directly when the user asks to make
+something of a note they parked. Each note is converted by its own CLI call, so
+one bad note never strands the rest, and nothing in the app reports on the run —
+a converted note leaves the feed and a failure is visible only in what you say,
+so name every note you did and did not convert.
+
 ## Managing tasks
 
 The `/assist-ant-manage-tasks` skill creates, changes, lists, and removes tasks

@@ -476,6 +476,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return deleteActionableItemReply(e)
         case "actionable_item.list":
             return actionableListReplyData(e)
+        case "scratch.add":
+            return addScratchReply(e)
+        case "scratch.list":
+            return scratchListReplyData(e)
+        case "scratch.convert":
+            return convertScratchReply(e)
         case "task.create":
             return createTaskReplyData(e)
         case "task.update":
@@ -929,6 +935,127 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return try? JSONSerialization.data(
             withJSONObject: ["items": rows], options: [.sortedKeys])
+    }
+
+    // MARK: - Scratch authoring (request/reply)
+    //
+    // The `assist-ant scratch add|list|convert` CLI gives the agent the three
+    // moves the Scratch pane has: park a thought, read the buffer back, and
+    // promote one entry into real work. Request/reply for the same reasons the
+    // actionable writes are — the new id has to round-trip on add, and convert's
+    // refusals are decisions the agent must be told rather than left to infer.
+    // Writes go through GRDBItemStore on this listener queue (GRDB serializes
+    // writes).
+    //
+    // Unlike the actionable handlers, add and list nudge nothing: the Scratch
+    // pane observes the store live, so a parked note appears in the feed on its
+    // own. `convert` DOES nudge, because the row it rewrites lands on the
+    // snapshot surfaces the actionables share (Icebox, Trash, the Schedule
+    // agenda), and those re-fetch only on the notification.
+
+    /// `scratch.add` (reply): park one note. The text becomes the body and the
+    /// title is derived from it — `ScratchItem.make`, the same shape the composer
+    /// writes — then the new id is acked so the CLI can print it.
+    private func addScratchReply(_ e: EventEnvelope) -> Data? {
+        let workspaceID: String
+        do {
+            workspaceID = try WorkspaceStore.shared.current().id
+        } catch {
+            NSLog("AssistAnt: scratch.add — cannot resolve workspace: \(error)")
+            return ackData(ok: false, error: "no workspace")
+        }
+        guard let item = ScratchItem.make(
+            text: e.detailValue("text", as: String.self) ?? "",
+            workspaceID: workspaceID
+        ) else {
+            return ackData(ok: false, error: "empty note text")
+        }
+        do {
+            try GRDBItemStore.shared.create(item)
+            return ackData(ok: true, id: item.id, name: item.title)
+        } catch {
+            NSLog("AssistAnt: scratch.add failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
+    }
+
+    /// `scratch.list` (reply): one feed as JSON (`{"items":[…]}`) so the agent
+    /// has ids to convert against. `state == "completed"` is the resolved feed;
+    /// anything else is the open buffer — the two are disjoint, exactly as the
+    /// pane's toggle presents them. Instants are ISO-8601; absent fields are
+    /// omitted, matching `actionable_item.list`.
+    private func scratchListReplyData(_ e: EventEnvelope) -> Data? {
+        let state = e.detailValue("state", as: String.self) ?? "open"
+        let items = (try? GRDBItemStore.shared.fetchScratch(
+            resolved: state == "completed")) ?? []
+        let iso = ISO8601DateFormatter()
+        let rows: [[String: Any]] = items.map { i in
+            var row: [String: Any] = [
+                "id": i.id, "title": i.title,
+                "created_at": iso.string(from: i.createdAt),
+            ]
+            if let body = i.body { row["body"] = body }
+            if let at = i.resolvedAt { row["resolved_at"] = iso.string(from: at) }
+            return row
+        }
+        return try? JSONSerialization.data(
+            withJSONObject: ["items": rows], options: [.sortedKeys])
+    }
+
+    /// `scratch.convert` (reply): promote one note into a todo/reminder/explore
+    /// in place — the row keeps its id and created_at, so anything already
+    /// pointing at the note still resolves. The title and body are composed by
+    /// the caller, which is precisely what `reclassify` cannot do and why this is
+    /// its own store call.
+    ///
+    /// Each store guard comes back as its own `error` string rather than the
+    /// blanket "store write failed" the other writes use: the agent chose the id,
+    /// so it needs to learn whether it picked a note, something already
+    /// actionable, or something sitting in the Trash — three different next
+    /// moves.
+    private func convertScratchReply(_ e: EventEnvelope) -> Data? {
+        guard let id = e.detailValue("id", as: String.self) else {
+            return ackData(ok: false, error: "missing id")
+        }
+        // Only the spelling is checked here; whether the kind is a legal
+        // destination is the store's guard, so that policy has one home.
+        guard let raw = e.detailValue("kind", as: String.self),
+              let kind = ItemType(rawValue: raw) else {
+            return ackData(ok: false, error: "unknown kind")
+        }
+        let title = e.detailValue("title", as: String.self) ?? ""
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ackData(ok: false, error: "missing title")
+        }
+        let store = GRDBItemStore.shared
+        do {
+            guard let note = try store.fetch(id: id) else {
+                return ackData(ok: false, error: "no item with id \(id)")
+            }
+            // A body absent from the envelope carries the note's own text over —
+            // the same fetch-then-merge `actionable_item.update` does, so a
+            // convert that names only a title never drops what the note said.
+            try store.convertScratch(
+                id: id, to: kind, title: title,
+                body: e.detailValue("body", as: String.self) ?? note.body,
+                externalURL: e.detailValue("url", as: String.self))
+            notifyActionableItemsDidChange()
+            // Re-read so the ack reports the title that actually landed (the
+            // store trims, and keeps the derived one for a blank).
+            let after = try store.fetch(id: id)
+            return ackData(ok: true, id: id, name: after?.title)
+        } catch ItemStoreError.convertRequiresScratch {
+            return ackData(ok: false, error: "only a scratch note can be converted")
+        } catch ItemStoreError.convertTrashedRefused {
+            return ackData(
+                ok: false, error: "note is in the Trash — put it back first")
+        } catch ItemStoreError.convertRequiresActionableTarget {
+            return ackData(
+                ok: false, error: "kind must be todo, reminder, or explore")
+        } catch {
+            NSLog("AssistAnt: scratch.convert failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
+        }
     }
 
     /// Nudge the snapshot views (Icebox / Trash / Today) to re-fetch after an
