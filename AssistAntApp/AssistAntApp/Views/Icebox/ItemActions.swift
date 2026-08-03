@@ -35,8 +35,6 @@ struct ItemActions: View {
     /// Icebox opposites stay adjacent under either order.
     var copyFirst: Bool = false
 
-    @State private var kindMenuHovering = false
-
     /// The mnemonic char for a label, or nil when mnemonics are off.
     private func mnem(_ c: Character) -> Character? { showsMnemonics ? c : nil }
 
@@ -133,26 +131,13 @@ struct ItemActions: View {
         .opacity(urls.isEmpty ? 0.4 : 1)
     }
 
-    // A real pointer-button (hover highlight + hand cursor, like the close /
-    // link buttons) — the overlay is the topmost hit view, so the hand cursor
-    // wins over the glyph everywhere. A SwiftUI Menu can't be a pointerButton
-    // (the button would eat the click the menu needs), so the click pops an
-    // AppKit NSMenu built from the same items. Vertical triple-dots: the
-    // horizontal `ellipsis` rotated 90° (no guaranteed vertical SF Symbol).
+    // The glyph and the NSMenu presentation are `ItemMenuButton`'s; what stays
+    // here is only this surface's items.
     private var kindMenu: some View {
-        Image(systemName: "ellipsis")
-            .rotationEffect(.degrees(90))
-            .font(.system(size: 13)).foregroundStyle(.primary)
-            .frame(width: 24, height: 24)
-            .background(Circle().fill(Color.primary.opacity(kindMenuHovering ? 0.12 : 0)))
-            .animation(.easeInOut(duration: 0.15), value: kindMenuHovering)
-            .pointerButton(onHoverChange: { kindMenuHovering = $0 }, action: presentKindMenu)
+        ItemMenuButton(populate: populateKindMenu)
     }
 
-    private func presentKindMenu() {
-        let menu = NSMenu()
-        menu.autoenablesItems = false   // we manage isEnabled explicitly (Delete)
-
+    private func populateKindMenu(_ menu: NSMenu) {
         ActionableKindMenu.populate(
             into: menu, items: items, showsMnemonics: showsMnemonics,
             reclassify: { its, kind in apply(its) { actions.reclassify($0, kind) } },
@@ -203,21 +188,6 @@ struct ItemActions: View {
                 : "Synced from Linear — delete it in Linear."
         }
         menu.addItem(bottomItem)
-
-        // Match the window's light/dark appearance — a detached NSMenu otherwise
-        // defaults to the system appearance — and clamp the origin so the whole
-        // menu stays inside the window instead of spilling past its edge.
-        // `in: nil` → `at` is the menu's top-left in screen coordinates (the
-        // menu extends down and right from there).
-        let window = NSApp.keyWindow ?? NSApp.mainWindow
-        menu.appearance = window?.effectiveAppearance
-        var origin = NSEvent.mouseLocation
-        if let frame = window?.frame {
-            let size = menu.size
-            origin.x = max(frame.minX, min(origin.x, frame.maxX - size.width))
-            origin.y = min(frame.maxY, max(origin.y, frame.minY + size.height))
-        }
-        menu.popUp(positioning: nil, at: origin, in: nil)
     }
 
     /// Dispatch an op over `targets`; report the single updated item to a reader
@@ -273,10 +243,21 @@ enum ActionableKindMenu {
 
 /// An NSMenuItem that runs a closure when chosen (it is its own target/action),
 /// so a SwiftUI-built popup menu needs no separate @objc coordinator.
-private final class ClosureMenuItem: NSMenuItem {
+///
+/// Internal rather than file-private: three surfaces build overflow menus now —
+/// this one, `TrashActions`, and `ScratchConvertMenu` — and the alternative to
+/// sharing it is three identical @objc trampolines.
+final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void
 
-    init(title: String, mnemonic: Character? = nil, tint: NSColor? = nil,
+    /// `mnemonicScope` narrows the underline search to one substring of the
+    /// title. Needed because the search takes the FIRST match: "Convert to
+    /// To-do" with mnemonic T would underline the `t` in "Convert" — the wrong
+    /// letter, and a chord hint that lies about which key fires it. Nil searches
+    /// the whole title, which is where every bare label ("To-do", "Delete",
+    /// "Reschedule…") already lands on the right letter.
+    init(title: String, mnemonic: Character? = nil,
+         mnemonicScope: String? = nil, tint: NSColor? = nil,
          state: NSControl.StateValue = .off, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(title: title, action: #selector(invoke), keyEquivalent: "")
@@ -290,11 +271,15 @@ private final class ClosureMenuItem: NSMenuItem {
                 attr.addAttribute(.foregroundColor, value: tint,
                                   range: NSRange(location: 0, length: (title as NSString).length))
             }
-            if let mnemonic,
-               let r = title.range(of: String(mnemonic), options: .caseInsensitive) {
-                attr.addAttribute(.underlineStyle,
-                                  value: NSUnderlineStyle.single.rawValue,
-                                  range: NSRange(r, in: title))
+            if let mnemonic {
+                let scope = mnemonicScope.flatMap { title.range(of: $0) }
+                    ?? title.startIndex..<title.endIndex
+                if let r = title.range(of: String(mnemonic),
+                                       options: .caseInsensitive, range: scope) {
+                    attr.addAttribute(.underlineStyle,
+                                      value: NSUnderlineStyle.single.rawValue,
+                                      range: NSRange(r, in: title))
+                }
             }
             attributedTitle = attr
         }

@@ -19,8 +19,6 @@ struct TrashActions: View {
     /// its chord letter. Default false (row hover) keeps a plain label.
     var showsMnemonics: Bool = false
 
-    @State private var kindMenuHovering = false
-
     /// The mnemonic char for a label, or nil when mnemonics are off.
     private func mnem(_ c: Character) -> Character? { showsMnemonics ? c : nil }
 
@@ -73,36 +71,15 @@ struct TrashActions: View {
     }
 
     // Trimmed ⋮: Change kind + Change list only (archive cleanup) — no
-    // Delete/Put-back duplication, no Resolve/Icebox. Same glyph + NSMenu
-    // mechanics as ItemActions.kindMenu.
+    // Delete/Put-back duplication, no Resolve/Icebox. The glyph and the
+    // presentation are `ItemMenuButton`'s; only the item list is this surface's.
     private var kindMenu: some View {
-        Image(systemName: "ellipsis")
-            .rotationEffect(.degrees(90))
-            .font(.system(size: 13)).foregroundStyle(.primary)
-            .frame(width: 24, height: 24)
-            .background(Circle().fill(Color.primary.opacity(kindMenuHovering ? 0.12 : 0)))
-            .animation(.easeInOut(duration: 0.15), value: kindMenuHovering)
-            .pointerButton(onHoverChange: { kindMenuHovering = $0 }, action: presentKindMenu)
-    }
-
-    private func presentKindMenu() {
-        let menu = NSMenu()
-        ActionableKindMenu.populate(
-            into: menu, items: items, showsMnemonics: showsMnemonics,
-            reclassify: { its, kind in apply(its) { actions.reclassify($0, kind) } },
-            setListName: { its, name in apply(its) { actions.setListName($0, name) } })
-
-        // Match the window appearance and clamp the origin inside the window —
-        // same handling as ItemActions.presentKindMenu.
-        let window = NSApp.keyWindow ?? NSApp.mainWindow
-        menu.appearance = window?.effectiveAppearance
-        var origin = NSEvent.mouseLocation
-        if let frame = window?.frame {
-            let size = menu.size
-            origin.x = max(frame.minX, min(origin.x, frame.maxX - size.width))
-            origin.y = min(frame.maxY, max(origin.y, frame.minY + size.height))
+        ItemMenuButton { menu in
+            ActionableKindMenu.populate(
+                into: menu, items: items, showsMnemonics: showsMnemonics,
+                reclassify: { its, kind in apply(its) { actions.reclassify($0, kind) } },
+                setListName: { its, name in apply(its) { actions.setListName($0, name) } })
         }
-        menu.popUp(positioning: nil, at: origin, in: nil)
     }
 
     /// Dispatch an op over `targets`; report the single updated item to a reader
