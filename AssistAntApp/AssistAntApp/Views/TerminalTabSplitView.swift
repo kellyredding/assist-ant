@@ -91,8 +91,7 @@ struct TerminalTabSplitView: View {
         .onReceive(TerminalTabCommands.shared.focusSession) { _ in
             // Through the registry, not the backend: with a scrollback open
             // on the session pane, focusing the backend would land on the
-            // live terminal hidden behind the overlay. Galaxy's own ⌘T goes
-            // straight to the backend and has exactly that bug.
+            // live terminal hidden behind the overlay.
             TerminalPanes.shared.restoreFocus(kind: .session)
         }
         .onReceive(TerminalTabCommands.shared.closeFocusedShell) { _ in
@@ -134,6 +133,10 @@ final class SplitState: ObservableObject {
 
     @Published var shellPane: ShellTerminalPane?
 
+    // Main-actor isolated because opening the shell now surrenders the find
+    // bar, and the panel holding it is isolated. Its one caller is the
+    // openShell command's subscriber, which already runs on main.
+    @MainActor
     func openShell() {
         let pane = ShellTerminalPane(
             controller: AgentSessionController.shared
@@ -156,6 +159,14 @@ final class SplitState: ObservableObject {
         // here: this shell was created a moment ago, so it can have no
         // scrollback to redirect to, and its host has not registered a
         // restorer yet. The delay gives that host time to reach the window.
+        //
+        // Going to the pane also means skipping the find-bar surrender the
+        // restorers perform, so do it here — synchronously, ahead of the
+        // delay. The bar holds the keyboard from its own panel, so `focus()`
+        // would set first responder in a window that is not key and leave the
+        // new pane looking focused while every keystroke still reached the
+        // find field.
+        FindBarPanelController.shared.surrenderForFocusChange()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             pane.focus()
         }
