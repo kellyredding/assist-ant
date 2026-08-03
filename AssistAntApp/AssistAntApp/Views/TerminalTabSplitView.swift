@@ -154,6 +154,10 @@ final class SplitState: ObservableObject {
         split.ratio = TerminalTabSplitView.configuredTopRatio()
         shellPane = pane
 
+        // Same publication the session pane makes, so a command addressed at
+        // the shell can find it without the shell holding first responder.
+        TerminalPanes.shellPane = pane
+
         // Focus the shell on open — the user just asked for it. Deliberately
         // the pane and not its focus restorer, unlike every other focus route
         // here: this shell was created a moment ago, so it can have no

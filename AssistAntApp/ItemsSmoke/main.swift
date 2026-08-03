@@ -2215,6 +2215,27 @@ check("availability: global hotkeys are always active") {
         .isActive(in: ksCtx(readerOpen: true, editableTextFocused: true))
 }
 
+// Availability: the pane-acting commands follow the Terminal view, not focus.
+// They resolve their pane from the focus memory when nothing holds first
+// responder, so the caret sitting in the find bar — or anywhere else — does not
+// stop them, and the sheet has to agree.
+check("availability: terminal-tab commands ignore where focus sits") {
+    let a = KeystrokeAvailability.terminalTab
+    return a.isActive(in: ksCtx(tab: .terminal))
+        && a.isActive(in: ksCtx(tab: .terminal, findBarOpen: true))
+        && a.isActive(in: ksCtx(tab: .terminal, editableTextFocused: true))
+        && !a.isActive(in: ksCtx(tab: .icebox))
+}
+
+// Availability: and they are not the focus-strict case, which the same
+// commands used to carry — that one goes dark the moment the find panel takes
+// key, which is exactly when they still work.
+check("availability: terminal-tab is not terminal-pane") {
+    KeystrokeAvailability.terminalTab.isActive(in: ksCtx(tab: .terminal))
+        && !KeystrokeAvailability.terminalPane
+            .isActive(in: ksCtx(tab: .terminal))
+}
+
 // Opening section: the sheet lands on the reader when one is open, on the
 // terminal section from the terminal tab, and on the lists otherwise.
 check("opening section: follows the snapshot") {

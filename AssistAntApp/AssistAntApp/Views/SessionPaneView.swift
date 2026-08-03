@@ -127,6 +127,9 @@ final class SessionPaneAdapterHolder: ObservableObject {
             controller: controller, backend: backend
         )
         cached = fresh
+        // Publish it for chrome that has to name this pane while no pane holds
+        // first responder — the font-size and buffer commands, above all.
+        TerminalPanes.sessionPane = fresh
         return fresh
     }
 

@@ -22,6 +22,14 @@ enum KeystrokeAvailability: Equatable {
     case reader
     /// While a terminal pane holds first responder.
     case terminalPane
+    /// While the Terminal view is showing, whatever holds first responder.
+    ///
+    /// For commands that act on a pane but resolve it from the pane-focus
+    /// memory when nothing is focused, so they stay live with the caret in the
+    /// find bar or anywhere else. Deliberately not `tabs([.terminal])`: that
+    /// also stands aside for a focused editor and an open reader, neither of
+    /// which stops these from working.
+    case terminalTab
     /// While the find bar is up.
     case findBar
     /// Inside a separate popover window, named for the row's condition text.
@@ -50,6 +58,8 @@ enum KeystrokeAvailability: Equatable {
             return ctx.readerOpen
         case .terminalPane:
             return ctx.terminalPaneFocused
+        case .terminalTab:
+            return ctx.tab == .terminal
         case .findBar:
             return ctx.findBarOpen
         case .panel:
@@ -75,6 +85,8 @@ enum KeystrokeAvailability: Equatable {
             return "with an item open"
         case .terminalPane:
             return "with a terminal focused"
+        case .terminalTab:
+            return "in \(Self.name([.terminal]))"
         case .findBar:
             return "with the find bar open"
         case .panel(let name):

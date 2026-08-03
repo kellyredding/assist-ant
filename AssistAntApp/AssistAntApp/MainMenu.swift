@@ -435,15 +435,15 @@ final class MenuActions: NSObject {
     /// readable above it. `validateMenuItem` already gates these; the
     /// optional chain is what makes "no pane focused" a no-op.
     @objc func defaultTerminalFontSize(_ sender: Any?) {
-        Self.focusedTerminalPane()?.resetFontSize()
+        Self.targetTerminalPane()?.resetFontSize()
     }
 
     @objc func biggerTerminalFontSize(_ sender: Any?) {
-        Self.focusedTerminalPane()?.increaseFontSize()
+        Self.targetTerminalPane()?.increaseFontSize()
     }
 
     @objc func smallerTerminalFontSize(_ sender: Any?) {
-        Self.focusedTerminalPane()?.decreaseFontSize()
+        Self.targetTerminalPane()?.decreaseFontSize()
     }
 
     /// The pane holding first responder, or nil when focus is somewhere else
@@ -466,8 +466,37 @@ final class MenuActions: NSObject {
     }
 
     /// Whether any terminal pane holds first responder.
+    ///
+    /// Deliberately the strict question, and deliberately not
+    /// `targetTerminalPane()`: this feeds the keystroke sheet's snapshot, which
+    /// reports where focus *is* rather than which pane a command would reach.
     static func agentTerminalIsFocused() -> Bool {
         focusedTerminalPane() != nil
+    }
+
+    /// The pane a pane-directed command should act on.
+    ///
+    /// Prefers the first responder, which is unambiguous while the user is
+    /// typing in a terminal. Falls back to the pane-focus memory when that walk
+    /// finds nothing — which is not an edge case but two ordinary situations:
+    /// the find bar takes key in a panel of its own, so `NSApp.keyWindow` is not
+    /// the main window at all; and leaving a pane ends in
+    /// `makeFirstResponder(nil)`, which leaves the window itself holding it, and
+    /// a window is not an `NSView`. In both the user is looking straight at the
+    /// terminal they were last in, and every pane-directed keystroke was dead
+    /// until they clicked back into it.
+    ///
+    /// Gated on the Terminal view, because the fallback answers "which pane was
+    /// last focused" and would otherwise answer it just as readily while the
+    /// user is somewhere else entirely — zooming a terminal that is not on
+    /// screen.
+    static func targetTerminalPane() -> TerminalPane? {
+        if let focused = focusedTerminalPane() { return focused }
+        guard MainTabNavigator.shared.selectedTab == .terminal
+        else { return nil }
+        return TerminalPanes.pane(
+            kind: TerminalPanes.shared.lastFocusedPaneKind
+        )
     }
 
     /// Whether the key window's first responder is an *editable* text view —
@@ -525,11 +554,11 @@ final class MenuActions: NSObject {
     /// act on the focused pane — trimming a shell's runaway output should not
     /// clear the agent's history, and vice versa.
     @objc func trimBuffer(_ sender: Any?) {
-        Self.focusedTerminalPane()?.trimBuffer()
+        Self.targetTerminalPane()?.trimBuffer()
     }
 
     @objc func reflowBuffer(_ sender: Any?) {
-        Self.focusedTerminalPane()?.reflowBuffer()
+        Self.targetTerminalPane()?.reflowBuffer()
     }
 }
 
@@ -582,14 +611,14 @@ extension MenuActions: NSMenuItemValidation {
             // line navigation (incl. ⌘⇧←/→ selection) wins over tab switching.
             return MainTab.allCases.count > 1 && !Self.editableTextIsFocused()
         case #selector(defaultTerminalFontSize(_:)):
-            return Self.focusedTerminalPane() != nil
+            return Self.targetTerminalPane() != nil
         case #selector(biggerTerminalFontSize(_:)):
             // Read the ceiling from the focused pane, not the session: the
             // shell keeps its own size and may still have room when the agent
             // does not.
-            return Self.focusedTerminalPane()?.canIncreaseFontSize ?? false
+            return Self.targetTerminalPane()?.canIncreaseFontSize ?? false
         case #selector(smallerTerminalFontSize(_:)):
-            return Self.focusedTerminalPane()?.canDecreaseFontSize ?? false
+            return Self.targetTerminalPane()?.canDecreaseFontSize ?? false
         case #selector(enterScrollback(_:)),
              #selector(find(_:)):
             // Find is gated exactly like Scrollback, since it opens one when
@@ -603,7 +632,12 @@ extension MenuActions: NSMenuItemValidation {
             return controller.state == .running
         case #selector(trimBuffer(_:)),
              #selector(reflowBuffer(_:)):
-            return Self.agentTerminalIsFocused()
+            // Matches what the actions now reach for. Gated on a pane being
+            // nameable rather than focused, for the reason given on
+            // `targetTerminalPane` — asking for focus here disabled the item
+            // while its action would have worked, and a disabled item does not
+            // claim its key equivalent.
+            return Self.targetTerminalPane() != nil
         case #selector(focusSessionPane(_:)),
              #selector(openShellPane(_:)):
             // Gate on the tab, not on focus: both commands are about moving
