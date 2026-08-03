@@ -80,7 +80,9 @@ final class ActionableListChords {
         switch chars {
         case "j": ctx.selection.moveFocus(by: 1, order: order(ctx)); return nil
         case "k": ctx.selection.moveFocus(by: -1, order: order(ctx)); return nil
-        case "x": ctx.selection.toggleSelectedFocused(); return nil
+        case "x":
+            ctx.selection.toggleSelectedFocused(in: order(ctx))
+            return nil
         default: break
         }
         if event.keyCode == 36 || event.keyCode == 76,           // Return / Enter

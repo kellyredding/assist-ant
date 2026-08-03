@@ -118,7 +118,9 @@ final class ScratchListChords {
             switch chars {
             case "j": ctx.selection.moveFocus(by: 1, order: ctx.visibleIDs()); return nil
             case "k": ctx.selection.moveFocus(by: -1, order: ctx.visibleIDs()); return nil
-            case "x": ctx.selection.toggleSelectedFocused(); return nil
+            case "x":
+                ctx.selection.toggleSelectedFocused(in: ctx.visibleIDs())
+                return nil
             default: break
             }
         }

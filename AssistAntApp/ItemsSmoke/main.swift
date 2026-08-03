@@ -22,6 +22,16 @@ func check(_ name: String, _ body: () throws -> Bool) {
     }
 }
 
+/// `check` for a body that touches `@MainActor` state (the selection model).
+///
+/// This tool's top-level code is nonisolated but runs on the main thread, so
+/// asserting the isolation is accurate rather than a workaround — it only has to
+/// be stated, because the compiler can't infer it from top-level code. One
+/// bridge here rather than a wrapper inside every such body.
+func checkMainActor(_ name: String, _ body: @MainActor () throws -> Bool) {
+    check(name) { try MainActor.assumeIsolated { try body() } }
+}
+
 /// A fresh in-memory store, migrated through the real migrator.
 func makeStore() throws -> (GRDBItemStore, DatabaseQueue) {
     let queue = try DatabaseQueue()  // in-memory
@@ -2544,6 +2554,73 @@ check("catalog: scratch documents the convert chords") {
         return k
     })
     return ["l t", "l r", "l e"].allSatisfy { scratchKeys.contains($0) }
+}
+
+// MARK: - Selection invariants
+
+// X refuses a focus that no visible row carries. This is the invariant whose
+// absence produced a selection nothing could display: the count climbed, no
+// checkbox ticked, and the batch actions — all scoped to visible rows — then
+// found nothing to act on.
+checkMainActor("selection: X refuses a focus no visible row carries") {
+    let selection = ActionableSelection()
+    selection.focus("gone")
+    selection.toggleSelectedFocused(in: ["a", "b"])
+    return selection.selectedIDs.isEmpty && !selection.hasSelection
+}
+
+checkMainActor("selection: X toggles a visible focused row both ways") {
+    let selection = ActionableSelection()
+    selection.focus("b")
+    selection.toggleSelectedFocused(in: ["a", "b"])
+    guard selection.selectedIDs == ["b"] else { return false }
+    selection.toggleSelectedFocused(in: ["a", "b"])
+    return selection.selectedIDs.isEmpty
+}
+
+checkMainActor("selection: X with no focus at all is a no-op") {
+    let selection = ActionableSelection()
+    selection.toggleSelectedFocused(in: ["a", "b"])
+    return selection.selectedIDs.isEmpty
+}
+
+// ensureFocus fills a gap without ever moving a focus the user placed, which is
+// what makes it safe to call on arrival and on every query change.
+checkMainActor("selection: ensureFocus seats the first row when focus is absent") {
+    let selection = ActionableSelection()
+    selection.ensureFocus(in: ["a", "b"])
+    return selection.focusedItemID == "a"
+}
+
+checkMainActor("selection: ensureFocus leaves a live focus alone") {
+    let selection = ActionableSelection()
+    selection.focus("b")
+    selection.ensureFocus(in: ["a", "b"])
+    return selection.focusedItemID == "b"
+}
+
+checkMainActor("selection: ensureFocus reseats a focus the visible set dropped") {
+    let selection = ActionableSelection()
+    selection.focus("hidden")
+    selection.ensureFocus(in: ["a", "b"])
+    return selection.focusedItemID == "a"
+}
+
+checkMainActor("selection: ensureFocus clears focus when nothing is visible") {
+    let selection = ActionableSelection()
+    selection.focus("a")
+    selection.ensureFocus(in: [])
+    return selection.focusedItemID == nil
+}
+
+// reconcile still prunes a stale selection, and now reseats focus through the
+// same rule rather than its own copy of it.
+checkMainActor("selection: reconcile prunes departed rows and reseats focus") {
+    let selection = ActionableSelection()
+    selection.selectAll(in: ["a", "b", "c"])
+    selection.focus("c")
+    selection.reconcile(visible: ["a", "b"], present: ["a", "b"])
+    return selection.selectedIDs == ["a", "b"] && selection.focusedItemID == "a"
 }
 
 print(failures == 0

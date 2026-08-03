@@ -84,6 +84,7 @@ struct ScratchPaneView: View {
         )
         .onAppear {
             syncChords()
+            model.ensureFocus()
             installEscapeMonitor()
             installInputModeMonitor()
         }
@@ -94,8 +95,16 @@ struct ScratchPaneView: View {
             // Leaving the tab surrenders the keyboard, so returning to it always
             // starts with the feed in charge rather than a stale mode.
             if tab != .scratch { isInputMode = false }
+            // Arriving with a focused row means `j`/`k` and `x` answer on the
+            // first keystroke. An existing focus is kept — this only fills a gap,
+            // so returning to the tab lands where you left off.
+            if tab == .scratch { model.ensureFocus() }
             syncChords()
         }
+        // Filtering changes which rows exist, so focus has to be reseated the
+        // same as on a reload — otherwise it strands on a hidden row that renders
+        // no focus bar yet still answers `x`.
+        .onChange(of: model.query) { _, _ in model.ensureFocus() }
         .onChange(of: viewer.openItem) { _, _ in syncChords() }
         .onChange(of: model.editingID) { _, _ in syncChords() }
         .onChange(of: isInputMode) { _, _ in syncChords() }

@@ -143,6 +143,15 @@ final class ScratchModel: ObservableObject {
         return rows.first { $0.id == id }?.item
     }
 
+    /// Make sure a visible row carries focus, so `j`/`k` and `x` have somewhere
+    /// to act the instant the feed is on screen.
+    ///
+    /// Called on arriving at the tab and whenever the query changes, not only on
+    /// a reload. Filtering removes rows exactly as a reload does, and focus left
+    /// on a row the query has hidden renders nothing while still answering to
+    /// `x` — a selection with no row to show it.
+    func ensureFocus() { selection.ensureFocus(in: visibleIDs) }
+
     // MARK: - Inline editing
 
     /// True when the open editor holds text differing from what is stored — the
@@ -288,6 +297,13 @@ final class ScratchModel: ObservableObject {
                 "/assist-ant-convert-scratch \(path)")
             AssistAntLog.info(
                 "scratch: convert requested — \(notes.count) note(s) → \(kind.rawValue)")
+            // Show the agent, because it is the only thing that reports on this.
+            // There is no pending state on the row and no timeout by design, so
+            // leaving the user on a feed that looks untouched for several seconds
+            // invites pressing the chord again — which the in-place conversion
+            // survives, but which reads as the gesture having failed. Quick
+            // Capture surfaces the session after an Ask for the same reason.
+            MainTabNavigator.shared.selectedTab = .terminal
         } catch {
             AssistAntLog.info("scratch: conversion payload write failed — \(error)")
         }
