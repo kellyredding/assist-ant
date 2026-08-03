@@ -17,6 +17,8 @@ module AssistAnt
     # saw it. The CLI reads the file locally and sends its CONTENTS in
     # `detail_data`; the app never sees a path.
     class Scratch
+      include RequestAck
+
       # Actionable kinds `convert` can promote a note into. Mirrors
       # ActionableItem::VALID_KINDS — the conversion lands in the same store —
       # but kept as its own copy, as every command class keeps its own
@@ -313,24 +315,6 @@ module AssistAnt
           assist-ant scratch convert --id 0192abc --kind todo \\
             --title "Fix the retro doc" --body-file /tmp/aa-body.md
         HELP
-      end
-
-      # Send a request envelope and return the parsed ack, or print an error and
-      # exit. A nil/empty reply means the app isn't running; `{"ok":false}` means
-      # the app refused the write. (Same shape as the actionable-item / task /
-      # spend / priority commands.)
-      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
-        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
-        if reply.nil? || reply.empty?
-          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
-          exit 1
-        end
-        ack = JSON.parse(reply)
-        unless ack["ok"]?.try(&.as_bool?)
-          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "scratch request failed"}"
-          exit 1
-        end
-        ack
       end
 
       private def require_flag(name : String, value : String)

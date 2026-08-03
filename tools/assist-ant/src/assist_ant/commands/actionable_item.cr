@@ -8,6 +8,8 @@ module AssistAnt
     # batch to a temp file, and publishes an `actionable_item.sync` envelope
     # carrying that file's path. Works whether or not the app is up.
     class ActionableItem
+      include RequestAck
+
       # Actionable kinds the `create` verb accepts. Calendar items are created
       # via `calendar-item sync`, not here.
       VALID_KINDS = {"todo", "reminder", "explore"}
@@ -379,23 +381,6 @@ module AssistAnt
         end
         ack = request_ack("actionable_item.delete", {"id" => JSON::Any.new(id)})
         puts "Removed item #{ack["id"]?.try(&.as_s?) || id}."
-      end
-
-      # Send a request envelope and return the parsed ack, or print an error and
-      # exit. A nil/empty reply means the app isn't running; `{"ok":false}` means
-      # the app refused the write (e.g. unknown id, or a non-manual item).
-      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
-        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
-        if reply.nil? || reply.empty?
-          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
-          exit 1
-        end
-        ack = JSON.parse(reply)
-        unless ack["ok"]?.try(&.as_bool?)
-          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "request failed"}"
-          exit 1
-        end
-        ack
       end
 
       # Serialize the batch the app applies in one transaction: every issue as a

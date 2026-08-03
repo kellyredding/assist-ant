@@ -11,6 +11,8 @@ module AssistAnt
     # management always happens with the app up (the agent runs inside it), so an
     # absent reply is an error, not silence — unlike the `sync`/`create` senders.
     class Task
+      include RequestAck
+
       VALID_TRIGGERS   = {"recurring", "one_shot", "manual", "today"}
       VALID_CADENCES   = {"interval", "daily"}
       VALID_TODAY_KEYS = {"calendar_refresh", "todo_refresh"}
@@ -287,23 +289,6 @@ module AssistAnt
         ack = request_ack("task.update", detail)
         puts "#{enabled ? "Enabled" : "Disabled"} task: " \
              "#{ack["name"]?.try(&.as_s?)} (#{ack["id"]?.try(&.as_s?)})."
-      end
-
-      # Send a request envelope and return the parsed ack, or print an error and
-      # exit. A nil/empty reply means the app isn't running; `{"ok":false}` means
-      # the app refused the write.
-      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
-        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
-        if reply.nil? || reply.empty?
-          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
-          exit 1
-        end
-        ack = JSON.parse(reply)
-        unless ack["ok"]?.try(&.as_bool?)
-          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "task request failed"}"
-          exit 1
-        end
-        ack
       end
 
       # Resolve the prompt from --prompt or --prompt-file (file preferred for

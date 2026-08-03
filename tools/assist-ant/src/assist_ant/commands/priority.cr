@@ -8,6 +8,8 @@ module AssistAnt
     # always runs with the app up (the capture task or a direct ask). Mirrors the
     # `spend set` command, minus the pill strings and multi-card variants.
     class Priority
+      include RequestAck
+
       def run(args : Array(String))
         rest = args.dup
         sub = rest.shift?
@@ -98,23 +100,6 @@ module AssistAnt
         EXAMPLE:
           assist-ant priority set --body /tmp/aa-progress.md
         HELP
-      end
-
-      # Send a request envelope, return the parsed ack, or print an error + exit.
-      # A nil/empty reply means the app isn't running; `{"ok":false}` means the
-      # app refused the write. (Same shape as the spend / task commands.)
-      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
-        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
-        if reply.nil? || reply.empty?
-          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
-          exit 1
-        end
-        ack = JSON.parse(reply)
-        unless ack["ok"]?.try(&.as_bool?)
-          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "priority request failed"}"
-          exit 1
-        end
-        ack
       end
 
       private def abort_flag(message : String, command : String)

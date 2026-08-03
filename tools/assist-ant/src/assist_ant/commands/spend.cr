@@ -7,6 +7,8 @@ module AssistAnt
     # knows nothing about where the numbers came from. Request/reply so the agent
     # gets a clear ack; authoring always runs with the app up (the heartbeat task).
     class Spend
+      include RequestAck
+
       def run(args : Array(String))
         rest = args.dup
         sub = rest.shift?
@@ -118,23 +120,6 @@ module AssistAnt
             --variant "Rolling 30 days=/tmp/30d.txt" \\
             --variant "Year to Date=/tmp/ytd.txt"
         HELP
-      end
-
-      # Send a request envelope, return the parsed ack, or print an error + exit.
-      # A nil/empty reply means the app isn't running; `{"ok":false}` means the
-      # app refused the write. (Same shape as the actionable-item / task commands.)
-      private def request_ack(event : String, detail : Hash(String, JSON::Any)) : JSON::Any
-        reply = AssistAnt::EventPublisher.request(event: event, detail_data: detail)
-        if reply.nil? || reply.empty?
-          STDERR.puts "Error: no reply from AssistAnt (is the app running?)"
-          exit 1
-        end
-        ack = JSON.parse(reply)
-        unless ack["ok"]?.try(&.as_bool?)
-          STDERR.puts "Error: #{ack["error"]?.try(&.as_s?) || "spend request failed"}"
-          exit 1
-        end
-        ack
       end
 
       private def abort_flag(message : String, command : String)

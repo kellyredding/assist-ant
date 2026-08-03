@@ -6,6 +6,8 @@ require "option_parser"
 require "./assist_ant/paths"
 require "./assist_ant/event_publisher"
 require "./assist_ant/hooks_manager"
+# Ahead of the commands that mix it in: `include` runs in order.
+require "./assist_ant/commands/request_ack"
 require "./assist_ant/commands/ping"
 require "./assist_ant/commands/calendar_item"
 require "./assist_ant/commands/actionable_item"
