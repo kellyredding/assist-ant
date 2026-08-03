@@ -22,6 +22,14 @@ struct ActionableData: Codable, Equatable, Sendable {
     var externalURL: String?
 }
 
+/// Payload for a `scratch` item — an unshaped note.
+///
+/// Empty today: the text lives in the shared `body` column and scratch carries
+/// no type-specific fields. Declared as a struct anyway so a later addition (a
+/// colour, a pin) is an additive change to this type rather than a new case in
+/// the payload enum.
+struct ScratchData: Codable, Equatable, Sendable {}
+
 /// The polymorphic payload stored in an item's `type_data` JSON column. Each
 /// case maps to an `ItemType`; `.unknown` preserves the raw payload of a kind
 /// this build doesn't recognize, so forward/backward compatibility holds (an
@@ -35,6 +43,7 @@ enum ItemTypeData: Equatable, Sendable {
     case todo(ActionableData)
     case reminder(ActionableData)
     case explore(ActionableData)
+    case scratch(ScratchData)
     case unknown(kind: String, payload: JSONValue)
 
     /// The discriminator string for this payload (matches the item's `type`).
@@ -44,6 +53,7 @@ enum ItemTypeData: Equatable, Sendable {
         case .todo: return ItemType.todo.rawValue
         case .reminder: return ItemType.reminder.rawValue
         case .explore: return ItemType.explore.rawValue
+        case .scratch: return ItemType.scratch.rawValue
         case .unknown(let kind, _): return kind
         }
     }
@@ -67,6 +77,8 @@ extension ItemTypeData: Codable {
             self = .reminder(try container.decode(ActionableData.self, forKey: .data))
         case .explore:
             self = .explore(try container.decode(ActionableData.self, forKey: .data))
+        case .scratch:
+            self = .scratch(try container.decode(ScratchData.self, forKey: .data))
         case nil:
             self = .unknown(
                 kind: kind,
@@ -83,6 +95,7 @@ extension ItemTypeData: Codable {
         case .todo(let data): try container.encode(data, forKey: .data)
         case .reminder(let data): try container.encode(data, forKey: .data)
         case .explore(let data): try container.encode(data, forKey: .data)
+        case .scratch(let data): try container.encode(data, forKey: .data)
         case .unknown(_, let payload): try container.encode(payload, forKey: .data)
         }
     }

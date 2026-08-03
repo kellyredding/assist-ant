@@ -2090,6 +2090,191 @@ check("catalog: every capture kind is documented") {
     }
 }
 
+// MARK: - Scratch pad
+
+/// A scratch entry with `body` as the text and a derived title, matching what
+/// ScratchModel writes.
+func scratchItem(_ text: String) -> Item {
+    newItem(
+        type: .scratch, typeData: .scratch(ScratchData()),
+        title: ScratchTitle.derive(from: text), body: text)
+}
+
+/// Count the scratch feed straight from the store's public reader.
+func scratchCount(_ store: GRDBItemStore, resolved: Bool) throws -> Int {
+    try store.fetchScratch(resolved: resolved).count
+}
+
+// scratch: the kind round-trips through the store, payload and all.
+check("round-trip a scratch item") {
+    let (store, _) = try makeStore()
+    let item = scratchItem("the full text")
+    try store.create(item)
+    let read = try store.fetch(id: item.id)
+    return read?.type == "scratch"
+        && read?.body == "the full text"
+        && read?.typeData == .scratch(ScratchData())
+}
+
+// scratch is deliberately not actionable — the property every surface
+// predicate depends on.
+check("ItemType: scratch is not an actionable kind") {
+    !ItemType.actionableCases.contains(.scratch)
+        && ItemType.actionableCases.count == 3
+}
+
+// The SQL list stays in sync with the cases it derives from, so the seven
+// predicates reading it cannot drift from the enum.
+check("ItemType: actionable SQL list matches its cases") {
+    ItemType.actionableSQLList == "'todo', 'reminder', 'explore'"
+}
+
+// Title: the first meaningful line becomes the title.
+check("ScratchTitle: takes the first non-empty line") {
+    ScratchTitle.derive(from: "first line\nsecond line") == "first line"
+}
+
+// Title: leading blank lines are skipped rather than yielding an empty title.
+check("ScratchTitle: skips leading blank lines") {
+    ScratchTitle.derive(from: "\n\n  real content\nmore") == "real content"
+}
+
+// Title: a whitespace-only body still yields something identifiable in Trash.
+check("ScratchTitle: whitespace-only body falls back") {
+    ScratchTitle.derive(from: "   \n\t\n") == ScratchTitle.fallback
+        && ScratchTitle.derive(from: "") == ScratchTitle.fallback
+}
+
+// Title: a long single line is truncated with an ellipsis.
+check("ScratchTitle: truncates a long line") {
+    let title = ScratchTitle.derive(from: String(repeating: "x", count: 200))
+    return title.count == ScratchTitle.maxLength + 1 && title.hasSuffix("…")
+}
+
+// Title: a pasted code block is titled by its first line, not mangled.
+check("ScratchTitle: a pasted block titles from line one") {
+    ScratchTitle.derive(from: "func foo() {\n  bar()\n}") == "func foo() {"
+}
+
+// Feed: open and completed are disjoint, and resolving moves an entry across.
+check("scratch feed: resolve moves an entry from open to completed") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n")
+    try store.create(note)
+    guard try scratchCount(store, resolved: false) == 1,
+          try scratchCount(store, resolved: true) == 0
+    else { return false }
+    try store.resolve(id: note.id)
+    let open = try scratchCount(store, resolved: false)
+    let done = try scratchCount(store, resolved: true)
+    return open == 0 && done == 1
+}
+
+// Feed: unresolve brings it back to the open feed.
+check("scratch feed: unresolve returns an entry to open") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n")
+    try store.create(note)
+    try store.resolve(id: note.id)
+    try store.unresolve(id: note.id)
+    return try scratchCount(store, resolved: false) == 1
+}
+
+// Feed: a trashed entry leaves both feeds.
+check("scratch feed: a deleted entry leaves the feed") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n")
+    try store.create(note)
+    try store.softDelete(id: note.id)
+    let open = try scratchCount(store, resolved: false)
+    let done = try scratchCount(store, resolved: true)
+    return open == 0 && done == 0
+}
+
+// Feed: put-back from Trash returns an entry to the open feed, since scratch
+// has no icebox to land in.
+check("scratch feed: put back from trash returns to open") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n")
+    try store.create(note)
+    try store.softDelete(id: note.id)
+    try store.undelete(id: note.id)
+    return try scratchCount(store, resolved: false) == 1
+}
+
+// Feed: newest first, so a fresh note lands at the top.
+//
+// `create` stamps `createdAt` itself, so the ages are set afterwards via
+// `update` (which preserves it). Doing this by ordering two `create` calls
+// would leave the assertion riding on whether the clock ticked between them —
+// it passed and failed on consecutive runs before being pinned this way.
+check("scratch feed: newest entry comes first") {
+    let (store, _) = try makeStore()
+    let anchor = Date()
+    var rows: [Item] = []
+    for (title, ageSeconds) in [("newest", 0.0), ("middle", 600.0),
+                                ("oldest", 1200.0)] {
+        let item = scratchItem(title)
+        try store.create(item)
+        guard var stored = try store.fetch(id: item.id) else { return false }
+        stored.createdAt = anchor.addingTimeInterval(-ageSeconds)
+        try store.update(stored)
+        rows.append(stored)
+    }
+    return try store.fetchScratch(resolved: false).map(\.title)
+        == ["newest", "middle", "oldest"]
+}
+
+// Trash: a deleted scratch entry joins the shared Trash alongside actionables.
+check("fetchTrashed: includes deleted scratch items") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("note")
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData()))
+    for i in [note, todo] { try store.create(i) }
+    try store.softDelete(id: note.id)
+    try store.softDelete(id: todo.id)
+    return try store.fetchTrashed().count == 2
+}
+
+// Today never surfaces scratch, which is the whole point of the allowlists.
+check("fetchTodaySidebar: never includes scratch") {
+    let (store, _) = try makeStore()
+    try store.create(scratchItem("note"))
+    return try store.fetchTodaySidebar(asOf: CivilDate.today).isEmpty
+}
+
+// Nor does the CLI's active-actionable list.
+check("fetchAllActionable: never includes scratch") {
+    let (store, _) = try makeStore()
+    try store.create(scratchItem("note"))
+    return try store.fetchAllActionable().isEmpty
+}
+
+// Nor the icebox, which scratch can never enter.
+check("fetchIceboxed: never includes scratch") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("note")
+    try store.create(note)
+    try store.setIceboxed(id: note.id, true)
+    return try store.fetchIceboxed().isEmpty
+}
+
+// Clipboard: a scratch entry copies verbatim — no fence, no heading, no
+// metadata — because the point is pasting the parked value somewhere else.
+check("clipboard: scratch copies as its raw body") {
+    let note = scratchItem("https://example.com/thing?a=1")
+    return note.clipboardMarkdown() == "https://example.com/thing?a=1"
+}
+
+// Clipboard: an actionable item keeps its framed form, so scratch's special
+// case did not leak.
+check("clipboard: an actionable item keeps its fenced form") {
+    let todo = newItem(
+        type: .todo, typeData: .todo(ActionableData()), title: "Buy milk")
+    let out = todo.clipboardMarkdown()
+    return out.hasPrefix("---\n# Buy milk") && out.hasSuffix("---")
+}
+
 print(failures == 0
     ? "\n✅ all smoke checks passed"
     : "\n❌ \(failures) smoke check(s) failed")

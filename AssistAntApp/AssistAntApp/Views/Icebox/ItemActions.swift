@@ -46,7 +46,8 @@ struct ItemActions: View {
         case .todo: return "T"
         case .reminder: return "R"
         case .explore: return "E"
-        case .calendar: return " "
+        // Neither appears in the kind menu, so neither needs a chord letter.
+        case .calendar, .scratch: return " "
         }
     }
 

@@ -140,6 +140,10 @@ enum KeystrokeSection: String, CaseIterable {
         switch ctx.tab {
         case .terminal: return .terminal
         case .schedule, .icebox, .trash, .tasks: return .lists
+        // Scratch has its own vocabulary rather than the shared list chords, so
+        // it opens on its own section once that section exists. Until then the
+        // lists are the nearest honest answer.
+        case .scratch: return .lists
         }
     }
 }

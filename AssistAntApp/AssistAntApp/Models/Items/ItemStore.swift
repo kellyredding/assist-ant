@@ -132,10 +132,22 @@ protocol ItemStore {
     /// these by list name.
     func fetchIceboxed() throws -> [Item]
 
-    /// Soft-deleted actionable items (todo/reminder/explore): deleted_at IS NOT
-    /// NULL, regardless of icebox/resolved state. Ordered newest-deleted first,
-    /// then id. The Trash view groups these by list name. Includes Linear orphans
-    /// retired by reconcile — their Put back is disabled (sync owns them).
+    /// The scratch feed: active (not deleted) `scratch` items, split by
+    /// resolved state. Open entries are ordered newest-created first; completed
+    /// ones newest-resolved first. The two feeds are disjoint — the Scratch
+    /// pane's toggle chooses between them.
+    func fetchScratch(resolved: Bool) throws -> [Item]
+
+    /// Live equivalent of `fetchScratch`, so the feed follows a composer
+    /// submission or an inline edit without an explicit refresh.
+    func observeScratch(resolved: Bool) -> AnyPublisher<[Item], Error>
+
+    /// Soft-deleted items: deleted_at IS NOT NULL, regardless of
+    /// icebox/resolved state. Ordered newest-deleted first, then id. Covers the
+    /// actionable kinds *and* scratch — Trash is the one surface the two share,
+    /// since a discarded note is recoverable on the same terms as a discarded
+    /// to-do. Includes Linear orphans retired by reconcile — their Put back is
+    /// disabled (sync owns them).
     func fetchTrashed() throws -> [Item]
 
     /// All non-deleted actionable items (todo/reminder/explore), in any icebox

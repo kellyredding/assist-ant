@@ -369,11 +369,43 @@ final class GRDBItemStore: ItemStore {
             .eraseToAnyPublisher()
     }
 
+    /// The scratch feed, newest first, split by resolved state.
+    ///
+    /// Two disjoint feeds rather than one list with resolved rows struck in
+    /// place: the pane's toggle swaps between them, which keeps the working
+    /// buffer from accumulating dead weight indefinitely. Completed entries
+    /// order by *when they were resolved*, since that is the axis you scan when
+    /// reviewing them — the open feed orders by creation, which is the axis you
+    /// scan when looking for something you parked.
+    func observeScratch(resolved: Bool) -> AnyPublisher<[Item], Error> {
+        ValueObservation
+            .tracking { db in try Self.scratchRequest(resolved).fetchAll(db) }
+            .publisher(in: dbQueue)
+            .eraseToAnyPublisher()
+    }
+
+    func fetchScratch(resolved: Bool) throws -> [Item] {
+        try dbQueue.read { db in try Self.scratchRequest(resolved).fetchAll(db) }
+    }
+
+    private static func scratchRequest(
+        _ resolved: Bool
+    ) -> QueryInterfaceRequest<Item> {
+        Item
+            .filter(sql: """
+                type = 'scratch' AND deleted_at IS NULL
+                AND resolved_at IS \(resolved ? "NOT NULL" : "NULL")
+                """)
+            .order(sql: resolved
+                ? "resolved_at DESC, id DESC"
+                : "created_at DESC, id DESC")
+    }
+
     func fetchIceboxed() throws -> [Item] {
         try dbQueue.read { db in
             try Item
                 .filter(sql: """
-                    type IN ('todo', 'reminder', 'explore')
+                    type IN (\(ItemType.actionableSQLList))
                     AND deleted_at IS NULL
                     AND iceboxed_at IS NOT NULL
                     AND resolved_at IS NULL
@@ -388,8 +420,14 @@ final class GRDBItemStore: ItemStore {
     func fetchTrashed() throws -> [Item] {
         try dbQueue.read { db in
             try Item
+                // Scratch joins the actionables here, and Trash is the one
+                // surface where that is intended: a discarded note is
+                // recoverable on the same terms as a discarded to-do. Every
+                // other predicate in this file leaves scratch out, which is why
+                // this one names it explicitly rather than widening the shared
+                // list.
                 .filter(sql: """
-                    type IN ('todo', 'reminder', 'explore')
+                    type IN (\(ItemType.actionableSQLList), 'scratch')
                     AND deleted_at IS NOT NULL
                     """)
                 // deleted_at is a GRDB Date → TEXT "YYYY-MM-DD HH:MM:SS.SSS",
@@ -406,7 +444,7 @@ final class GRDBItemStore: ItemStore {
         try dbQueue.read { db in
             try Item
                 .filter(sql: """
-                    type IN ('todo', 'reminder', 'explore') AND deleted_at IS NULL
+                    type IN (\(ItemType.actionableSQLList)) AND deleted_at IS NULL
                     """)
                 .order(sql: "id")
                 .fetchAll(db)
@@ -418,7 +456,7 @@ final class GRDBItemStore: ItemStore {
             // Same set as fetchIceboxed; aggregate in Swift (the box is small).
             let rows = try Item
                 .filter(sql: """
-                    type IN ('todo', 'reminder', 'explore')
+                    type IN (\(ItemType.actionableSQLList))
                     AND deleted_at IS NULL
                     AND iceboxed_at IS NOT NULL
                     AND resolved_at IS NULL
@@ -612,7 +650,7 @@ final class GRDBItemStore: ItemStore {
             let names = try String.fetchAll(db, sql: """
                 SELECT DISTINCT json_extract(type_data, '$.data.listName') AS list
                 FROM items
-                WHERE type IN ('todo', 'reminder', 'explore')
+                WHERE type IN (\(ItemType.actionableSQLList))
                   AND deleted_at IS NULL
                   AND list IS NOT NULL AND TRIM(list) <> ''
                 """)
@@ -634,7 +672,11 @@ final class GRDBItemStore: ItemStore {
             case .todo: item.typeData = .todo(data)
             case .reminder: item.typeData = .reminder(data)
             case .explore: item.typeData = .explore(data)
-            case .calendar: throw ItemStoreError.reclassifyRequiresActionable
+            // Neither is a label swap. Calendar is read-only, and turning a
+            // note into real work needs a title composed from its body — a
+            // conversion, not a reclassification.
+            case .calendar, .scratch:
+                throw ItemStoreError.reclassifyRequiresActionable
             }
             item.type = item.typeData.kind
             item.updatedAt = Date()
@@ -652,7 +694,7 @@ final class GRDBItemStore: ItemStore {
     private static func actionableRequest(_ today: CivilDate) -> QueryInterfaceRequest<Item> {
         Item
             .filter(sql: """
-                type IN ('todo', 'reminder', 'explore')
+                type IN (\(ItemType.actionableSQLList))
                 AND deleted_at IS NULL AND iceboxed_at IS NULL
                 AND resolved_at IS NULL
                 AND (scheduled_on IS NULL OR scheduled_on <= ?)
@@ -677,7 +719,7 @@ final class GRDBItemStore: ItemStore {
     private static func todaySidebarRequest(_ today: CivilDate) -> QueryInterfaceRequest<Item> {
         Item
             .filter(sql: """
-                type IN ('todo', 'reminder', 'explore')
+                type IN (\(ItemType.actionableSQLList))
                 AND deleted_at IS NULL AND iceboxed_at IS NULL
                 AND (scheduled_on IS NULL OR scheduled_on <= ?)
                 AND (resolved_at IS NULL OR date(resolved_at, 'localtime') = ?)

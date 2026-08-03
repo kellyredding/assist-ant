@@ -11,6 +11,15 @@ extension Item {
     /// so a body's last line is never read as a setext heading. Deterministic
     /// and dependency-light so it is unit-testable in the smoke runner.
     func clipboardMarkdown() -> String {
+        // Scratch copies verbatim: no fence, no heading, no metadata. The point
+        // of parking a value in the scratch pad is to paste it somewhere else
+        // intact, and the framing that helps an agent parse a to-do is pure
+        // damage to a URL or an id. Its title is a derived echo of the body's
+        // first line, so emitting it would duplicate content too.
+        if case .scratch = typeData {
+            return body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+
         var lines: [String] = ["---", "# \(title)", ""]
 
         lines.append("- Kind: \(clipboardKindLabel)")

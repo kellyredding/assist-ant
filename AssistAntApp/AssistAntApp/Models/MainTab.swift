@@ -8,6 +8,7 @@ enum MainTab: String, CaseIterable {
     case terminal
     case schedule
     case tasks
+    case scratch
     case icebox
     case trash
 
@@ -16,6 +17,7 @@ enum MainTab: String, CaseIterable {
         case .terminal: return "Terminal"
         case .schedule: return "Schedule"
         case .tasks: return "Tasks"
+        case .scratch: return "Scratch"
         case .icebox: return "Icebox"
         case .trash: return "Trash"
         }
@@ -26,6 +28,7 @@ enum MainTab: String, CaseIterable {
         case .terminal: return "apple.terminal"
         case .schedule: return "calendar"
         case .tasks: return "list.bullet"
+        case .scratch: return "square.and.pencil"
         case .icebox: return "snowflake"
         case .trash: return "trash"
         }

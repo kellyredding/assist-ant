@@ -174,6 +174,13 @@ struct ContentView: View {
                 .tabPane(.tasks, selected: tabs.selectedTab,
                          covered: viewer.openItem != nil)
 
+            // Scratch has no reader, so nothing here routes into
+            // ItemViewerModel — but it still quiets under one opened from
+            // another tab, like every other pane.
+            ScratchPaneView()
+                .tabPane(.scratch, selected: tabs.selectedTab,
+                         covered: viewer.openItem != nil)
+
             IceboxPaneView()
                 .tabPane(.icebox, selected: tabs.selectedTab,
                          covered: viewer.openItem != nil)

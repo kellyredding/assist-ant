@@ -10,6 +10,11 @@ enum ActionableKindLabel {
         case .todo: return "To-do"
         case .reminder: return "Reminder"
         case .explore: return "Explore"
+        // Scratch earns a badge because it shares the Trash with the actionable
+        // kinds, and an unlabelled row there reads as a rendering fault rather
+        // than a different kind of thing. It carries no `color`, which is what
+        // renders it as an outline instead of a filled pill — see `KindBadge`.
+        case .scratch: return "Scratch"
         default: return nil
         }
     }
@@ -26,7 +31,9 @@ enum ActionableKindLabel {
         case .todo: return "To-do"
         case .reminder: return "Reminder"
         case .explore: return "Explore"
-        case .calendar: return ""   // never offered
+        // Neither is offered by the reclassify menu: calendar is read-only, and
+        // scratch is reached by conversion rather than a kind swap.
+        case .calendar, .scratch: return ""
         }
     }
 
@@ -70,21 +77,47 @@ struct KindBadge: View {
     let item: Item
 
     var body: some View {
-        if let text = ActionableKindLabel.badge(for: item),
-           let bg = ActionableKindLabel.color(for: item) {
-            Text(text)
-                .font(.caption2).bold()
-                .foregroundStyle(.white)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(bg))
-                // Faint, theme-aware edge: Color.primary resolves dark in
-                // light mode and light in dark mode, so the pill keeps a
-                // subtle outline against either background.
-                .overlay(
-                    Capsule().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1)
-                )
+        if let text = ActionableKindLabel.badge(for: item) {
+            if let bg = ActionableKindLabel.color(for: item) {
+                filled(text, bg)
+            } else {
+                // A badged kind with no colour renders as an outline. The
+                // actionable kinds earn a filled pill because they are the work
+                // you scan a list for; scratch is a note that happens to be
+                // sitting in the same list, so it names itself without
+                // competing for attention.
+                outlined(text)
+            }
         }
+    }
+
+    private func filled(_ text: String, _ bg: Color) -> some View {
+        chrome(text)
+            .foregroundStyle(.white)
+            .background(Capsule().fill(bg))
+            // Faint, theme-aware edge: Color.primary resolves dark in
+            // light mode and light in dark mode, so the pill keeps a
+            // subtle outline against either background.
+            .overlay(
+                Capsule().strokeBorder(Color.primary.opacity(0.25), lineWidth: 1)
+            )
+    }
+
+    private func outlined(_ text: String) -> some View {
+        chrome(text)
+            .foregroundStyle(.secondary)
+            .overlay(
+                Capsule().strokeBorder(Color.primary.opacity(0.3), lineWidth: 1)
+            )
+    }
+
+    /// The shared pill metrics, so a filled and an outlined badge occupy the
+    /// same space and the kind column stays aligned between them.
+    private func chrome(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2).bold()
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
     }
 }
 
