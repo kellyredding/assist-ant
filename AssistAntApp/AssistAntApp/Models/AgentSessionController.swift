@@ -107,8 +107,13 @@ final class AgentSessionController: ObservableObject {
     /// to `AppSettings.defaultTerminalFontSize` and it is re-seeded on each
     /// spawn. Published so a future scrollback overlay can re-render on a
     /// font change.
+    /// Held inside the zoom window on the way in: the setting has been through
+    /// no gesture that would have bounded it, and a size from outside the window
+    /// strands one direction with no way back from the keyboard.
     @Published private(set) var terminalFontSize: CGFloat =
-        AppSettings.current.defaultTerminalFontSize
+        TerminalFontSizeBounds.standard.clamped(
+            AppSettings.current.defaultTerminalFontSize
+        )
 
     /// The current Claude session id (lowercased UUID). Persisted to
     /// AgentStatePersistence so relaunch resumes it.
@@ -247,45 +252,51 @@ final class AgentSessionController: ObservableObject {
 
     // MARK: - Terminal font zoom (transient)
 
+    /// The zoom window this terminal obeys.
+    ///
+    /// Named once and delegated to rather than restated: the shell pane reaches
+    /// the same rule through the engine's own pane defaults, so two spellings of
+    /// one window is how the two panes of a single split come to stop at
+    /// different limits or move by different steps.
+    private var fontSizeBounds: TerminalFontSizeBounds { .standard }
+
     /// Bump the live font one step toward the ceiling and apply it to the
     /// backend immediately. Mirrors Galaxy
     /// `Session.increaseTerminalFontSize` (via
     /// `SessionTerminalPane.increaseFontSize()`).
     func increaseFontSize() {
-        setFontSize(
-            min(
-                terminalFontSize + AppSettings.terminalFontSizeStep,
-                AppSettings.terminalFontSizeRange.upperBound
-            )
-        )
+        setFontSize(fontSizeBounds.increased(from: terminalFontSize))
     }
 
     /// Drop the live font one step toward the floor.
     func decreaseFontSize() {
-        setFontSize(
-            max(
-                terminalFontSize - AppSettings.terminalFontSizeStep,
-                AppSettings.terminalFontSizeRange.lowerBound
-            )
-        )
+        setFontSize(fontSizeBounds.decreased(from: terminalFontSize))
     }
 
     /// Snap the live font back to the persisted default. The reset target
     /// is the *setting*, not a constant — matches Galaxy
     /// `Session.resetTerminalFontSize`.
+    ///
+    /// Clamped, because the setting has never been through a zoom gesture and
+    /// so was never bounded by one. A persisted size from outside the window
+    /// would otherwise leave one direction permanently dead.
     func resetFontSize() {
-        setFontSize(SettingsManager.shared.settings.defaultTerminalFontSize)
+        setFontSize(
+            fontSizeBounds.clamped(
+                SettingsManager.shared.settings.defaultTerminalFontSize
+            )
+        )
     }
 
     /// True while the live size is below the ceiling. Drives the
     /// View ▸ Bigger item's enabled state.
     var canIncreaseFontSize: Bool {
-        terminalFontSize < AppSettings.terminalFontSizeRange.upperBound
+        fontSizeBounds.canIncrease(from: terminalFontSize)
     }
 
     /// True while the live size is above the floor.
     var canDecreaseFontSize: Bool {
-        terminalFontSize > AppSettings.terminalFontSizeRange.lowerBound
+        fontSizeBounds.canDecrease(from: terminalFontSize)
     }
 
     /// Apply a clamped font size to the live backend. No-op when the
