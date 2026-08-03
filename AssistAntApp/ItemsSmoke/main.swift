@@ -551,8 +551,14 @@ check("actionable sync: backlog issue creates iceboxed") {
         && item.scheduledOn == nil && hiddenFromActive
 }
 
-// 22. Update refreshes title/body/url but preserves type and resolution.
-check("actionable sync: update refreshes content, preserves type + resolution") {
+// 22. Update refreshes title/body/url and preserves type, but resolution now
+//     follows Linear: an issue that is not completed upstream is not resolved
+//     here. This assertion is inverted from what it was — the old rule never
+//     unresolved, which left a regressed issue permanently wrong AND permanently
+//     immune to reconcile (resolved rows are spared). Verified against the live
+//     workspace before flipping it: 17 of 18 resolved Linear rows were Done
+//     upstream, so nothing depended on a local completion outsurviving a sync.
+check("actionable sync: update refreshes content, preserves type, follows upstream resolution") {
     let (store, queue) = try makeStore()
     try store.applyActionableSync(
         rows: [lrow("FLEX-9", "started", title: "v1", body: "b1", url: "https://l/9")],
@@ -570,7 +576,7 @@ check("actionable sync: update refreshes content, preserves type + resolution") 
     return after.title == "v2" && after.body == "b2"
         && d.externalURL == "https://l/9b"   // url refreshed
         && after.type == "reminder"          // type preserved
-        && after.resolvedAt != nil           // never unresolved
+        && after.resolvedAt == nil           // not completed upstream → unresolved
 }
 
 // 23. Completed issues resolve on the completion day; a brand-new completed
@@ -630,11 +636,246 @@ check("actionable sync: empty keep skips reconcile") {
         rows: [lrow("X-1", "started")],
         workspaceID: "local", source: "linear",
         keep: ["X-1"], reconcile: false, allowEmptyKeep: false)
-    try store.applyActionableSync(
+    let outcome = try store.applyActionableSync(
         rows: [], workspaceID: "local", source: "linear",
         keep: [], reconcile: true, allowEmptyKeep: false)
     guard let x = try fetchByExt(queue, "X-1") else { return false }
     return x.deletedAt == nil
+        && outcome.reconcileWithheld && outcome.withheldReason == .emptyFetch
+}
+
+// MARK: - Full-turnover guard
+
+// The 2026-08-03 mass-delete, reduced: an existing keyed set, an incoming set
+// that overlaps it nowhere, and reconcile must NOT run. The pre-upsert sampling
+// is what this pins — measured after the upsert loop, the two freshly created
+// rows would be found in `keep` and the retirement would sail through, which is
+// exactly how 31 items were lost while 33 were created.
+check("actionable sync: full turnover withholds reconcile") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("OLD-1", "started"), lrow("OLD-2", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["OLD-1", "OLD-2"], reconcile: false, allowEmptyKeep: false)
+    let outcome = try store.applyActionableSync(
+        rows: [lrow("NEW-1", "started"), lrow("NEW-2", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["NEW-1", "NEW-2"], reconcile: true, allowEmptyKeep: false)
+    guard let o1 = try fetchByExt(queue, "OLD-1"),
+          let o2 = try fetchByExt(queue, "OLD-2") else { return false }
+    let survived = o1.deletedAt == nil && o2.deletedAt == nil
+    let landed = try fetchByExt(queue, "NEW-1") != nil   // upserts still applied
+    return survived && landed && outcome.retired == 0
+        && outcome.reconcileWithheld
+        && outcome.withheldReason == .fullTurnover
+        && outcome.priorCandidates == 2
+}
+
+// The override exists for a real Linear-side migration, where every identifier
+// legitimately changed at once.
+check("actionable sync: allowFullTurnover lets reconcile run") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("OLD-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["OLD-1"], reconcile: false, allowEmptyKeep: false)
+    let outcome = try store.applyActionableSync(
+        rows: [lrow("NEW-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["NEW-1"], reconcile: true, allowEmptyKeep: false,
+        allowFullTurnover: true)
+    guard let old = try fetchByExt(queue, "OLD-1") else { return false }
+    return old.deletedAt != nil && outcome.retired == 1
+        && !outcome.reconcileWithheld
+}
+
+// A first sync has nothing to protect, so the guard must stay out of the way —
+// otherwise it would appear to fire on every fresh install.
+check("actionable sync: an empty prior set does not trip the guard") {
+    let (store, queue) = try makeStore()
+    let outcome = try store.applyActionableSync(
+        rows: [lrow("NEW-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["NEW-1"], reconcile: true, allowEmptyKeep: false)
+    return try fetchByExt(queue, "NEW-1") != nil
+        && !outcome.reconcileWithheld && outcome.priorCandidates == 0
+}
+
+// Ordinary churn: one surviving issue is enough to prove the fetch is real, so
+// the rest reconcile as before.
+check("actionable sync: one matching key is enough to reconcile") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("KEEP-1", "started"), lrow("GONE-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["KEEP-1", "GONE-1"], reconcile: false, allowEmptyKeep: false)
+    let outcome = try store.applyActionableSync(
+        rows: [lrow("KEEP-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["KEEP-1"], reconcile: true, allowEmptyKeep: false)
+    guard let gone = try fetchByExt(queue, "GONE-1") else { return false }
+    return gone.deletedAt != nil && !outcome.reconcileWithheld
+        && outcome.retired == 1
+}
+
+// Resolved rows are not reconcile candidates, so an overlap consisting only of a
+// resolved row is still a full turnover — the guard has to measure the same set
+// reconcile acts on, which is what the shared predicate is for.
+check("actionable sync: a resolved row does not count as a match") {
+    let (store, queue) = try makeStore()
+    let done = "2026-06-08T15:30:00.000Z"
+    try store.applyActionableSync(
+        rows: [lrow("DONE-1", "completed", completedAt: done),
+               lrow("OPEN-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["DONE-1", "OPEN-1"], reconcile: false, allowEmptyKeep: false)
+    // Incoming overlaps only the resolved row, which reconcile would never touch.
+    let outcome = try store.applyActionableSync(
+        rows: [lrow("DONE-1", "completed", completedAt: done)],
+        workspaceID: "local", source: "linear",
+        keep: ["DONE-1"], reconcile: true, allowEmptyKeep: false)
+    guard let open = try fetchByExt(queue, "OPEN-1") else { return false }
+    return open.deletedAt == nil && outcome.reconcileWithheld
+        && outcome.withheldReason == .fullTurnover
+}
+
+// MARK: - Triage and upstream regression
+
+// Triage is assigned, unresolved work that wants looking at, so it lands like
+// started/unstarted rather than in the icebox with backlog. Before it was synced
+// at all it fell out of `keep` and was retired on every run.
+check("actionable sync: a triage issue lands active, not iceboxed") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("TRI-1", "triage")],
+        workspaceID: "local", source: "linear",
+        keep: ["TRI-1"], reconcile: false, allowEmptyKeep: false)
+    guard let item = try fetchByExt(queue, "TRI-1") else { return false }
+    let onActive = try store.fetchActive(type: .todo).contains { $0.id == item.id }
+    return item.iceboxedAt == nil && item.resolvedAt == nil && onActive
+}
+
+// A regression restores placement rather than flattening it. This is why
+// clearing the day was rejected: a future-scheduled row that completes and then
+// regresses has to come back to its own day, not to Today.
+check("actionable sync: a regression keeps its day and its icebox") {
+    let (store, queue) = try makeStore()
+    let done = "2026-06-08T15:30:00.000Z"
+    let day = CivilDate(ISO8601DateFormatter().date(from: "2026-07-01T12:00:00Z")!)
+    try store.applyActionableSync(
+        rows: [lrow("REG-1", "completed", completedAt: done)],
+        workspaceID: "local", source: "linear",
+        keep: ["REG-1"], reconcile: false, allowEmptyKeep: false)
+    guard let created = try fetchByExt(queue, "REG-1") else { return false }
+    try store.reschedule(id: created.id, to: day)
+    try store.setIceboxed(id: created.id, true)
+    // Regresses upstream: no completedAt this time.
+    try store.applyActionableSync(
+        rows: [lrow("REG-1", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["REG-1"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try store.fetch(id: created.id) else { return false }
+    return after.resolvedAt == nil        // resolution cleared
+        && after.scheduledOn == day       // its own day survives
+        && after.iceboxedAt != nil        // icebox membership survives
+}
+
+// The DEV-12 shape: completed, never rescheduled, then regressed to backlog.
+// The stale completion day goes and the row is iceboxed, so it rejoins its
+// backlog siblings instead of sitting weeks overdue on Today.
+check("actionable sync: a backlog regression clears the stamped day and iceboxes") {
+    let (store, queue) = try makeStore()
+    let done = "2026-06-08T15:30:00.000Z"
+    try store.applyActionableSync(
+        rows: [lrow("DEV-12", "completed", completedAt: done)],
+        workspaceID: "local", source: "linear",
+        keep: ["DEV-12"], reconcile: false, allowEmptyKeep: false)
+    try store.applyActionableSync(
+        rows: [lrow("DEV-12", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["DEV-12"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try fetchByExt(queue, "DEV-12") else { return false }
+    return after.resolvedAt == nil && after.scheduledOn == nil
+        && after.iceboxedAt != nil
+}
+
+// Regressing to a non-backlog state clears the stamp but does NOT icebox — only
+// backlog means deferred.
+check("actionable sync: a non-backlog regression clears the day without iceboxing") {
+    let (store, queue) = try makeStore()
+    let done = "2026-06-08T15:30:00.000Z"
+    try store.applyActionableSync(
+        rows: [lrow("REO-1", "completed", completedAt: done)],
+        workspaceID: "local", source: "linear",
+        keep: ["REO-1"], reconcile: false, allowEmptyKeep: false)
+    try store.applyActionableSync(
+        rows: [lrow("REO-1", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["REO-1"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try fetchByExt(queue, "REO-1") else { return false }
+    return after.resolvedAt == nil && after.scheduledOn == nil
+        && after.iceboxedAt == nil
+}
+
+// Icebox membership on a LIVE row stays local. A backlog item the user took out
+// of the icebox must not be put back on the next sync — which is why the icebox
+// rule is gated on the un-resolve rather than on `status_type` alone.
+check("actionable sync: an un-iceboxed live backlog row stays out of the icebox") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("BL-1", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-1"], reconcile: false, allowEmptyKeep: false)
+    guard let created = try fetchByExt(queue, "BL-1") else { return false }
+    try store.setIceboxed(id: created.id, false)   // user pulls it out
+    try store.applyActionableSync(
+        rows: [lrow("BL-1", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-1"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try store.fetch(id: created.id) else { return false }
+    return after.iceboxedAt == nil
+}
+
+// The other direction is unchanged: a completion is never re-stamped.
+check("actionable sync: an already-resolved row keeps its completion day") {
+    let (store, queue) = try makeStore()
+    let first = "2026-06-08T15:30:00.000Z"
+    let later = "2026-06-20T09:00:00.000Z"
+    let firstDay = CivilDate(ISO8601DateFormatter().date(from: "2026-06-08T15:30:00Z")!)
+    try store.applyActionableSync(
+        rows: [lrow("FIX-1", "completed", completedAt: first)],
+        workspaceID: "local", source: "linear",
+        keep: ["FIX-1"], reconcile: false, allowEmptyKeep: false)
+    try store.applyActionableSync(
+        rows: [lrow("FIX-1", "completed", completedAt: later)],
+        workspaceID: "local", source: "linear",
+        keep: ["FIX-1"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try fetchByExt(queue, "FIX-1") else { return false }
+    return after.scheduledOn == firstDay
+}
+
+// And the regression un-pins it from reconcile immunity, which was the second
+// half of the DEV-12 bug: a permanently-resolved row could never be retired.
+check("actionable sync: a regressed row becomes a reconcile candidate again") {
+    let (store, queue) = try makeStore()
+    let done = "2026-06-08T15:30:00.000Z"
+    try store.applyActionableSync(
+        rows: [lrow("IMM-1", "completed", completedAt: done),
+               lrow("ANCHOR", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["IMM-1", "ANCHOR"], reconcile: false, allowEmptyKeep: false)
+    // Regress it, so it stops being spared.
+    try store.applyActionableSync(
+        rows: [lrow("IMM-1", "backlog"), lrow("ANCHOR", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["IMM-1", "ANCHOR"], reconcile: false, allowEmptyKeep: false)
+    // Now drop it from the assigned set; ANCHOR keeps the guard satisfied.
+    try store.applyActionableSync(
+        rows: [lrow("ANCHOR", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["ANCHOR"], reconcile: true, allowEmptyKeep: false)
+    guard let imm = try fetchByExt(queue, "IMM-1") else { return false }
+    return imm.deletedAt != nil
 }
 
 // 26. fetchIceboxed returns active, unresolved, iceboxed actionables newest

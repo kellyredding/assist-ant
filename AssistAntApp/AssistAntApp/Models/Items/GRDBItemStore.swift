@@ -193,16 +193,50 @@ final class GRDBItemStore: ItemStore {
     /// position, and resolving it if it just completed but never unresolving.
     /// Then, when `reconcile` is set, soft-delete orphaned linear todos (active,
     /// unresolved, still `todo`, external_id not in `keep`), sparing resolved
-    /// history and reclassified items. An empty keep set is treated as a
-    /// degraded fetch and skips reconcile unless `allowEmptyKeep`.
+    /// history and reclassified items.
+    ///
+    /// Reconcile is withheld on a degraded fetch: an empty keep set, or a keep
+    /// set that matches none of the rows it could retire. Either is answered by
+    /// skipping the retirement half while every upsert still lands, because
+    /// deferring a retirement costs one cycle of stale rows and self-heals,
+    /// where performing a wrong one cost 31 items and a manual afternoon.
+    /// `allowEmptyKeep` / `allowFullTurnover` are the deliberate overrides.
+    @discardableResult
     func applyActionableSync(
         rows: [ActionableSyncBatch.ItemRow],
         workspaceID: String, source: String,
-        keep: Set<String>, reconcile: Bool, allowEmptyKeep: Bool
-    ) throws {
-        let shouldReconcile = reconcile && (!keep.isEmpty || allowEmptyKeep)
+        keep: Set<String>, reconcile: Bool, allowEmptyKeep: Bool,
+        allowFullTurnover: Bool = false
+    ) throws -> ActionableSyncOutcome {
+        var outcome = ActionableSyncOutcome()
         try dbQueue.write { db in
             let now = Date()
+
+            // Sampled BEFORE the upsert loop, and the ordering IS the guard.
+            // The loop below inserts rows whose keys are all in `keep`, so a
+            // match measured afterwards is guaranteed and meaningless: the run
+            // that retired 31 items would have "matched" on the 33 it had just
+            // created, and the guard would have passed while doing nothing.
+            let priorKeys = try String.fetchAll(
+                db,
+                sql: "SELECT external_id FROM items WHERE \(Self.reconcileCandidateSQL)",
+                arguments: [workspaceID, source, ItemType.todo.rawValue])
+            // A full turnover is a non-empty candidate set that the incoming
+            // keys miss entirely. On a first sync `priorKeys` is empty — there
+            // is nothing to protect, so the guard stays out of the way rather
+            // than appearing to fire constantly on a fresh install.
+            let fullTurnover = !priorKeys.isEmpty
+                && !priorKeys.contains(where: keep.contains)
+
+            outcome.priorCandidates = priorKeys.count
+            if reconcile, keep.isEmpty, !allowEmptyKeep {
+                outcome.reconcileWithheld = true
+                outcome.withheldReason = .emptyFetch
+            } else if reconcile, fullTurnover, !allowFullTurnover {
+                outcome.reconcileWithheld = true
+                outcome.withheldReason = .fullTurnover
+            }
+
             for row in rows {
                 let completedAt = row.completedAt.flatMap(Self.parseISO)
                 let existing = try Item
@@ -214,10 +248,49 @@ final class GRDBItemStore: ItemStore {
                     item.title = row.title
                     item.body = row.body
                     item.typeData = Self.actionableWithURL(item.typeData, row.url)
-                    // Resolve it if it just completed — but never unresolve.
-                    if let completedAt, item.resolvedAt == nil {
-                        item.resolvedAt = completedAt
-                        item.scheduledOn = CivilDate(completedAt)
+                    // Resolution mirrors `completed_at` in BOTH directions. It
+                    // previously only ever set it, so an issue that regressed
+                    // Done → Backlog upstream stayed flagged resolved here —
+                    // wrong on its own, and worse because reconcile spares
+                    // resolved rows, which pinned it permanently out of reach.
+                    //
+                    // One signal, not two: the create branch already keys
+                    // resolution purely on `completed_at`, so consulting
+                    // `status_type` here would let the two disagree for an issue
+                    // marked completed with no timestamp.
+                    //
+                    // Un-resolving restores the item to the active world, so its
+                    // placement is re-derived the way a create derives it rather
+                    // than left holding the artifacts the completion left behind.
+                    if let completedAt {
+                        if item.resolvedAt == nil {
+                            item.resolvedAt = completedAt
+                            item.scheduledOn = CivilDate(completedAt)
+                        }
+                    } else if let wasResolved = item.resolvedAt {
+                        item.resolvedAt = nil
+                        // The day goes only when it is still the stamp resolution
+                        // wrote. `completeActionable` overwrites any past or
+                        // future day with the completion date, so a resolved
+                        // item's day is that stamp — there is no pre-completion
+                        // day left to protect. A day that DIFFERS was therefore
+                        // set deliberately after completing (rescheduling stays
+                        // available on a resolved row), and that survives.
+                        //
+                        // The two cases collide when someone scheduled an item
+                        // for the very day it completed, and that costs nothing:
+                        // an unscheduled item and one scheduled for a past day
+                        // both surface on Today.
+                        if item.scheduledOn == CivilDate(wasResolved) {
+                            item.scheduledOn = nil
+                        }
+                        // A regression into backlog is a deferral, and this is
+                        // the only moment sync may say so. Icebox membership is
+                        // otherwise a local decision with no Linear counterpart,
+                        // so gating on the un-resolve is what keeps a deliberate
+                        // "remove from icebox" on a live backlog row from being
+                        // undone on every sync.
+                        if row.statusType == "backlog" { item.iceboxedAt = now }
                     }
                     item.deletedAt = nil   // resurrect if a prior reconcile retired it
                     item.updatedAt = now
@@ -247,36 +320,51 @@ final class GRDBItemStore: ItemStore {
                     try item.insert(db)
                 }
             }
-            if shouldReconcile {
-                try Self.reconcileOrphans(
+            if reconcile, !outcome.reconcileWithheld {
+                outcome.retired = try Self.reconcileOrphans(
                     workspaceID: workspaceID, source: source,
                     keep: keep, now: now, in: db)
             }
         }
         backup.itemsDidChange()
+        return outcome
     }
 
-    /// Soft-delete linear todos that fell out of the assigned set: active,
-    /// unresolved, still typed `todo`, with an external_id not in `keep`.
-    /// Resolved items (history) and reclassified ones (adopted) are left alone.
+    /// The rows reconcile is entitled to retire: active, unresolved, still typed
+    /// `todo`, and carrying an external key. Resolved items (history) and
+    /// reclassified ones (adopted) fall outside it.
+    ///
+    /// One definition, because the full-turnover guard has to measure exactly
+    /// the set reconcile would act on. A second copy of this predicate is a
+    /// guard that silently stops guarding the moment the two drift.
+    /// Binds `workspace_id`, `source`, `type` in that order.
+    private static let reconcileCandidateSQL = """
+        workspace_id = ? AND source = ? AND type = ?
+        AND deleted_at IS NULL AND resolved_at IS NULL
+        AND external_id IS NOT NULL
+        """
+
+    /// Soft-delete linear todos that fell out of the assigned set. Returns how
+    /// many were retired, so the sync can report what it actually did rather
+    /// than what it was asked to do.
     private static func reconcileOrphans(
         workspaceID: String, source: String, keep: Set<String>,
         now: Date, in db: Database
-    ) throws {
+    ) throws -> Int {
         let candidates = try Item
-            .filter(sql: """
-                workspace_id = ? AND source = ? AND type = ?
-                AND deleted_at IS NULL AND resolved_at IS NULL
-                AND external_id IS NOT NULL
-                """, arguments: [workspaceID, source, ItemType.todo.rawValue])
+            .filter(sql: reconcileCandidateSQL,
+                    arguments: [workspaceID, source, ItemType.todo.rawValue])
             .fetchAll(db)
+        var retired = 0
         for var item in candidates {
             guard let ext = item.externalID, !keep.contains(ext) else { continue }
             item.deletedAt = now
             item.updatedAt = now
             item.pending = true
             try item.update(db)
+            retired += 1
         }
+        return retired
     }
 
     /// Rewrap an actionable payload with a refreshed externalURL, preserving the

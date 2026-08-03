@@ -438,7 +438,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleEvent(_ e: EventEnvelope) {
         switch e.event {
         case "calendar_item.sync": syncCalendarItems(e)
-        case "actionable_item.sync": syncActionableItems(e)
+        // actionable_item.sync is answered in handleRequest now: a withheld
+        // reconcile has to reach the operator, and a fire-and-forget sender can
+        // never learn what the store decided.
         case "session:ready":
             guard let id = e.detailValue("session_id", as: String.self) else { break }
             let source = e.detailValue("source", as: String.self) ?? ""
@@ -476,6 +478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return deleteActionableItemReply(e)
         case "actionable_item.list":
             return actionableListReplyData(e)
+        case "actionable_item.sync":
+            return syncActionableItemsReply(e)
         case "scratch.add":
             return addScratchReply(e)
         case "scratch.list":
@@ -731,45 +735,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (the open + recently-completed Linear issues plus the keep set), apply
     /// it (create / update / resolve + orphan reconcile) in one transaction,
     /// then delete the temp file.
-    private func syncActionableItems(_ e: EventEnvelope) {
+    /// Request/reply rather than fire-and-forget, unlike its calendar sibling.
+    /// The reason is the reconcile guard: the CLI hands over a batch and never
+    /// sees the store, so it used to report `reconcile=true` from its own intent
+    /// whether or not reconcile ran. A withheld retirement is precisely the
+    /// outcome the operator needs, so the store's decision travels back here.
+    private func syncActionableItemsReply(_ e: EventEnvelope) -> Data? {
         guard let batchPath = e.detailValue("batch_file", as: String.self) else {
-            NSLog("AssistAnt: actionable_item.sync missing batch_file")
-            return
+            return ackData(ok: false, error: "missing batch_file")
         }
         defer { try? FileManager.default.removeItem(atPath: batchPath) }
 
         guard let data = FileManager.default.contents(atPath: batchPath) else {
-            NSLog("AssistAnt: actionable_item.sync — batch file unreadable: \(batchPath)")
-            return
+            return ackData(ok: false, error: "batch file unreadable: \(batchPath)")
         }
         let batch: ActionableSyncBatch
         do {
             batch = try JSONDecoder().decode(ActionableSyncBatch.self, from: data)
         } catch {
             NSLog("AssistAnt: actionable_item.sync — decode failed: \(error)")
-            return
+            return ackData(ok: false, error: "batch file did not decode")
         }
 
         let workspaceID: String
         do { workspaceID = try WorkspaceStore.shared.current().id }
         catch {
-            NSLog("AssistAnt: actionable_item.sync — cannot resolve workspace: \(error)")
-            return
+            return ackData(ok: false, error: "no workspace")
         }
 
         do {
-            try GRDBItemStore.shared.applyActionableSync(
+            let outcome = try GRDBItemStore.shared.applyActionableSync(
                 rows: batch.items, workspaceID: workspaceID, source: batch.source,
                 keep: Set(batch.keep), reconcile: batch.reconcile,
-                allowEmptyKeep: false)
+                allowEmptyKeep: false,
+                allowFullTurnover: batch.allowFullTurnover ?? false)
             NSLog("AssistAnt: actionable_item.sync — applied \(batch.items.count), "
-                + "reconcile=\(batch.reconcile)")
+                + "retired \(outcome.retired), "
+                + "withheld=\(outcome.withheldReason?.rawValue ?? "no")")
             // Snapshot views (the Icebox) don't observe the store live; nudge
             // them to re-fetch now that actionable rows changed.
-            NotificationCenter.default.post(
-                name: .actionableItemsDidChange, object: nil)
+            notifyActionableItemsDidChange()
+            return try? JSONSerialization.data(
+                withJSONObject: [
+                    "ok": true,
+                    "applied": batch.items.count,
+                    "retired": outcome.retired,
+                    "reconcile_withheld": outcome.reconcileWithheld,
+                    // Always a string, "" when nothing was withheld, so the CLI
+                    // reads one shape rather than branching on absence.
+                    "withheld_reason": outcome.withheldReason?.rawValue ?? "",
+                    "prior_candidates": outcome.priorCandidates,
+                ],
+                options: [.sortedKeys])
         } catch {
             NSLog("AssistAnt: actionable_item.sync failed: \(error)")
+            return ackData(ok: false, error: "store write failed")
         }
     }
 
