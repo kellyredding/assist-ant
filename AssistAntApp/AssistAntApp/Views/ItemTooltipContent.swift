@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 import SwiftUI
 
 /// The hover-tooltip body: a read-only preview of an item that mirrors the
@@ -138,14 +139,14 @@ struct TooltipMarkdownBody: NSViewRepresentable {
             .foregroundColor: NSColor.linkColor,
         ]
         tv.linkTextAttributes = linkAttributes
-        tv.textStorage?.setAttributedString(MarkdownText.attributed(markdown))
+        tv.textStorage?.setAttributedString(MarkdownAttributedText.attributed(markdown))
         context.coordinator.lastMarkdown = markdown
         return tv
     }
 
     func updateNSView(_ tv: NSTextView, context: Context) {
         guard context.coordinator.lastMarkdown != markdown else { return }
-        tv.textStorage?.setAttributedString(MarkdownText.attributed(markdown))
+        tv.textStorage?.setAttributedString(MarkdownAttributedText.attributed(markdown))
         context.coordinator.lastMarkdown = markdown
     }
 
@@ -156,7 +157,7 @@ struct TooltipMarkdownBody: NSViewRepresentable {
         _ proposal: ProposedViewSize, nsView: NSTextView, context: Context
     ) -> CGSize? {
         guard let width = proposal.width, width > 0 else { return nil }
-        let rect = MarkdownText.attributed(markdown).boundingRect(
+        let rect = MarkdownAttributedText.attributed(markdown).boundingRect(
             with: NSSize(width: width, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )

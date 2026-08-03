@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 import SwiftUI
 
 /// The event body, rendered with AppKit so links behave natively: the
@@ -45,7 +46,7 @@ struct EventBodyTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.textStorage?.setAttributedString(MarkdownText.attributed(markdown))
+        textView.textStorage?.setAttributedString(MarkdownAttributedText.attributed(markdown))
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -63,7 +64,7 @@ struct EventBodyTextView: NSViewRepresentable {
         // don't clobber the user's selection or scroll position.
         guard context.coordinator.lastMarkdown != markdown,
               let textView = scrollView.documentView as? NSTextView else { return }
-        textView.textStorage?.setAttributedString(MarkdownText.attributed(markdown))
+        textView.textStorage?.setAttributedString(MarkdownAttributedText.attributed(markdown))
         context.coordinator.lastMarkdown = markdown
     }
 
