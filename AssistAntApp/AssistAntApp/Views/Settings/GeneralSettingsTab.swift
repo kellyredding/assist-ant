@@ -1,4 +1,5 @@
 import SwiftUI
+import Galactic
 
 /// General settings tab. Hosts the Appearance card with a Theme picker, and
 /// the Text entry card. Future general settings (quiet hours, etc.) wrap
