@@ -1,12 +1,23 @@
 module AssistAnt
   module Commands
-    # `actionable-item sync`: ingest a provider's issue list (Linear), compose
-    # each item's body, and hand the app one batched envelope to upsert as
-    # `todo` actionables and resolve the recently-completed. Mirrors
-    # `calendar-item`: a pure, fire-and-forget sender — it parses
-    # deterministically (no network; the agent/MCP did the fetch), writes the
-    # batch to a temp file, and publishes an `actionable_item.sync` envelope
-    # carrying that file's path. Works whether or not the app is up.
+    # `actionable-item sync`: fetch (or ingest) a provider's issue list (Linear),
+    # compose each item's body, and hand the app one batched envelope to upsert as
+    # `todo` actionables and resolve the recently-completed.
+    #
+    # Two input modes, mutually exclusive. `--fetch` queries Linear directly
+    # through the `linear` CLI, which makes the projection code with spec
+    # coverage instead of prose an agent re-derives on every run;
+    # `--input`/stdin keeps the MCP path working while it exists. Everything
+    # after the input is deterministic: normalize, compose each body, write the
+    # batch to a temp file, send an `actionable_item.sync` envelope carrying
+    # that file's path.
+    #
+    # Unlike `calendar-item sync`, this is REQUEST/REPLY. The app is the only
+    # thing that knows whether reconcile actually ran — it withholds the
+    # soft-delete half when the incoming set matches nothing already stored — so
+    # the summary line comes from its ack rather than from the CLI's own intent.
+    # A run with the app down therefore exits non-zero instead of publishing
+    # into a void and reporting success.
     class ActionableItem
       include RequestAck
 
@@ -64,6 +75,9 @@ module AssistAnt
         source = ""
         input_path : String? = nil
         reconcile = true
+        allow_full_turnover = false
+        fetch = false
+        workspace = LinearSync::APIFetcher::DEFAULT_WORKSPACE
 
         OptionParser.parse(args) do |p|
           p.banner = "Usage: assist-ant actionable-item sync [options]"
@@ -71,7 +85,15 @@ module AssistAnt
           p.on("--provider=NAME", "Input format, e.g. linear (required)") { |v| provider = v }
           p.on("--source=SOURCE", "Item source id, e.g. linear (required)") { |v| source = v }
           p.on("--input=PATH", "Raw provider response file (default: stdin)") { |v| input_path = v }
+          p.on("--fetch", "Fetch from Linear directly via the `linear` CLI") { fetch = true }
+          p.on("--linear-workspace=NAME",
+            "Linear workspace for --fetch (default: " \
+            "#{LinearSync::APIFetcher::DEFAULT_WORKSPACE})") { |v| workspace = v }
           p.on("--no-reconcile", "Skip the orphan soft-delete (for a partial/manual fetch)") { reconcile = false }
+          p.on("--allow-full-turnover",
+            "Reconcile even when no incoming issue matches an existing one") do
+            allow_full_turnover = true
+          end
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant actionable-item sync") }
         end
 
@@ -85,22 +107,36 @@ module AssistAnt
           exit 1
         end
 
-        raw =
-          if path = input_path
-            File.read(path)
-          else
-            STDIN.gets_to_end
-          end
+        # Two ways in, and only two. Silently preferring one would leave it
+        # ambiguous which shape was applied, and an ambiguous payload shape is
+        # exactly what --fetch exists to remove.
+        if fetch && input_path
+          STDERR.puts "Error: --fetch and --input are mutually exclusive"
+          exit 1
+        end
 
         issues =
-          begin
-            parser.parse(raw)
-          rescue ex
-            STDERR.puts "Error: failed to parse #{provider} response (#{ex.message})"
-            exit 1
+          if fetch
+            LinearSync::APIFetcher.new(workspace).fetch
+          else
+            raw =
+              if path = input_path
+                File.read(path)
+              else
+                STDIN.gets_to_end
+              end
+
+            begin
+              parser.parse(raw)
+            rescue ex
+              STDERR.puts "Error: failed to parse #{provider} response (#{ex.message})"
+              exit 1
+            end
           end
 
-        batch_json = build_batch_json(issues, source: source, reconcile: reconcile)
+        batch_json = build_batch_json(
+          issues, source: source, reconcile: reconcile,
+          allow_full_turnover: allow_full_turnover)
         tmp = File.tempfile("assist-ant-actionable", ".json")
         begin
           tmp.print(batch_json)
@@ -113,15 +149,46 @@ module AssistAnt
           "source"     => JSON::Any.new(source),
           "count"      => JSON::Any.new(issues.size.to_i64),
         }
-        AssistAnt::EventPublisher.publish(
-          event: "actionable_item.sync",
-          detail_data: detail,
-        )
+
+        # Request/reply, replacing the intent-only summary: `reconcile=true` used
+        # to be printed whether or not reconcile ran, so a withheld retirement
+        # was invisible. The app is the only thing that knows, so both the
+        # warning and `retired=` now come from its ack.
+        ack = request_ack("actionable_item.sync", detail)
+        withheld = ack["reconcile_withheld"]?.try(&.as_bool?) || false
+        if withheld
+          reason = ack["withheld_reason"]?.try(&.as_s?)
+          reason = "unknown" if reason.nil? || reason.empty?
+          prior = ack["prior_candidates"]?.try(&.as_i?) || 0
+          STDERR.puts "Warning: reconcile WITHHELD (#{reason}) — #{prior} existing " \
+                      "issues were left in place. Re-run with " \
+                      "--allow-full-turnover if the turnover is real."
+        end
 
         completed = issues.count(&.completed?)
         open = issues.size - completed
+        retired = ack["retired"]?.try(&.as_i?) || 0
+
+        # State the reconcile outcome, don't leave it inferable. `retired=0` alone
+        # reads the same whether reconcile ran and found nothing to retire or was
+        # withheld before it looked — a reader has to notice the absence of a
+        # stderr warning to tell them apart, and a reader who only has stdout
+        # cannot. Naming it is what makes the summary answer the question on its
+        # own.
+        reconcile_state =
+          if !reconcile
+            "off"
+          elsif withheld
+            reason = ack["withheld_reason"]?.try(&.as_s?)
+            reason = "unknown" if reason.nil? || reason.empty?
+            "WITHHELD:#{reason}"
+          else
+            "applied"
+          end
+
         puts "Synced #{issues.size} actionable items " \
-             "(source=#{source}, #{open} open, #{completed} completed, reconcile=#{reconcile})."
+             "(source=#{source}, #{open} open, #{completed} completed, " \
+             "reconcile=#{reconcile_state}, retired=#{retired})."
       end
 
       # Create ONE manual actionable (todo/reminder/explore) from flags + a
@@ -386,14 +453,20 @@ module AssistAnt
       # Serialize the batch the app applies in one transaction: every issue as a
       # row (open or completed), the keep set (every external_id seen), and the
       # reconcile flag (soft-delete orphans not in keep).
+      #
+      # `allow_full_turnover` is emitted ONLY when the flag was passed. The app
+      # decodes it as optional and defaults it to false, so an omitted field and
+      # a `false` one mean the same thing to the store — but omitting it keeps
+      # the payload honest about what the operator actually asked for.
       private def build_batch_json(
         issues : Array(LinearSync::NormalizedIssue),
-        source : String, reconcile : Bool,
+        source : String, reconcile : Bool, allow_full_turnover : Bool = false,
       ) : String
         JSON.build do |j|
           j.object do
             j.field "source", source
             j.field "reconcile", reconcile
+            j.field "allow_full_turnover", true if allow_full_turnover
             j.field "keep" do
               j.array { issues.each { |i| j.string i.external_id } }
             end
@@ -419,7 +492,7 @@ module AssistAnt
 
       private def sync_help : String
         <<-HELP
-        assist-ant actionable-item sync — ingest a provider issue list
+        assist-ant actionable-item sync — fetch or ingest a provider issue list
 
         USAGE:
           assist-ant actionable-item sync --provider NAME --source SOURCE [options]
@@ -429,11 +502,27 @@ module AssistAnt
           --source SOURCE        Item source id, e.g. linear
 
         OPTIONS:
+          --fetch                Fetch from Linear directly via the `linear` CLI
+          --linear-workspace N   Workspace for --fetch (default: #{LinearSync::APIFetcher::DEFAULT_WORKSPACE})
           --input PATH           Raw provider response file (default: stdin)
           --no-reconcile         Skip the orphan soft-delete (partial/manual fetch)
+          --allow-full-turnover  Reconcile even when no incoming issue matches an
+                                 existing one (a real Linear-side migration)
           -h, --help             Show this help
 
+        DESCRIPTION:
+          --fetch and --input are mutually exclusive: either the CLI queries
+          Linear itself (assigned issues in started/unstarted/backlog/triage,
+          plus completed within the last 7 days) or it reads a provider payload.
+
+          The summary reports what the app DID, not what this command intended.
+          If the app withheld the orphan soft-delete because the incoming set
+          matched nothing already stored, a warning naming the reason goes to
+          stderr and `retired=0`; re-run with --allow-full-turnover once you have
+          confirmed the turnover is real.
+
         EXAMPLES:
+          assist-ant actionable-item sync --provider linear --source linear --fetch
           assist-ant actionable-item sync --provider linear --source linear \\
             --input /tmp/issues.json
           linear-mcp list_issues | assist-ant actionable-item sync \\
@@ -603,10 +692,16 @@ module AssistAnt
       end
     end
 
-    # State categories we mirror. Anything else (canceled, triage) is dropped:
-    # it isn't an active todo and falls out of the keep set, so the app's
-    # reconcile retires any stale copy.
-    SYNCED_TYPES = {"started", "unstarted", "backlog", "completed"}
+    # State categories we mirror.
+    #
+    # `triage` is included because a triage ticket is live work: it is assigned,
+    # unresolved, and therefore a reconcile candidate on every run — so omitting
+    # it did not merely hide those issues, it retired them.
+    #
+    # `canceled` stays out deliberately. A canceled issue is not work, and
+    # dropping it from both `items` and `keep` is how the mirror retires a stale
+    # copy. That is a decision, not an oversight.
+    SYNCED_TYPES = {"started", "unstarted", "backlog", "triage", "completed"}
 
     abstract class Parser
       abstract def parse(raw : String) : Array(NormalizedIssue)
@@ -665,6 +760,204 @@ module AssistAnt
 
     def self.known_providers : Array(String)
       PARSERS.keys
+    end
+
+    # Fetches assigned issues straight from Linear's GraphQL API by shelling out
+    # to the `linear` CLI, which already holds the credential.
+    #
+    # This is the whole point of `--fetch`: the projection below — which field
+    # becomes the store's key, which are flat, which are nested — was previously
+    # re-derived in a subagent prompt on every run, and produced two different
+    # shapes in one day. Here it is code, and the specs pin it.
+    #
+    # `identifier` is the key, NOT `id`. Linear's `id` is a UUID; the store keys
+    # on the human reference and `compose_body` renders it as the ticket link, so
+    # a UUID in that slot both re-keys the mirror and prints as the title link.
+    #
+    # Returns `NormalizedIssue` directly — there is no MCP-shaped intermediate on
+    # this path, because that shape existed only so an agent could hand data
+    # across a file boundary. With the CLI fetching, the boundary is gone, and
+    # the flat-vs-nested trap survives only on `--input`.
+    class APIFetcher
+      # `triage` included, `canceled` excluded — see SYNCED_TYPES.
+      BUCKETS = {"started", "unstarted", "backlog", "triage", "completed"}
+
+      # Completed issues are windowed: the mirror keeps recent history, not the
+      # whole archive. A wider window would grow the payload without changing
+      # what Today shows.
+      COMPLETED_WINDOW = "-P7D"
+
+      # Linear caps a connection page at 250; 100 keeps each response small
+      # enough to parse in one gulp while still finishing most buckets in one
+      # round trip.
+      PAGE_SIZE = 100
+
+      DEFAULT_WORKSPACE = "kajabi"
+
+      def initialize(@workspace : String = DEFAULT_WORKSPACE)
+      end
+
+      def fetch : Array(NormalizedIssue)
+        issues = [] of NormalizedIssue
+        BUCKETS.each { |bucket| issues.concat(fetch_bucket(bucket)) }
+        issues
+      end
+
+      # The GraphQL document for one bucket, cursored. A plain string rather than
+      # a parameterized operation so a spec can read exactly what goes over the
+      # wire — the shape of this query is the thing that drifted.
+      def query_for(bucket : String, after : String? = nil) : String
+        filters = [
+          %(assignee: { isMe: { eq: true } }),
+          %(state: { type: { eq: "#{bucket}" } }),
+        ]
+        # Only the completed bucket is windowed; every other bucket is live work
+        # and is taken whole.
+        filters << %(updatedAt: { gt: "#{COMPLETED_WINDOW}" }) if bucket == "completed"
+
+        args = [%(filter: { #{filters.join(", ")} }), %(first: #{PAGE_SIZE})]
+        args << %(after: "#{after}") if after
+
+        <<-GQL
+        query {
+          issues(#{args.join(", ")}) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              # `id` is deliberately NOT selected. Linear's `id` is a UUID and
+              # the store keys on the human reference, so selecting the field at
+              # all is what invites the mistake this fetcher exists to prevent:
+              # it is absent rather than merely unused.
+              identifier
+              title
+              description
+              url
+              state { type name }
+              completedAt
+              team { name }
+              priorityLabel
+              project { name }
+              projectMilestone { name }
+              labels { nodes { name } }
+            }
+          }
+        }
+        GQL
+      end
+
+      # THE projection: one GraphQL issue node → one `NormalizedIssue`.
+      #
+      # `identifier` lands in `external_id` — never `id`, which is not even
+      # selected. `priorityLabel` is the human string; GraphQL's `priority` is a
+      # number, where the MCP gave `{name}`. The `{ name }` sub-selections arrive
+      # nested and are flattened here, because everything downstream is flat.
+      #
+      # Returns nil for a state category we do not mirror, so the bucket list and
+      # SYNCED_TYPES cannot silently disagree.
+      def normalize(node : JSON::Any) : NormalizedIssue?
+        identifier = node["identifier"]?.try(&.as_s?)
+        return nil unless identifier
+
+        state = node["state"]?
+        status_type = state.try { |s| s["type"]?.try(&.as_s?) } || ""
+        return nil unless SYNCED_TYPES.includes?(status_type)
+
+        labels = [] of String
+        if list = node.dig?("labels", "nodes").try(&.as_a?)
+          list.each do |l|
+            name = l["name"]?.try(&.as_s?)
+            labels << name if name
+          end
+        end
+
+        NormalizedIssue.new(
+          external_id: identifier,
+          title: (node["title"]?.try(&.as_s?) || "(untitled)").strip,
+          description: node["description"]?.try(&.as_s?),
+          url: node["url"]?.try(&.as_s?) || "",
+          status_type: status_type,
+          completed_at: node["completedAt"]?.try(&.as_s?),
+          team: nested_name(node, "team") || "",
+          status: state.try { |s| s["name"]?.try(&.as_s?) } || "",
+          priority_name: node["priorityLabel"]?.try(&.as_s?) || "",
+          project: nested_name(node, "project"),
+          milestone: nested_name(node, "projectMilestone"),
+          labels: labels,
+        )
+      end
+
+      # One bucket, paginated. A bucket that errors ABORTS the whole fetch (via
+      # `run_query`) rather than returning what it got: a partial set is exactly
+      # the degraded fetch the app's turnover guard exists to catch, and failing
+      # loudly here is cheaper than relying on the guard downstream.
+      private def fetch_bucket(bucket : String) : Array(NormalizedIssue)
+        issues = [] of NormalizedIssue
+        cursor : String? = nil
+        loop do
+          doc = run_query(query_for(bucket, after: cursor))
+          nodes = doc.dig?("data", "issues", "nodes").try(&.as_a?) || [] of JSON::Any
+          nodes.each do |n|
+            if issue = normalize(n)
+              issues << issue
+            end
+          end
+          page = doc.dig?("data", "issues", "pageInfo")
+          break unless page
+          break unless page["hasNextPage"]?.try(&.as_bool?)
+          cursor = page["endCursor"]?.try(&.as_s?)
+          break unless cursor
+        end
+        issues
+      end
+
+      # The thin shell-out, kept separate from `query_for`/`normalize` so those
+      # two are unit-testable without a network.
+      private def run_query(gql : String) : JSON::Any
+        stdout_io = IO::Memory.new
+        stderr_io = IO::Memory.new
+        status =
+          begin
+            Process.run("linear",
+              ["--workspace", @workspace, "api", gql],
+              output: stdout_io, error: stderr_io)
+          rescue ex : IO::Error
+            STDERR.puts "Error: could not run the `linear` CLI (#{ex.message}). " \
+                        "Install it and authenticate with `linear auth login`."
+            exit 1
+          end
+
+        unless status.success?
+          STDERR.puts "Error: `linear` CLI failed (exit #{status.exit_code}). " \
+                      "Is it installed and authenticated (`linear auth login`)? " \
+                      "#{stderr_io.to_s.strip}"
+          exit 1
+        end
+
+        doc =
+          begin
+            JSON.parse(stdout_io.to_s)
+          rescue ex
+            STDERR.puts "Error: could not parse the `linear` CLI response as JSON " \
+                        "(#{ex.message})"
+            exit 1
+          end
+
+        # GraphQL answers HTTP 200 with an `errors` array, so a zero exit is not
+        # a successful query — an unauthenticated or mis-shaped request lands
+        # here, not above.
+        if (body = doc.as_h?) && (errs = body["errors"]?.try(&.as_a?)) && !errs.empty?
+          STDERR.puts "Error: Linear API returned errors: #{errs.to_json}"
+          exit 1
+        end
+
+        doc
+      end
+
+      # A `{ name }` sub-selection, flattened. A null object is a legitimate
+      # answer (an issue with no project, no milestone), so this is nilable
+      # rather than defaulted.
+      private def nested_name(node : JSON::Any, key : String) : String?
+        node[key]?.try(&.as_h?).try { |h| h["name"]?.try(&.as_s?) }
+      end
     end
 
     # The markdown body: a two-line header — the ticket reference hyperlinked
