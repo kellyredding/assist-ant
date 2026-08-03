@@ -14,6 +14,12 @@ import AppKit
 /// the whole selection (or opens the add/change-list modal for `ll`). An
 /// unrecognized second key cancels the sequence and falls through, so a stray
 /// leader never eats the next command.
+///
+/// Every one of those keys is matched only on an *unmodified* press. A local
+/// monitor is handed the event before the main menu's key equivalents, so a
+/// bare-character match takes ⌘-combinations with it: the `l` leader would eat
+/// ⌘L, `a` would eat ⌘A, and `x` would eat ⌘X, each the instant a selection
+/// exists. Shift is deliberately still allowed, since `*` is ⇧8.
 @MainActor
 final class ActionableListChords {
     /// What the controller needs from the host pane, read per event so it
@@ -64,28 +70,48 @@ final class ActionableListChords {
         else { return event }
 
         let chars = event.charactersIgnoringModifiers?.lowercased()
+        // Plain keys only. This monitor sees the event before the main menu's
+        // key equivalents, so without the gate every command here doubles as a
+        // ⌘-combination thief — ⌘L, ⌘A and ⌘X all die the moment a selection
+        // exists. Shift stays allowed: `*` is ⇧8.
+        let plain = event.modifierFlags
+            .isDisjoint(with: [.command, .option, .control])
 
         // A leader is armed → the second key applies the chord, or cancels and
-        // falls through to normal single-key handling.
+        // falls through to normal single-key handling. The second key must be
+        // plain too: with `a` armed, ⌘D would otherwise complete the selection
+        // instead of reaching the menu bar.
         if let armed = leader.take() {
-            if applyChord(leader: armed, key: chars, ctx) { return nil }
+            if applyChord(leader: armed, key: plain ? chars : nil, ctx) {
+                return nil
+            }
         }
 
         // Arm a leader. `*` is always available; `a` / `l` need a selection.
-        if event.characters == "*" { leader.arm("*"); return nil }
-        if ctx.selection.hasSelection, chars == "a" { leader.arm("a"); return nil }
-        if ctx.selection.hasSelection, chars == "l" { leader.arm("l"); return nil }
+        if plain, event.characters == "*" { leader.arm("*"); return nil }
+        if plain, ctx.selection.hasSelection, chars == "a" {
+            leader.arm("a"); return nil
+        }
+        if plain, ctx.selection.hasSelection, chars == "l" {
+            leader.arm("l"); return nil
+        }
 
         // Single-key navigation / selection (unchanged from the old monitor).
-        switch chars {
-        case "j": ctx.selection.moveFocus(by: 1, order: order(ctx)); return nil
-        case "k": ctx.selection.moveFocus(by: -1, order: order(ctx)); return nil
-        case "x":
-            ctx.selection.toggleSelectedFocused(in: order(ctx))
-            return nil
-        default: break
+        if plain {
+            switch chars {
+            case "j": ctx.selection.moveFocus(by: 1, order: order(ctx)); return nil
+            case "k": ctx.selection.moveFocus(by: -1, order: order(ctx)); return nil
+            case "x":
+                ctx.selection.toggleSelectedFocused(in: order(ctx))
+                return nil
+            default: break
+            }
         }
+        // Bare Return opens the focused row. Modified Return is deliberately not
+        // ours — matching it regardless of modifiers swallowed ⌘Return here, the
+        // same way the scratch feed's monitor once swallowed its submit key.
         if event.keyCode == 36 || event.keyCode == 76,           // Return / Enter
+           plain,
            let item = ctx.selection.focusedItem(in: ctx.groups()) {
             ctx.open(item); return nil
         }
