@@ -274,12 +274,33 @@ final class MainMenu: NSObject {
         // by validateMenuItem — gated on the agent terminal holding first
         // responder. No explicit modifier mask: the items take AppKit's
         // default (.command), matching Galaxy.
+        //
+        // The group sits under a disabled heading with its members indented,
+        // as Galaxy's does. Two of the three can only say "Bigger" and
+        // "Smaller" — there is no third word for what they resize — so the
+        // surface has to be named somewhere above them, and naming it in the
+        // heading lets the reset item say only what it does rather than
+        // repeating a menu already titled Terminal. The heading takes no
+        // action, so AppKit disables it whatever validation computes for the
+        // items around it.
+        //
+        // Only this group is headed. The pane, buffer and session groups below
+        // are separated by dividers alone, because each of their items already
+        // names its own object — "Trim Buffer" needs no heading the way
+        // "Bigger" does.
+        let fontHeader = NSMenuItem(
+            title: "Terminal Font Size", action: nil, keyEquivalent: ""
+        )
+        fontHeader.isEnabled = false
+        menu.addItem(fontHeader)
+
         let defaultItem = NSMenuItem(
-            title: "Default terminal font size",
+            title: "Default",
             action: #selector(MenuActions.defaultTerminalFontSize(_:)),
             keyEquivalent: "0"
         )
         defaultItem.target = MenuActions.shared
+        defaultItem.indentationLevel = 1
         menu.addItem(defaultItem)
 
         let biggerItem = NSMenuItem(
@@ -288,6 +309,7 @@ final class MainMenu: NSObject {
             keyEquivalent: "="
         )
         biggerItem.target = MenuActions.shared
+        biggerItem.indentationLevel = 1
         menu.addItem(biggerItem)
 
         let smallerItem = NSMenuItem(
@@ -296,6 +318,7 @@ final class MainMenu: NSObject {
             keyEquivalent: "-"
         )
         smallerItem.target = MenuActions.shared
+        smallerItem.indentationLevel = 1
         menu.addItem(smallerItem)
 
         menu.addItem(.separator())
@@ -430,8 +453,8 @@ final class MenuActions: NSObject {
         MainTabNavigator.shared.switchToNextTab()
     }
 
-    /// View ▸ Default / Bigger / Smaller terminal font size. Each acts on the
-    /// pane holding focus, so zooming a shell strip down leaves the agent
+    /// Terminal ▸ Terminal Font Size ▸ Default / Bigger / Smaller. Each acts on
+    /// the pane holding focus, so zooming a shell strip down leaves the agent
     /// readable above it. `validateMenuItem` already gates these; the
     /// optional chain is what makes "no pane focused" a no-op.
     @objc func defaultTerminalFontSize(_ sender: Any?) {

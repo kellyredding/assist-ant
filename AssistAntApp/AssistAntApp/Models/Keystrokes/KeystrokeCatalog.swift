@@ -256,11 +256,20 @@ enum KeystrokeCatalog {
               section: .terminal, availability: .terminalPane),
         .init(binding: .literal("⌘S"), label: "Scrollback",
               section: .terminal, availability: .app),
+        // All three name the surface and the thing in full, so "terminal",
+        // "font" and "size" each turn up the whole group rather than a third of
+        // it — which is also why they do NOT match the menu titles, where the
+        // three read "Default", "Bigger" and "Smaller" under a heading that
+        // supplies the same words once.
+        //
+        // The menu can lean on that heading because a menu is never filtered.
+        // These rows are: a search strips a row of its neighbours, and a
+        // lone "Bigger" then says nothing at all about what it resizes.
         .init(binding: .literal("⌘0"), label: "Default terminal font size",
               section: .terminal, availability: .terminalTab),
-        .init(binding: .literal("⌘="), label: "Bigger terminal font",
+        .init(binding: .literal("⌘="), label: "Bigger terminal font size",
               section: .terminal, availability: .terminalTab),
-        .init(binding: .literal("⌘-"), label: "Smaller terminal font",
+        .init(binding: .literal("⌘-"), label: "Smaller terminal font size",
               section: .terminal, availability: .terminalTab),
         .init(binding: .literal("⌃⌘K"), label: "Trim buffer",
               section: .terminal, availability: .terminalTab),
