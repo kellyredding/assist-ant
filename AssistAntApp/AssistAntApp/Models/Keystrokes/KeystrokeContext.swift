@@ -15,15 +15,4 @@ struct KeystrokeContext: Equatable {
     let terminalPaneFocused: Bool
     let editableTextFocused: Bool
     let findBarOpen: Bool
-
-    /// A resting main window with nothing focused or selected. The value the
-    /// model holds before the sheet has ever been opened.
-    static let empty = KeystrokeContext(
-        tab: .terminal,
-        readerOpen: false,
-        hasSelection: false,
-        terminalPaneFocused: false,
-        editableTextFocused: false,
-        findBarOpen: false
-    )
 }

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import Galactic
 
 // Sandboxed smoke check for the items model + store. Runs as its own process
 // (no app, no AppDelegate, no sockets) against an in-memory database and a
@@ -2254,246 +2255,25 @@ check("opening section: follows the snapshot") {
             for: ksCtx(tab: .icebox, readerOpen: true)) == .reader
 }
 
-// Fuzzy: an empty query matches everything, so an unfiltered sheet is full.
-check("fuzzy: empty query matches") {
-    FuzzyMatch.matches("Move to Icebox", query: "")
-}
-
-// Fuzzy: a plain substring matches.
-check("fuzzy: substring matches") {
-    FuzzyMatch.matches("Move to Icebox", query: "icebox")
-}
-
-// Fuzzy: scattered subsequence matches — "mti" for Move To Icebox.
-check("fuzzy: scattered subsequence matches") {
-    FuzzyMatch.matches("Move to Icebox", query: "mti")
-}
-
-// Fuzzy: out-of-order characters do not match.
-check("fuzzy: out-of-order query does not match") {
-    !FuzzyMatch.matches("Move to Icebox", query: "xobeci")
-}
-
-// Fuzzy: matching is case-insensitive in both directions.
-check("fuzzy: case-insensitive") {
-    FuzzyMatch.matches("Move to Icebox", query: "ICEBOX")
-        && FuzzyMatch.matches("MOVE TO ICEBOX", query: "icebox")
-}
-
-// Fuzzy: a query longer than the candidate cannot match.
-check("fuzzy: over-long query does not match") {
-    FuzzyMatch.score("a i", query: "a icebox") == nil
-}
-
-// Fuzzy: a contiguous run outranks the same letters scattered.
-check("fuzzy: contiguous beats scattered") {
-    let contiguous = FuzzyMatch.score("Copy", query: "cop")
-    let scattered = FuzzyMatch.score("Change list opener", query: "cop")
-    guard let c = contiguous, let s = scattered else { return false }
-    return c > s
-}
-
-// Fuzzy: a chord keystroke is searchable, so "ai" finds `a i`.
-check("fuzzy: a chord keystroke is searchable") {
-    FuzzyMatch.matches("a i", query: "ai")
-}
-
-// Ranges: the reported offsets are the characters that actually matched — what
-// the scratch feed highlights.
-check("fuzzy: reports matched offsets in order") {
-    guard let r = FuzzyMatch.result("Move to Icebox", query: "mti")
-    else { return false }
-    return r.matchedOffsets == [0, 5, 8]
-}
-
-// Ranges: a failed match yields nothing to highlight.
-check("fuzzy: a failed match yields no result") {
-    FuzzyMatch.result("Move to Icebox", query: "zzz") == nil
-}
-
-// Ranges: an empty query matches with no highlights, so an unfiltered feed
-// renders as plain text.
-check("fuzzy: empty query highlights nothing") {
-    FuzzyMatch.result("anything", query: "")?.matchedOffsets == []
-}
-
-// Ranges: offsets index the candidate positionally, so a highlight cannot slip
-// when the query's case differs from the text's.
-check("fuzzy: offsets align on mixed-case candidates") {
-    guard let r = FuzzyMatch.result("Move To Icebox", query: "TI")
-    else { return false }
-    return r.matchedOffsets == [5, 8]
-}
-
-// Ranges: a newline counts as a word boundary, so the first word of each line of
-// a multi-line note body scores as a word start.
-check("fuzzy: a newline starts a word") {
-    guard let across = FuzzyMatch.score("alpha\nbeta", query: "b"),
-          let mid = FuzzyMatch.score("alphaxbeta", query: "b")
-    else { return false }
-    return across > mid
-}
-
-// MARK: - Term matching (the scratch feed's search)
-
-/// The reported cases, verbatim: a three-bullet note, a note whose first word
-/// starts "th", one containing "the" mid-word, and one whose "e" precedes its
-/// "th".
-let bullets = "* one\n* two\n* three"
-let third = "third note"
-let another = "another test item"
-let precedingE = "test item\n\n`This is a thing`"
-
-// One term is a literal: "the" appears inside "another" but nowhere in the
-// others, since neither "three" nor "third" contains it contiguously.
-check("fuzzy/terms: one term is a contiguous literal") {
-    FuzzyMatch.matches(another, query: "the", scope: .terms)
-        && !FuzzyMatch.matches(bullets, query: "the", scope: .terms)
-        && !FuzzyMatch.matches(third, query: "the", scope: .terms)
-}
-
-// A space is a gap: "th e" is `th` then `e` somewhere after it.
-check("fuzzy/terms: a space allows a gap between terms") {
-    FuzzyMatch.matches(bullets, query: "th e", scope: .terms)
-        && FuzzyMatch.matches(third, query: "th e", scope: .terms)
-        && FuzzyMatch.matches(another, query: "th e", scope: .terms)
-}
-
-// Order is what the gap does NOT relax. This note holds both fragments, but its
-// only "e" comes before its only "th", so it must not match.
-check("fuzzy/terms: a later term must follow the earlier one") {
-    !FuzzyMatch.matches(precedingE, query: "th e", scope: .terms)
-}
-
-// "th e" over the bullets highlights inside "three" — the third line — rather
-// than pairing "th" there with an earlier "e".
-check("fuzzy/terms: the gap match lands after the first term") {
-    guard let r = FuzzyMatch.result(bullets, query: "th e", scope: .terms)
-    else { return false }
-    let th = bullets.range(of: "three")!
-    let start = bullets.distance(from: bullets.startIndex,
-                                 to: th.lowerBound)
-    // t, h from "three", then its first e — all within that word.
-    return r.matchedOffsets == [start, start + 1, start + 3]
-}
-
-// Terms may span more than two: each just has to follow the last.
-check("fuzzy/terms: three terms match in order") {
-    FuzzyMatch.matches(another, query: "an te it", scope: .terms)
-        && !FuzzyMatch.matches(another, query: "it te an", scope: .terms)
-}
-
-// Offsets are candidate-relative, so the highlight lands where the text is.
-check("fuzzy/terms: offsets are candidate-relative") {
-    guard let r = FuzzyMatch.result(another, query: "the", scope: .terms)
-    else { return false }
-    return r.matchedOffsets == [3, 4, 5]
-}
-
-// A whitespace-only query has no terms, so everything matches and nothing
-// highlights.
-check("fuzzy/terms: a blank query matches") {
-    FuzzyMatch.matches("anything at all", query: "  ", scope: .terms)
-        && FuzzyMatch.result("anything", query: "", scope: .terms)?
-            .matchedOffsets == []
-}
-
-// The two scopes still differ as documented. Nothing in the app reads a whole
-// label as a subsequence any more — the cheat sheet gave that up because it
-// answered typos with confidently wrong rows — but the scope stays, and this is
-// what pins the distinction the term rule is defined against.
-check("fuzzy: subsequence still spans, unlike terms") {
-    FuzzyMatch.matches("Move to Icebox", query: "mti")
-        && !FuzzyMatch.matches("Move to Icebox", query: "mti", scope: .terms)
-}
-
 // MARK: - Cheat sheet search
-
-/// A slice of the real catalog's shape: all four searchable fields, over rows
-/// whose labels, chords and conditions overlap the way the catalog's genuinely
-/// do — the long shared condition is what a loose rule feeds on.
-let sheetRows: [KeystrokeSearch.Candidate] = [
-    .init(label: "Delete", keys: "a d", section: "Lists",
-          condition: "in Schedule, Icebox, Trash, with a selection"),
-    .init(label: "Delete permanently", keys: "a d", section: "Lists",
-          condition: "in Trash, with a selection"),
-    .init(label: "Restore / Reopen", keys: "a r", section: "Lists",
-          condition: "in Schedule, Icebox, Trash, with a selection"),
-    .init(label: "Move to Icebox", keys: "a i", section: "Lists",
-          condition: "in Schedule, Icebox, Trash, with a selection"),
-    .init(label: "Add or change list", keys: "l l", section: "Lists",
-          condition: "in Schedule, Icebox, Trash, with a selection"),
-    .init(label: "Leave input mode (discards the draft)", keys: "esc",
-          section: "Scratch", condition: "in Scratch"),
-    .init(label: "Copy to clipboard", keys: "a c", section: "Lists",
-          condition: "in Schedule, Icebox, Trash, with a selection"),
-]
-
-/// The labels a query keeps, in catalog order.
-func sheetMatches(_ query: String) -> [String] {
-    zip(sheetRows, KeystrokeSearch.hits(sheetRows, query: query))
-        .compactMap { $1 == nil ? nil : $0.label }
-}
-
-// The reported bug, and the reason the fallback pass is gone: "scrat" answered
-// with "Leave input mode (discards the draft)", its five letters read across
-// three words. A query matches inside a word, and only a typed space crosses one.
-//
-// "cardt" is a subsequence of that label and a substring of nothing, so it is
-// exactly what the old rule would keep and the current one must not.
-check("sheet search: letters scattered across words do not match") {
-    KeystrokeSearch.hits(sheetRows, query: "cardt").allSatisfy { $0 == nil }
-        && sheetMatches("mti").isEmpty
-        && sheetMatches("adcl").isEmpty
-}
-
-// A word query answers with the rows that contain the word, and stops there.
-check("sheet search: a word query matches only rows holding the word") {
-    sheetMatches("del") == ["Delete", "Delete permanently"]
-        && sheetMatches("clip") == ["Copy to clipboard"]
-}
-
-// The section and the condition are searchable too — they are the only place
-// "scratch" or "trash" is written, and typing either should turn up that part of
-// the sheet. Safe now that a field can only answer to words it contains: this
-// same fixture is what made a subsequence rule match nearly everything.
-check("sheet search: the section and the condition are searchable") {
-    sheetMatches("scratch") == ["Leave input mode (discards the draft)"]
-        && sheetMatches("trash").contains("Delete permanently")
-        && !sheetMatches("trash").contains("Leave input mode (discards the draft)")
-        && sheetMatches("selection").contains("Move to Icebox")
-}
-
-// A chord is found by typing its keys — including the space, which is the only
-// thing that crosses from one key to the next.
-check("sheet search: a chord is found by typing its keys with the space") {
-    sheetMatches("a i").contains("Move to Icebox")
-        && sheetMatches("esc") == ["Leave input mode (discards the draft)"]
-        && sheetMatches("ai").isEmpty
-}
-
-// An empty or whitespace query is not a filter.
-check("sheet search: an empty query keeps every row and highlights nothing") {
-    let all = KeystrokeSearch.hits(sheetRows, query: "   ")
-    return all.count == sheetRows.count
-        && all.allSatisfy { $0 == KeystrokeSearch.Hit() }
-}
 
 /// The real catalog as candidates.
 ///
 /// Literal keystrokes only — resolving a rebindable one needs KeyboardShortcuts,
 /// which this target deliberately cannot see. The rebindable rows searching as if
 /// unbound does not affect what the checks below assert.
-func catalogCandidates() -> [KeystrokeSearch.Candidate] {
+func catalogCandidates() -> [CheatSheetSearch.Candidate] {
     KeystrokeCatalog.all.map { entry in
         var keys = ""
         if case .literal(let text) = entry.binding { keys = text }
-        return KeystrokeSearch.Candidate(
+        return CheatSheetSearch.Candidate(
             label: entry.label, keys: keys,
             section: entry.section.title,
             condition: entry.availability.conditionText,
-            // Composed the same way the sheet composes it.
-            aliases: entry.aliases + " " + KeystrokeGlyphs.spelled(keys))
+            // Composed the same way the sheet composes it — order included: a
+            // later term must follow an earlier one, so reversing the join
+            // changes what matches.
+            aliases: entry.aliases + " " + CheatSheetGlyphs.spelled(keys))
     }
 }
 
@@ -2501,8 +2281,17 @@ func catalogCandidates() -> [KeystrokeSearch.Candidate] {
 func catalogMatches(_ query: String) -> [String] {
     zip(
         KeystrokeCatalog.all,
-        KeystrokeSearch.hits(catalogCandidates(), query: query)
+        CheatSheetSearch.hits(catalogCandidates(), query: query)
     ).compactMap { $1 == nil ? nil : $0.label }
+}
+
+// The helpers above zip the catalog against the hits, so an array that is not
+// index-aligned would silently shorten the corpus and every check after it
+// would pass over a prefix. Asserted rather than trusted: alignment is
+// Galactic's contract now, and this is the app's only handhold on it.
+check("sheet search: hits stay index-aligned with the catalog") {
+    CheatSheetSearch.hits(catalogCandidates(), query: "del").count
+        == KeystrokeCatalog.all.count
 }
 
 // The same property over the real corpus, which is where it broke. Asserted as
@@ -2512,28 +2301,13 @@ func catalogMatches(_ query: String) -> [String] {
 // "Sche(d)ul(e) … se(l)ection".
 check("sheet search: a word query stays narrow over the real catalog") {
     let candidates = catalogCandidates()
-    let hits = KeystrokeSearch.hits(candidates, query: "del")
+    let hits = CheatSheetSearch.hits(candidates, query: "del")
     let kept = zip(candidates, hits).compactMap { $1 == nil ? nil : $0 }
     return !kept.isEmpty && kept.allSatisfy { candidate in
         [candidate.label, candidate.keys, candidate.section,
          candidate.condition, candidate.aliases]
             .contains { $0.lowercased().contains("del") }
     }
-}
-
-// Glyphs spell themselves out, because none of them can be typed. ⌫ is
-// deliberately "backspace" and not "delete", though the key is printed Delete:
-// the only two rows carrying it are Clear and Compact session, and pulling those
-// into every search for "delete" is the opposite of grouping a concept.
-check("glyphs: modifiers spell out, and the backspace key is not delete") {
-    let chord = KeystrokeGlyphs.spelled("⇧⌘⌫")
-    return ["shift", "command", "cmd", "backspace"].allSatisfy(chord.contains)
-        && !chord.contains("delete")
-        && KeystrokeGlyphs.spelled("esc").contains("escape")
-        && KeystrokeGlyphs.spelled("⌘←").contains("left arrow")
-        && KeystrokeGlyphs.spelled("⌘=").contains("plus")
-        // A bare letter chord has no glyphs to spell.
-        && KeystrokeGlyphs.spelled("a d").isEmpty
 }
 
 // Every row carries synonyms. A gate rather than a nicety: a row added without
@@ -2562,6 +2336,12 @@ check("catalog: a place answers with both directions") {
 }
 
 // A concept reaches its rows under the word a reader actually uses for it.
+//
+// ⌫ spelling itself "backspace" rather than "delete" is what the last two
+// clauses ride on. The glyph table is Galactic's and asserted there; what is
+// assist-ant's is the consequence — the only two rows carrying ⌫ are Clear and
+// Compact session, and pulling those into every search for "delete" is the
+// opposite of grouping a concept.
 check("catalog: concepts answer to the words readers use") {
     Set(catalogMatches("zoom")) == [
         "Default terminal font size",
@@ -2591,28 +2371,6 @@ check("catalog: the terminal font rows answer to terminal, font and size") {
         .allSatisfy { trio.isSubset(of: Set(catalogMatches($0))) }
 }
 
-// Offsets are candidate-relative and land per field, so a row tints exactly what
-// the filter read and only that — including a row kept for its condition alone.
-check("sheet search: offsets point at what matched, per field") {
-    let rows = [
-        KeystrokeSearch.Candidate(
-            label: "Delete", keys: "a d", section: "Lists",
-            condition: "in Trash, with a selection"),
-    ]
-    guard let onLabel = KeystrokeSearch.hits(rows, query: "del").first ?? nil,
-          let onKeys = KeystrokeSearch.hits(rows, query: "a d").first ?? nil,
-          let onCondition = KeystrokeSearch.hits(rows, query: "trash").first ?? nil
-    else { return false }
-    return onLabel.labelOffsets == [0, 1, 2]
-        && onLabel.keysOffsets.isEmpty
-        && onLabel.conditionOffsets.isEmpty
-        // Two terms, so two landing points rather than a run.
-        && onKeys.keysOffsets == [0, 2]
-        && onKeys.labelOffsets.isEmpty
-        && onCondition.conditionOffsets == [3, 4, 5, 6, 7]
-        && onCondition.labelOffsets.isEmpty
-}
-
 check("catalog: no entry has an empty label or literal binding") {
     KeystrokeCatalog.all.allSatisfy { entry in
         guard !entry.label.trimmingCharacters(in: .whitespaces).isEmpty
@@ -2624,6 +2382,29 @@ check("catalog: no entry has an empty label or literal binding") {
     }
 }
 
+/// A stable spelling of an availability, for use as a dictionary key.
+///
+/// Not `"\(availability)"`: the `.tabs` / `.tabsWithSelection` payloads are
+/// `Set<MainTab>`, whose interpolation order is unspecified — so two identical
+/// availabilities can spell differently between runs and the check below would
+/// pass or fail at random. Ordering the tabs pins it, tab-strip order matching
+/// what `KeystrokeAvailability.conditionText` already uses so the key and the
+/// row's own words cannot disagree about which set they name.
+func ksAvailabilityKey(_ a: KeystrokeAvailability) -> String {
+    func tabKey(_ tabs: Set<MainTab>) -> String {
+        MainTab.allCases.filter(tabs.contains).map(\.rawValue)
+            .joined(separator: ",")
+    }
+    switch a {
+    case .tabs(let tabs): return "tabs(\(tabKey(tabs)))"
+    case .tabsWithSelection(let tabs):
+        return "tabsWithSelection(\(tabKey(tabs)))"
+    // Every other case is either payload-free or carries a String, both of
+    // which interpolate deterministically.
+    default: return "\(a)"
+    }
+}
+
 // Catalog: no literal keystroke is documented twice within one section under
 // the same availability — that would be two rows claiming one key in one
 // context. The same key under *different* availability is legitimate (`a d`
@@ -2632,7 +2413,8 @@ check("catalog: no duplicate literal binding within a section and context") {
     var seen: Set<String> = []
     for e in KeystrokeCatalog.all {
         guard case .literal(let keys) = e.binding else { continue }
-        let key = "\(e.section.rawValue)|\(keys)|\(e.availability)"
+        let key = "\(e.section.rawValue)|\(keys)"
+            + "|\(ksAvailabilityKey(e.availability))"
         if seen.contains(key) { return false }
         seen.insert(key)
     }

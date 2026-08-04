@@ -67,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             debug: { AssistAntLog.dbg($0, $1) }
         )
 
+        // Hand the shared cheat sheet its rows before the menu item that can
+        // open it exists. The provider is not invoked now — it is invoked at
+        // present time, which is the whole point: invoking it is what takes
+        // the snapshot of the surface behind the sheet.
+        KeystrokeSheet.install()
+
         // Install the menu bar (the strip at the top of the screen) before
         // the app finishes launching so system menu wires are in place
         // when AppKit starts honoring key equivalents.

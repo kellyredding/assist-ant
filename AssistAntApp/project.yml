@@ -77,13 +77,24 @@ targets:
       - AssistAntApp/Models/CalendarAnnouncementSettings.swift
       - AssistAntApp/Models/CalendarAnnouncementDecisions.swift
       - AssistAntApp/Models/TemporaryMuteRule.swift
+      # Compiled whole, so anything added under it must stay Foundation-only.
+      # `KeystrokeSheet` — the rows builder — deliberately sits one level up:
+      # it reaches KeyboardShortcuts through the resolver, which this target
+      # does not have and must not need. That is the seam, not an accident.
       - AssistAntApp/Models/Keystrokes
-      - AssistAntApp/Models/Search
       - AssistAntApp/Models/ActionableSelection.swift
       - AssistAntApp/Models/MainTab.swift
       - AssistAntApp/Models/CaptureKind.swift
       - ItemsSmoke
     dependencies:
+      # FuzzyMatch, CheatSheetSearch and CheatSheetGlyphs live in Galactic
+      # now, and the catalog checks assert the real catalog *through* them:
+      # "trash" reaching all three trash rows is a fact about the authored
+      # aliases, and only the shared matcher can decide it. Compiling a
+      # second copy here to avoid the dependency is the duplication the
+      # extraction removed.
+      - package: Galactic
+        product: Galactic
       - package: GRDB
         product: GRDB
     settings:

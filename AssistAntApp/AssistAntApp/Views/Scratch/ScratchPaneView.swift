@@ -266,7 +266,7 @@ struct ScratchPaneView: View {
                   NSApp.keyWindow is AssistAntWindow,
                   // Escape belongs to the sheet while it is up, and this monitor
                   // would otherwise race it for the same key.
-                  !KeystrokeSheetModel.isClaimingKeyboard,
+                  !CheatSheetPresenter.isClaimingKeyboard,
                   !isEditingRow
             else { return event }
 
@@ -301,7 +301,7 @@ struct ScratchPaneView: View {
                   // The cheat sheet's field is not `searchFocused` — that names
                   // this pane's own search — so without this the submit key
                   // opened the composer behind the sheet.
-                  !KeystrokeSheetModel.isClaimingKeyboard,
+                  !CheatSheetPresenter.isClaimingKeyboard,
                   !isInputMode, !isEditingRow, !searchFocused,
                   SettingsManager.shared.settings.textEntry
                       .action(for: Keystroke(event: event)) == .submit

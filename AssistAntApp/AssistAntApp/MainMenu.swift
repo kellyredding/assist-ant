@@ -440,8 +440,13 @@ final class MenuActions: NSObject {
     /// `assumeIsolated` rather than a hop: AppKit dispatches menu actions on
     /// the main thread, and hopping would let the sheet's snapshot be taken a
     /// runloop turn later than the keystroke that asked for it.
+    ///
+    /// More load-bearing now, not less. The snapshot is taken inside the
+    /// sections provider that `toggle()` invokes — see `KeystrokeSheet` — so a
+    /// hop would move the reading of focus and selection, not just the
+    /// presentation.
     @objc func showKeystrokeSheet(_ sender: Any?) {
-        MainActor.assumeIsolated { KeystrokeSheetModel.shared.toggle() }
+        MainActor.assumeIsolated { CheatSheetPresenter.shared.toggle() }
     }
 
     // MARK: - View menu actions

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Galactic
 
 /// Drives the Scratch tab.
 ///

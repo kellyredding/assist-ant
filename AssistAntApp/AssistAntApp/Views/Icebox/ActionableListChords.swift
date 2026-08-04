@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 
 /// Keyboard chords for an actionable batch-selection surface (the Icebox list
 /// and the Schedule agenda). Owns the leader-with-timeout state machine that
@@ -75,7 +76,7 @@ final class ActionableListChords {
               // the editable-text gate below too, but only because SwiftUI backs
               // a TextField with a field editor — an accident to rely on, where
               // this is the actual contract.
-              !KeystrokeSheetModel.isClaimingKeyboard,
+              !CheatSheetPresenter.isClaimingKeyboard,
               (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 

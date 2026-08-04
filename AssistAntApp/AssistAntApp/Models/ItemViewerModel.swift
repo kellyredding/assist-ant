@@ -187,7 +187,7 @@ final class ItemViewerModel: ObservableObject {
             // Escape, which are exactly what its search field needs. Without
             // this, typing "del" lost the l to the `l` leader arming, and Escape
             // closed the item underneath instead of the sheet on top.
-            guard !KeystrokeSheetModel.isClaimingKeyboard else { return event }
+            guard !CheatSheetPresenter.isClaimingKeyboard else { return event }
             let cmd = event.modifierFlags.contains(.command)
             let key = event.keyCode
 

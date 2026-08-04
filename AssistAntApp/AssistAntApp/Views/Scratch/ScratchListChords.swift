@@ -1,4 +1,5 @@
 import AppKit
+import Galactic
 
 /// Keyboard chords for the scratch feed.
 ///
@@ -101,7 +102,7 @@ final class ScratchListChords {
               // Same reasoning as ActionableListChords: the cheat sheet is an
               // overlay in this window, and the editable-text gate below catches
               // its search field only incidentally.
-              !KeystrokeSheetModel.isClaimingKeyboard,
+              !CheatSheetPresenter.isClaimingKeyboard,
               (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 

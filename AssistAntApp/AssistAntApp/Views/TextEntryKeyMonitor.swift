@@ -71,7 +71,7 @@ struct TextEntryKeyMonitor: ViewModifier {
             // check above passes while it is up — and submitting the composer
             // underneath is not what the submit key means with a reference sheet
             // on top of it.
-            guard !KeystrokeSheetModel.isClaimingKeyboard else { return event }
+            guard !CheatSheetPresenter.isClaimingKeyboard else { return event }
 
             switch SettingsManager.shared.settings.textEntry
                 .action(for: Keystroke(event: event))

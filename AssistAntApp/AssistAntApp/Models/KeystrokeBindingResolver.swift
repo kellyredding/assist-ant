@@ -4,11 +4,14 @@ import KeyboardShortcuts
 
 /// Turns a catalog binding into the text a row displays.
 ///
-/// The only place that imports `KeyboardShortcuts`, which is what lets
-/// `KeystrokeCatalog` stay a Foundation-only value the smoke target can
-/// compile. It is also what keeps the sheet honest: the capture, status, and
-/// text-entry keystrokes are all user-configurable, so they are read live here
-/// rather than frozen into the catalog where a rebind would leave them lying.
+/// Nothing under `Models/Keystrokes/` imports `KeyboardShortcuts`, which is
+/// what lets `KeystrokeCatalog` stay a Foundation-only value the smoke target
+/// can compile — and this file sits one level up precisely so it can import
+/// it. Six files in the app do; the constraint is about that directory, not
+/// about this being the only importer. It is also what keeps the sheet honest:
+/// the capture, status, and text-entry keystrokes are all user-configurable, so
+/// they are read live here rather than frozen into the catalog where a rebind
+/// would leave them lying.
 enum KeystrokeBindingResolver {
 
     /// Shown when a rebindable keystroke has nothing assigned. A dash reads as
@@ -33,14 +36,23 @@ enum KeystrokeBindingResolver {
         case .statusPopover:
             return [shortcutText(.statusPopover)]
         case .textEntryCommit:
-            return labels(SettingsManager.shared.settings.textEntry.submit)
+            return labels(for: .submit)
         case .textEntryNewline:
-            return labels(SettingsManager.shared.settings.textEntry.newline)
+            return labels(for: .newline)
         }
     }
 
-    private static func labels(_ keystrokes: [Keystroke]) -> [String] {
-        keystrokes.isEmpty ? [unbound] : keystrokes.map(\.displayLabel)
+    /// Galactic answers with the configured labels in the user's order, and
+    /// with nothing at all when a list is empty — which is why the em dash is
+    /// still here. The shared helper cannot know that a cheat-sheet row wants
+    /// "not bound" spelled out where a composer placeholder wants silence, so
+    /// it declines to guess and the caller decides.
+    private static func labels(
+        for action: TextEntryBindings.Action
+    ) -> [String] {
+        let labels = SettingsManager.shared.settings.textEntry
+            .displayLabels(for: action)
+        return labels.isEmpty ? [unbound] : labels
     }
 
     private static func shortcutText(_ name: KeyboardShortcuts.Name) -> String {
