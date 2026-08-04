@@ -66,6 +66,12 @@ final class ActionableListChords {
               // change-list editor, any future popover) is key, so it owns the
               // keystrokes as first responder — mirrors the reader's own monitor.
               NSApp.keyWindow is AssistAntWindow,
+              // The cheat sheet is an overlay in this window, not a panel, so
+              // the check above passes while it is up. Its search field takes
+              // the editable-text gate below too, but only because SwiftUI backs
+              // a TextField with a field editor — an accident to rely on, where
+              // this is the actual contract.
+              !KeystrokeSheetModel.isClaimingKeyboard,
               (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 

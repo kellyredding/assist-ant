@@ -18,6 +18,21 @@ final class KeystrokeSheetModel: ObservableObject {
     /// What was true when the sheet opened. Meaningless while closed.
     @Published private(set) var context: KeystrokeContext = .empty
 
+    /// Whether the cheat sheet is claiming the keyboard.
+    ///
+    /// Read as a stand-down gate by every other local key monitor that answers
+    /// an unmodified key or the submit keystroke. While the sheet is up its
+    /// search field is the only thing that should see those, and none of the
+    /// ordinary gates get there: the sheet is an overlay inside the main window,
+    /// so a key-window check passes, and the reader's monitor deliberately does
+    /// not bail for a focused text view because its own body is one.
+    ///
+    /// A gate rather than an ordering assumption. AppKit does not contract the
+    /// order local monitors run in, so "the sheet installed last, therefore it
+    /// wins" is not something to build on — and it lost: Escape reached the
+    /// reader first and closed the item behind the sheet instead of the sheet.
+    static var isClaimingKeyboard: Bool { shared.isPresented }
+
     /// Live only while the sheet is up. See `installEscapeMonitor`.
     private var escapeMonitor: Any?
 

@@ -182,6 +182,12 @@ final class ItemViewerModel: ObservableObject {
             // popover, Preferences, the list editor — it owns the keystroke
             // (typing, its own Esc), so pass the event through untouched.
             guard NSApp.keyWindow is AssistAntWindow else { return event }
+            // The cheat sheet floats inside this same window, so the check above
+            // passes while it is up — and this monitor answers bare letters and
+            // Escape, which are exactly what its search field needs. Without
+            // this, typing "del" lost the l to the `l` leader arming, and Escape
+            // closed the item underneath instead of the sheet on top.
+            guard !KeystrokeSheetModel.isClaimingKeyboard else { return event }
             let cmd = event.modifierFlags.contains(.command)
             let key = event.keyCode
 

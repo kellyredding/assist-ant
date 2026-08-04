@@ -264,6 +264,9 @@ struct ScratchPaneView: View {
                   // window's to cancel — the list editor runs its own Escape
                   // monitor, and without this gate both fire.
                   NSApp.keyWindow is AssistAntWindow,
+                  // Escape belongs to the sheet while it is up, and this monitor
+                  // would otherwise race it for the same key.
+                  !KeystrokeSheetModel.isClaimingKeyboard,
                   !isEditingRow
             else { return event }
 
@@ -295,6 +298,10 @@ struct ScratchPaneView: View {
             // from the discard-changes sheet, and opens the composer behind them.
             guard tabs.selectedTab == .scratch,
                   NSApp.keyWindow is AssistAntWindow,
+                  // The cheat sheet's field is not `searchFocused` — that names
+                  // this pane's own search — so without this the submit key
+                  // opened the composer behind the sheet.
+                  !KeystrokeSheetModel.isClaimingKeyboard,
                   !isInputMode, !isEditingRow, !searchFocused,
                   SettingsManager.shared.settings.textEntry
                       .action(for: Keystroke(event: event)) == .submit

@@ -67,6 +67,11 @@ struct TextEntryKeyMonitor: ViewModifier {
             // Events bound for another window are none of this composer's
             // business, even while its monitor is alive.
             guard let window, event.window === window else { return event }
+            // The cheat sheet opens inside the composer's own window, so the
+            // check above passes while it is up — and submitting the composer
+            // underneath is not what the submit key means with a reference sheet
+            // on top of it.
+            guard !KeystrokeSheetModel.isClaimingKeyboard else { return event }
 
             switch SettingsManager.shared.settings.textEntry
                 .action(for: Keystroke(event: event))

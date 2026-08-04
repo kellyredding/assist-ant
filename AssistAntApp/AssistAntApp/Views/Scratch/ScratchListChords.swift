@@ -94,6 +94,10 @@ final class ScratchListChords {
         guard MainTabNavigator.shared.selectedTab == .scratch,
               ItemViewerModel.shared.openItem == nil,
               NSApp.keyWindow is AssistAntWindow,
+              // Same reasoning as ActionableListChords: the cheat sheet is an
+              // overlay in this window, and the editable-text gate below catches
+              // its search field only incidentally.
+              !KeystrokeSheetModel.isClaimingKeyboard,
               (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable != true
         else { return event }
 
