@@ -2489,10 +2489,13 @@ func scratchItem(_ text: String, list: String? = nil) -> Item {
 }
 
 /// Stands in for `ScratchModel.Row` — the model is not in this target, and the
-/// point of the grouping being generic is that it never needs to be.
-struct SmokeScratchRow {
+/// point of the grouping being generic is that it never needs to be. Identifiable
+/// by the note's id, as the real row is, so a group of these navigates through
+/// `ListGroup` exactly as the feed's own does.
+struct SmokeScratchRow: Identifiable {
     let item: Item
     let matchedOffsets: [Int]
+    var id: String { item.id }
 }
 
 /// Count the scratch feed straight from the store's public reader.
@@ -2577,6 +2580,37 @@ check("ScratchGrouping: a row's match offsets survive the grouping") {
     return groups.map { $0.listName } == [nil, "Dev"]
         && groups[0].entries.first?.matchedOffsets == [3]
         && groups[1].entries.first?.matchedOffsets == [0, 1]
+}
+
+// One traversal for both grouped surfaces: a scratch group walks through the same
+// helpers the index lists use, reached by ListGroup. The collapse rule and the
+// *a scoping are stated once, so they cannot drift apart per surface again — the
+// drift that let *a seed a selection of rows a folded group was hiding.
+check("ListGroup: the shared navigation walks a scratch group") {
+    let rows = [
+        SmokeScratchRow(item: scratchItem("free-1"), matchedOffsets: []),
+        SmokeScratchRow(item: scratchItem("d-1", list: "Dev"), matchedOffsets: []),
+        SmokeScratchRow(item: scratchItem("d-2", list: "Dev"), matchedOffsets: []),
+    ]
+    let groups = ScratchGrouping.groups(rows) { $0.item.scratchListName }
+    let devIDs = [rows[1].id, rows[2].id]
+    return ActionableListNavigation.visibleIDs(groups, collapsed: [])
+            == [rows[0].id] + devIDs
+        // A folded group leaves the traversal entirely, named or not.
+        && ActionableListNavigation.visibleIDs(groups, collapsed: ["Dev"])
+            == [rows[0].id]
+        && ActionableListNavigation.visibleIDs(
+            groups, collapsed: [ScratchGrouping.noListID]) == devIDs
+        // *a takes the focused row's group…
+        && ActionableListNavigation.idsInGroup(
+            of: rows[1].id, groups, collapsed: []) == devIDs
+        // …and nothing at all when that group is folded away.
+        && ActionableListNavigation.idsInGroup(
+            of: rows[1].id, groups, collapsed: ["Dev"]).isEmpty
+        // The scratch sentinel and the actionable one stay distinct, so folding
+        // the unfiled notes cannot fold the unfiled work.
+        && ScratchGrouping.noListID != ActionableGroup(
+            listName: nil, items: []).id
 }
 
 // One namespace of names: a name only a note uses suggests for a to-do and the

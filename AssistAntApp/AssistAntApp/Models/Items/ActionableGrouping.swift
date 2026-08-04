@@ -10,6 +10,10 @@ struct ActionableGroup: Identifiable, Equatable {
     var id: String { listName ?? "\u{0}__no_list__" }
 }
 
+extension ActionableGroup: ListGroup {
+    var memberIDs: [String] { items.map { $0.id } }
+}
+
 /// Pure derivation of an actionable list's sections. No SwiftUI, no I/O.
 enum ActionableGrouping {
     /// Group `items` into: the no-list group first, then named lists ordered

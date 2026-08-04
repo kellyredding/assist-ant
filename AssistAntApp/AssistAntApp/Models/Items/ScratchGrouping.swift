@@ -16,6 +16,14 @@ struct ScratchGroup<Element>: Identifiable {
     var id: String { listName ?? ScratchGrouping.noListID }
 }
 
+/// Conditional, because grouping itself never needs a row to be addressable —
+/// only the keyboard does. A group of anything can be built and rendered; a
+/// group whose rows carry string ids additionally navigates, through the same
+/// helpers the actionable lists use.
+extension ScratchGroup: ListGroup where Element: Identifiable, Element.ID == String {
+    var memberIDs: [String] { entries.map(\.id) }
+}
+
 /// Pure derivation of the scratch feed's sections. Foundation only — no
 /// SwiftUI, no Combine, no store — so ItemsSmoke exercises the ordering.
 enum ScratchGrouping {

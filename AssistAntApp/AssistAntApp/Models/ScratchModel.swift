@@ -164,26 +164,19 @@ final class ScratchModel: ObservableObject {
     /// the notes inside a collapsed group. What `j`/`k` step through, what `x`
     /// will toggle, and the order a batch acts in.
     var visibleIDs: [String] {
-        groups.flatMap { group -> [String] in
-            if collapsedLists.contains(group.id) { return [] }
-            return group.entries.map(\.id)
-        }
+        ActionableListNavigation.visibleIDs(groups, collapsed: collapsedLists)
     }
 
     /// The ids of every note in the group holding keyboard focus — `* a`'s
     /// target. Empty when focus sits nowhere visible, including inside a
     /// collapsed group: a keystroke may not produce a selection that renders
-    /// nowhere. Same rule as `ActionableListNavigation.idsInGroup`, reproduced
-    /// rather than shared because that helper is typed on groups of `Item` and
-    /// these hold rows that carry their match offsets too.
+    /// nowhere.
+    ///
+    /// The same helpers the index surfaces navigate with, reached through
+    /// `ListGroup` — the rows differ, the traversal does not.
     var idsInFocusedGroup: [String] {
-        guard let focused = selection.focusedItemID,
-              let group = groups.first(where: { g in
-                  !collapsedLists.contains(g.id)
-                      && g.entries.contains { $0.id == focused }
-              })
-        else { return [] }
-        return group.entries.map(\.id)
+        ActionableListNavigation.idsInGroup(
+            of: selection.focusedItemID, groups, collapsed: collapsedLists)
     }
 
     /// The selected entries, in feed order. Scoped to the visible rows, so a
