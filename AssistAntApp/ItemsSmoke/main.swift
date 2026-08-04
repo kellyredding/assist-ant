@@ -2398,11 +2398,113 @@ check("fuzzy/terms: a blank query matches") {
             .matchedOffsets == []
 }
 
-// Subsequence scope is untouched, so the cheat sheet keeps its initials search —
-// which term scope deliberately refuses.
+// Subsequence scope is untouched, which is what KeystrokeSearch's relaxed pass
+// spends on the cheat sheet's initials search — a spelling term scope
+// deliberately refuses.
 check("fuzzy: subsequence still spans, unlike terms") {
     FuzzyMatch.matches("Move to Icebox", query: "mti")
         && !FuzzyMatch.matches("Move to Icebox", query: "mti", scope: .terms)
+}
+
+// MARK: - Cheat sheet search
+
+/// A slice of the real catalog's shape: the two searchable fields, over rows
+/// whose labels and chords overlap the way the catalog's genuinely do.
+let sheetRows: [KeystrokeSearch.Candidate] = [
+    .init(label: "Delete", keys: "a d"),
+    .init(label: "Delete permanently", keys: "a d"),
+    .init(label: "Restore / Reopen", keys: "a r"),
+    .init(label: "Move to Icebox", keys: "a i"),
+    .init(label: "Add or change list", keys: "l l"),
+    .init(label: "Reschedule…", keys: "l s"),
+    .init(label: "Copy to clipboard", keys: "a c"),
+]
+
+/// The labels a query keeps, in catalog order.
+func sheetMatches(_ query: String) -> [String] {
+    zip(sheetRows, KeystrokeSearch.hits(sheetRows, query: query))
+        .compactMap { $1 == nil ? nil : $0.label }
+}
+
+// A word query answers with the rows that contain the word, and stops there.
+// This is the regression the search was rewritten for: the view used to fold the
+// section title and the availability condition into the haystack, so "del" found
+// every selection-gated row through "Sche(d)ul(e) … se(l)ection" — Restore,
+// Move to Icebox, Reschedule and a dozen more, ahead of Delete itself.
+check("sheet search: a word query matches the word, not the condition text") {
+    sheetMatches("del") == ["Delete", "Delete permanently"]
+}
+
+// Nothing outside the label and the keystroke is searchable. "selection" appears
+// in the condition text of most real rows and in no label here.
+check("sheet search: condition-text words are not searchable") {
+    sheetMatches("selection").isEmpty && sheetMatches("Icebox, Trash").isEmpty
+}
+
+// A chord is found by typing it with or without its space, because the keystroke
+// is read as a subsequence.
+check("sheet search: a chord is findable by its keys") {
+    sheetMatches("ai") == ["Move to Icebox"]
+        && sheetMatches("a i") .contains("Move to Icebox")
+        && sheetMatches("ll") == ["Add or change list"]
+        && sheetMatches("ls") == ["Reschedule…"]
+}
+
+// Initials survive, through the relaxed pass: "mti" is a subsequence of the
+// label and a term of nothing.
+check("sheet search: initials still find a label") {
+    sheetMatches("mti") == ["Move to Icebox"]
+        && sheetMatches("ctc") == ["Copy to clipboard"]
+}
+
+// The relaxed pass runs only when the strict one came back empty. "del" is a
+// subsequence of "Ad(d) or chang(e) (l)ist", so a query that always relaxed
+// would drag that row in behind the Delete rows it actually wanted.
+check("sheet search: the relaxed pass stays out of a query that matched") {
+    !sheetMatches("del").contains("Add or change list")
+        && sheetMatches("adcl") == ["Add or change list"]
+}
+
+// An empty or whitespace query is not a filter.
+check("sheet search: an empty query keeps every row and highlights nothing") {
+    let all = KeystrokeSearch.hits(sheetRows, query: "   ")
+    return all.count == sheetRows.count
+        && all.allSatisfy { $0 == KeystrokeSearch.Hit() }
+}
+
+// The same property over the real corpus, which is where it broke. Asserted as
+// an invariant rather than a row count so the catalog can grow: every row a word
+// query keeps must contain that word in its label, which is false the moment
+// anything but the label and the keystroke re-enters the haystack.
+//
+// Literal keystrokes only — resolving a rebindable one needs KeyboardShortcuts,
+// which this target deliberately cannot see. The rebindable rows searching as if
+// unbound is fine here: the label half is what this is checking.
+check("sheet search: a word query stays narrow over the real catalog") {
+    let candidates = KeystrokeCatalog.all.map { entry -> KeystrokeSearch.Candidate in
+        if case .literal(let text) = entry.binding {
+            return .init(label: entry.label, keys: text)
+        }
+        return .init(label: entry.label, keys: "")
+    }
+    let matched = zip(
+        KeystrokeCatalog.all, KeystrokeSearch.hits(candidates, query: "del")
+    ).compactMap { $1 == nil ? nil : $0.label }
+    return !matched.isEmpty
+        && matched.allSatisfy { $0.lowercased().contains("del") }
+}
+
+// Offsets are candidate-relative and land on both fields when both matched, so
+// the row can tint exactly what the filter read.
+check("sheet search: offsets point at what matched, per field") {
+    let rows = [KeystrokeSearch.Candidate(label: "Delete", keys: "a d")]
+    guard let hit = KeystrokeSearch.hits(rows, query: "del").first ?? nil
+    else { return false }
+    guard let both = KeystrokeSearch.hits(
+        [KeystrokeSearch.Candidate(label: "Add list", keys: "l l")],
+        query: "l").first ?? nil else { return false }
+    return hit.labelOffsets == [0, 1, 2] && hit.keysOffsets.isEmpty
+        && !both.labelOffsets.isEmpty && both.keysOffsets == [0]
 }
 
 check("catalog: no entry has an empty label or literal binding") {

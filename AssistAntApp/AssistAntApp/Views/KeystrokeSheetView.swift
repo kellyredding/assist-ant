@@ -36,13 +36,18 @@ struct KeystrokeSheetView: View {
     }
 
     private var card: some View {
-        VStack(spacing: 0) {
-            header
+        // Resolved once. Every read rebuilds the whole list and re-resolves ~75
+        // keystrokes through user defaults, so asking twice per body pass was
+        // paying for the catalog four times over.
+        let sections = self.sections
+        let matched = sections.reduce(0) { $0 + $1.rows.count }
+        return VStack(spacing: 0) {
+            header(matched: matched)
             Divider()
             if sections.isEmpty {
                 emptyState
             } else {
-                list
+                list(sections)
             }
         }
         .frame(width: Self.cardWidth)
@@ -57,7 +62,7 @@ struct KeystrokeSheetView: View {
         .shadow(radius: 30, y: 10)
     }
 
-    private var header: some View {
+    private func header(matched: Int) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
@@ -69,6 +74,13 @@ struct KeystrokeSheetView: View {
                 // filters.
                 .onSubmit {}
             if !query.isEmpty {
+                // The matched count against the whole catalog, so a short list
+                // reads as "the query is narrow" rather than "the sheet is
+                // broken" — the same reassurance the scratch feed's count gives.
+                Text("\(matched) of \(KeystrokeCatalog.all.count)")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
                 PointerIconButton(systemName: "xmark.circle.fill") {
                     query = ""
                 }
@@ -94,7 +106,7 @@ struct KeystrokeSheetView: View {
     /// of recycling bug that a duplicated row identity produces — rows landing
     /// under the wrong header and blank gaps where the list believed it had
     /// already built something.
-    private var list: some View {
+    private func list(_ sections: [Group]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -129,7 +141,7 @@ struct KeystrokeSheetView: View {
 
     private func row(_ row: Row) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(row.keys)
+            Text(highlighted(row.keys, row.hit.keysOffsets))
                 .font(.system(size: 12, design: .monospaced))
                 .padding(.horizontal, 7).padding(.vertical, 3)
                 .background(
@@ -138,7 +150,7 @@ struct KeystrokeSheetView: View {
                 )
                 .frame(minWidth: 74, alignment: .leading)
 
-            Text(row.entry.label)
+            Text(highlighted(row.entry.label, row.hit.labelOffsets))
                 .font(.system(size: 13))
 
             Spacer(minLength: 8)
@@ -166,7 +178,29 @@ struct KeystrokeSheetView: View {
         let id: String
         let entry: KeystrokeEntry
         let keys: String
+        let hit: KeystrokeSearch.Hit
         let isActive: Bool
+    }
+
+    /// `text` with the matched characters tinted, from the offsets the filter
+    /// already computed — so the highlight cannot disagree with the filter about
+    /// what matched, the same arrangement the scratch feed's rows use. Walked
+    /// character by character rather than indexed, which keeps a stray offset
+    /// from trapping.
+    private func highlighted(
+        _ text: String, _ offsets: [Int]
+    ) -> AttributedString {
+        guard !offsets.isEmpty else { return AttributedString(text) }
+        let marked = Set(offsets)
+        var out = AttributedString()
+        for (i, character) in text.enumerated() {
+            var piece = AttributedString(String(character))
+            if marked.contains(i) {
+                piece.backgroundColor = .yellow.opacity(0.35)
+            }
+            out += piece
+        }
+        return out
     }
 
     private struct Group: Identifiable {
@@ -181,28 +215,34 @@ struct KeystrokeSheetView: View {
     /// Within a section, rows keep their authored order rather than sorting by
     /// score: the catalog groups related chords together on purpose, and
     /// reshuffling them by match quality would scatter the `a` leaders apart
-    /// the moment a query touched them.
+    /// the moment a query touched them. Highlighting is what tells the reader
+    /// why a row is in the list, which is the job ranking would otherwise do.
+    ///
+    /// What a query may match is `KeystrokeSearch`'s to decide — the condition
+    /// text and the section title are rendered here but never searched.
     private var sections: [Group] {
-        let rows = KeystrokeCatalog.all.enumerated()
-            .compactMap { index, entry -> Row? in
-                let keys = KeystrokeBindingResolver.displayText(
-                    for: entry.binding)
-                let haystack = [
-                    entry.label,
-                    keys,
-                    entry.section.title,
-                    entry.availability.conditionText,
-                ].joined(separator: " ")
-                guard FuzzyMatch.matches(haystack, query: query)
-                else { return nil }
-                // The catalog index makes this unique even where two rows
-                // share a section, a keystroke, and a label.
-                return Row(
-                    id: "\(index)|\(entry.section.rawValue)|\(keys)",
-                    entry: entry,
-                    keys: keys,
-                    isActive: entry.availability.isActive(in: model.context))
-            }
+        let entries = KeystrokeCatalog.all
+        let keys = entries.map {
+            KeystrokeBindingResolver.displayText(for: $0.binding)
+        }
+        let hits = KeystrokeSearch.hits(
+            zip(entries, keys).map {
+                KeystrokeSearch.Candidate(label: $0.label, keys: $1)
+            },
+            query: query)
+
+        let rows = entries.indices.compactMap { index -> Row? in
+            guard let hit = hits[index] else { return nil }
+            let entry = entries[index]
+            // The catalog index makes this unique even where two rows
+            // share a section, a keystroke, and a label.
+            return Row(
+                id: "\(index)|\(entry.section.rawValue)|\(keys[index])",
+                entry: entry,
+                keys: keys[index],
+                hit: hit,
+                isActive: entry.availability.isActive(in: model.context))
+        }
 
         return KeystrokeSection.allCases.compactMap { section in
             let matching = rows.filter { $0.entry.section == section }
