@@ -633,13 +633,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// One consistent ack shape for every task write: `{"ok":…}` plus the id /
-    /// name on success or an `error` string on failure.
+    /// name — and the list, where the write settled one — on success, or an
+    /// `error` string on failure. Every optional field is omitted when absent, so
+    /// a caller prints a grouping only when there is one.
     private func ackData(
-        ok: Bool, id: String? = nil, name: String? = nil, error: String? = nil
+        ok: Bool, id: String? = nil, name: String? = nil, list: String? = nil,
+        error: String? = nil
     ) -> Data? {
         var obj: [String: Any] = ["ok": ok]
         if let id { obj["id"] = id }
         if let name { obj["name"] = name }
+        // Absent when the item has no list, like every other optional here:
+        // the CLI prints the grouping only when there is one to print.
+        if let list { obj["list"] = list }
         if let error { obj["error"] = error }
         return try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     }
@@ -976,6 +982,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `scratch.add` (reply): park one note. The text becomes the body and the
     /// title is derived from it — `ScratchItem.make`, the same shape the composer
     /// writes — then the new id is acked so the CLI can print it.
+    ///
+    /// `list` is optional and parks the note already grouped. An absent key
+    /// means ungrouped; the CLI omits it rather than sending an empty name, so
+    /// this never has to treat "" as a list. The ack echoes the list the note
+    /// actually holds — normalization lives in `ScratchItem.make`, so the CLI
+    /// reports what landed instead of what it asked for.
     private func addScratchReply(_ e: EventEnvelope) -> Data? {
         let workspaceID: String
         do {
@@ -986,13 +998,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let item = ScratchItem.make(
             text: e.detailValue("text", as: String.self) ?? "",
+            listName: e.detailValue("list", as: String.self),
             workspaceID: workspaceID
         ) else {
             return ackData(ok: false, error: "empty note text")
         }
         do {
             try GRDBItemStore.shared.create(item)
-            return ackData(ok: true, id: item.id, name: item.title)
+            return ackData(
+                ok: true, id: item.id, name: item.title,
+                list: item.scratchListName)
         } catch {
             NSLog("AssistAnt: scratch.add failed: \(error)")
             return ackData(ok: false, error: "store write failed")
@@ -1003,7 +1018,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// has ids to convert against. `state == "completed"` is the resolved feed;
     /// anything else is the open buffer — the two are disjoint, exactly as the
     /// pane's toggle presents them. Instants are ISO-8601; absent fields are
-    /// omitted, matching `actionable_item.list`.
+    /// omitted, matching `actionable_item.list`. `list` is the note's own
+    /// grouping, present only when it has one — the agent needs it to pick a
+    /// batch to convert, since conversion carries the list over untouched.
     private func scratchListReplyData(_ e: EventEnvelope) -> Data? {
         let state = e.detailValue("state", as: String.self) ?? "open"
         let items = (try? GRDBItemStore.shared.fetchScratch(
@@ -1015,6 +1032,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "created_at": iso.string(from: i.createdAt),
             ]
             if let body = i.body { row["body"] = body }
+            // `list`, not `list_name`: the scratch envelope names each field
+            // after the flag that sets it (`--list`, `--url`).
+            if let list = i.scratchListName { row["list"] = list }
             if let at = i.resolvedAt { row["resolved_at"] = iso.string(from: at) }
             return row
         }
@@ -1033,6 +1053,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// so it needs to learn whether it picked a note, something already
     /// actionable, or something sitting in the Trash — three different next
     /// moves.
+    ///
+    /// The note's list is NOT a parameter. `convertScratch` carries whatever
+    /// list the note holds onto the item, so there is nothing for the caller to
+    /// pass and nothing for it to override; the ack echoes the list that landed
+    /// so the caller can report a grouping it never chose.
     private func convertScratchReply(_ e: EventEnvelope) -> Data? {
         guard let id = e.detailValue("id", as: String.self) else {
             return ackData(ok: false, error: "missing id")
@@ -1061,9 +1086,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 externalURL: e.detailValue("url", as: String.self))
             notifyActionableItemsDidChange()
             // Re-read so the ack reports the title that actually landed (the
-            // store trims, and keeps the derived one for a blank).
+            // store trims, and keeps the derived one for a blank) — and the
+            // list, which the conversion carried over on its own.
             let after = try store.fetch(id: id)
-            return ackData(ok: true, id: id, name: after?.title)
+            return ackData(
+                ok: true, id: id, name: after?.title,
+                list: after?.actionableListName)
         } catch ItemStoreError.convertRequiresScratch {
             return ackData(ok: false, error: "only a scratch note can be converted")
         } catch ItemStoreError.convertTrashedRefused {

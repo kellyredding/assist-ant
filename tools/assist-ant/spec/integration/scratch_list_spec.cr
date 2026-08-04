@@ -14,7 +14,9 @@ describe "assist-ant scratch list" do
   end
 
   it "sends a scratch.list request defaulting to state=open" do
-    reply = %({"items":[{"body":"ask about the retro doc","created_at":"2026-08-03T12:00:00Z","id":"scr-1","title":"ask about the retro doc"}]})
+    # A row carrying `list` is included on purpose: the CLI parses nothing, so
+    # a new reply field has to reach stdout unchanged and unreordered.
+    reply = %({"items":[{"body":"ask about the retro doc","created_at":"2026-08-03T12:00:00Z","id":"scr-1","list":"Reading","title":"ask about the retro doc"}]})
     with_task_reply_server(reply) do |sock, channel|
       result = run_binary(
         [binary, "scratch", "list"],

@@ -16,6 +16,12 @@ module AssistAnt
     # is command substitution — the shell would run it before the binary ever
     # saw it. The CLI reads the file locally and sends its CONTENTS in
     # `detail_data`; the app never sees a path.
+    #
+    # The envelope speaks its own short-key dialect: `add` sends `list` and
+    # `convert` sends `url`, where the `actionable_item.*` envelopes spell the
+    # same two fields `list_name` and `external_url`. Here each key matches the
+    # flag that sets it, and the `scratch.list` reply reads them back under the
+    # same names, so one command family has one vocabulary end to end.
     class Scratch
       include RequestAck
 
@@ -54,7 +60,7 @@ module AssistAnt
           assist-ant scratch <subcommand> [options]
 
         SUBCOMMANDS:
-          add            Park one note in the Scratch feed.
+          add            Park one note in the Scratch feed (--list to group it).
           list           List notes with their ids (JSON; --state open|completed).
           convert        Promote one note into a to-do / reminder / explore item.
 
@@ -63,11 +69,13 @@ module AssistAnt
         HELP
       end
 
-      # Park one note in the open feed. The note's text is the whole payload —
-      # the app derives the title and stamps the time, exactly as the in-app
-      # composer does, so the CLI must NOT invent a title. Request/reply so the
-      # new id round-trips and a follow-up `convert` has a target without
-      # re-listing.
+      # Park one note in the open feed. The text is the whole note — the app
+      # derives the title and stamps the time, exactly as the in-app composer
+      # does, so the CLI must NOT invent a title. `--list` is the one other
+      # thing that rides along: a note can be parked already grouped, and
+      # `convert` carries that grouping onto the item it makes, so the list
+      # chosen here is the list the eventual item gets. Request/reply so the new
+      # id round-trips and a follow-up `convert` has a target without re-listing.
       private def add(args : Array(String))
         # Handle help before OptionParser so an in-process `scratch add --help`
         # (the unit routing spec) returns cleanly instead of calling `exit`,
@@ -79,24 +87,46 @@ module AssistAnt
 
         text : String? = nil
         text_path : String? = nil
+        list_name : String? = nil
 
         OptionParser.parse(args) do |p|
           p.banner = "Usage: assist-ant scratch add (--text TEXT | --text-file PATH)"
           p.on("-h", "--help", "Show this help") { puts add_help; exit 0 }
           p.on("--text=TEXT", "The note text (one of --text / --text-file)") { |v| text = v }
           p.on("--text-file=PATH", "File holding the note text (multi-line markdown)") { |v| text_path = v }
+          p.on("--list=NAME", "Park the note in a list (created if new)") { |v| list_name = v }
           p.invalid_option { |f| abort_flag("unknown flag '#{f}'", "assist-ant scratch add") }
         end
 
         note = resolve_text(text, text_path)
-        ack = request_ack("scratch.add", {"text" => JSON::Any.new(note)})
+
+        # Built by conditional insert rather than as one literal: an ABSENT
+        # `list` is what parks the note ungrouped, so the flag has to be able to
+        # contribute nothing at all. An empty string is a different instruction —
+        # a list whose name is "" — which is why `--list ''` is dropped here
+        # rather than forwarded, the same rule `convert` applies to `--url`.
+        detail = {} of String => JSON::Any
+        detail["text"] = JSON::Any.new(note)
+        if l = list_name
+          detail["list"] = JSON::Any.new(l) unless l.empty?
+        end
+
+        ack = request_ack("scratch.add", detail)
+        # The list is printed from the ack, never from the flag: the app trims
+        # the name and drops a blank one, so only its answer is the grouping
+        # that actually landed.
+        grouped = ""
+        if name = ack["list"]?.try(&.as_s?)
+          grouped = ", list #{name}" unless name.empty?
+        end
         puts "Added scratch note #{ack["id"]?.try(&.as_s?) || ""} " \
-             "(#{note.lines.size} line(s))."
+             "(#{note.lines.size} line(s)#{grouped})."
       end
 
       # Read: print the app's JSON reply verbatim (`{"items":[{id, title, body,
-      # created_at, resolved_at}, …]}`) for the agent to parse — ids included so
-      # `convert` has a target. Mirrors `actionable-item list`.
+      # list, created_at, resolved_at}, …]}`) for the agent to parse — ids
+      # included so `convert` has a target, and `list` so a batch can be picked
+      # by grouping before converting. Mirrors `actionable-item list`.
       private def list(args : Array(String))
         rest = args.dup
         if rest.first? == "-h" || rest.first? == "--help"
@@ -188,8 +218,15 @@ module AssistAnt
         end
 
         ack = request_ack("scratch.convert", detail)
+        # The list is read back from the ack, never passed in: a converted note
+        # keeps its own list, so the app is the only side that knows which one
+        # the new item landed in.
+        grouped = ""
+        if name = ack["list"]?.try(&.as_s?)
+          grouped = " (list #{name})" unless name.empty?
+        end
         puts "Converted note #{id} → #{kind}: " \
-             "#{ack["name"]?.try(&.as_s?) || title}."
+             "#{ack["name"]?.try(&.as_s?) || title}#{grouped}."
       end
 
       # Resolve the note text from EXACTLY ONE of --text / --text-file. Shaped
@@ -247,6 +284,7 @@ module AssistAnt
           --text-file PATH       File holding the note text (multi-line markdown)
 
         OPTIONS:
+          --list NAME            Park the note in a list (created if new)
           -h, --help             Show this help
 
         DESCRIPTION:
@@ -258,9 +296,16 @@ module AssistAnt
           a '$': the shell runs backticks as command substitution and expands
           '$name' before the binary sees the argument.
 
+          A note can be parked already grouped: --list NAME puts it in that
+          list, creating the list if nothing uses that name yet. Lists are
+          shared with actionable items, so `actionable-item list-names` shows
+          the names already in use. `scratch convert` carries whatever list the
+          note holds onto the item it makes.
+
         EXAMPLES:
           assist-ant scratch add --text 'ask about the retro doc'
           assist-ant scratch add --text-file /tmp/aa-note.md
+          assist-ant scratch add --text 'read the RFC' --list Reading
         HELP
       end
 
@@ -276,9 +321,10 @@ module AssistAnt
           -h, --help             Show this help
 
         DESCRIPTION:
-          Prints notes as JSON (`{"items":[{id, title, body, created_at,
-          resolved_at}, …]}`) so `convert` has a target. `open` is the working
-          buffer; `completed` is the reviewed set. The two are disjoint.
+          Prints notes as JSON (`{"items":[{id, title, body, list, created_at,
+          resolved_at}, …]}`) so `convert` has a target; `list` is present only
+          for a note parked in one. `open` is the working buffer; `completed`
+          is the reviewed set. The two are disjoint.
 
         EXAMPLES:
           assist-ant scratch list
@@ -307,6 +353,10 @@ module AssistAnt
         DESCRIPTION:
           The note becomes a shaped item in place — same id, same capture time —
           and leaves the scratch feed.
+
+          The new item inherits the note's own list, always and automatically.
+          There is no flag for it: a note parked in a list was already grouped
+          on purpose, and the only way to change that grouping is in the app.
 
           There is no --body: a converted body is multi-line markdown with
           backticks, and a backtick in a shell argument is command substitution.

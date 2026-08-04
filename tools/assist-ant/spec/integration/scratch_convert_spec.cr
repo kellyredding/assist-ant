@@ -120,6 +120,30 @@ describe "assist-ant scratch convert" do
     end
   end
 
+  it "reports the list the converted item inherited" do
+    with_task_reply_server(%({"ok":true,"id":"scr-5","list":"Reading","name":"Read the RFC"})) do |sock, channel|
+      body = File.tempfile("aa-convert-body", ".md")
+      body.print("the note\n")
+      body.close
+      begin
+        result = run_binary(
+          [binary, "scratch", "convert",
+           "--id", "scr-5", "--kind", "explore", "--title", "Read the RFC",
+           "--body-file", body.path],
+          env: {"ASSIST_ANT_SOCKET" => sock},
+        )
+        result[:status].success?.should be_true
+        result[:stdout].should contain "list Reading"
+
+        # Nothing about the list is sent: the note carries its own, so the
+        # envelope stays exactly what it was before lists existed.
+        JSON.parse(channel.receive)["detail_data"]["list"]?.should be_nil
+      ensure
+        File.delete(body.path) if File.exists?(body.path)
+      end
+    end
+  end
+
   describe "validation (before any request)" do
     it "rejects an invalid --kind" do
       body = File.tempfile("aa-convert-body", ".md")
@@ -177,6 +201,31 @@ describe "assist-ant scratch convert" do
         [binary, "scratch", "convert",
          "--id", "scr-1", "--kind", "todo", "--title", "x",
          "--body", "## Notes"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "unknown flag"
+    end
+
+    # A converted note takes the note's own list and nothing else — always,
+    # implicitly. There is no flag to set one, and it must stay unknown: a
+    # convert that could name a list would let the caller overrule a grouping
+    # the user already chose when the note was parked.
+    it "rejects --list as an unknown flag" do
+      result = run_binary(
+        [binary, "scratch", "convert",
+         "--id", "scr-1", "--kind", "todo", "--title", "x",
+         "--list", "Reading"])
+      result[:status].success?.should be_false
+      result[:stderr].should contain "unknown flag"
+    end
+
+    # The other half: there is no way to drop the note's list on the way in
+    # either. Ungrouping a converted item is a move in the app, where the item
+    # is visible, not a side effect of the call that created it.
+    it "rejects --clear-list as an unknown flag" do
+      result = run_binary(
+        [binary, "scratch", "convert",
+         "--id", "scr-1", "--kind", "todo", "--title", "x",
+         "--clear-list"])
       result[:status].success?.should be_false
       result[:stderr].should contain "unknown flag"
     end
@@ -268,5 +317,14 @@ describe "assist-ant scratch convert" do
     result[:status].success?.should be_false
     result[:stderr].should contain "unknown scratch subcommand"
     result[:stderr].should contain "scratch --help"
+  end
+
+  # Re-grouping a note that is already parked is a gesture in the Scratch pane,
+  # not a CLI verb: `add` groups at capture time and `convert` inherits, so
+  # `update` must stay unknown rather than becoming a third way to set a list.
+  it "rejects 'update' as a scratch subcommand" do
+    result = run_binary([binary, "scratch", "update", "scr-1", "--list", "Reading"])
+    result[:status].success?.should be_false
+    result[:stderr].should contain "unknown scratch subcommand"
   end
 end

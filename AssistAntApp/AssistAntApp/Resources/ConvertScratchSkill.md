@@ -73,14 +73,17 @@ Compose one.
 
    ```
    Converted 3 of 4 notes to to-dos:
-   ✓ Renew the passport
+   ✓ Renew the passport (list Errands)
    ✓ Read the Swift 6 concurrency migration guide (enriched from swift.org)
    ✓ Call the dentist about the crown
    ✗ 019a…d4 — convert failed: only a scratch note can be converted
    ```
 
    Name a failed note by its id (its text may be long) and quote the CLI's
-   reason. If every item failed, say so in the first line — don't bury it.
+   reason. If every item failed, say so in the first line — don't bury it. When
+   the CLI's success line names a list, name it too: the grouping came from the
+   note and the user should see it was kept. Say nothing about a list for a note
+   that never had one.
 
 ## Notes
 
@@ -96,9 +99,16 @@ Compose one.
   skill can legitimately run twice on one payload. The second run finds the
   notes already converted. Say that plainly rather than reporting a run of
   failures that never happened.
-- **Convert sets no schedule and no list.** If a note names a day, keep it in
-  the body and say so in the report; a follow-up `actionable-item update <id>`
-  can schedule or list it if the user asks. Don't invent a schedule.
+- **The list is inherited, and there is no flag for it.** A note parked in a
+  list carries that list onto the item it becomes — automatically, on every
+  conversion. `scratch convert` takes no list argument and needs none: don't
+  look for one, don't pass one, and don't work around its absence. Report the
+  list the CLI names and leave the grouping as it is. If the user explicitly
+  asks for a different list, that is a separate `actionable-item update <id>
+  --list '<name>'` after the conversion has landed.
+- **Convert sets no schedule.** If a note names a day, keep it in the body and
+  say so in the report; a follow-up `actionable-item update <id>` can schedule
+  it if the user asks. Don't invent a schedule.
 - **A title with an apostrophe breaks `'…'` quoting.** Use double quotes for
   that title instead.
 - **Nothing is waiting on you** — no callback, no status, no deadline. Take the

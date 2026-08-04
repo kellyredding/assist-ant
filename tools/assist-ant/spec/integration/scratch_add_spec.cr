@@ -53,6 +53,54 @@ describe "assist-ant scratch add" do
     end
   end
 
+  it "includes list in the envelope when --list is given" do
+    with_task_reply_server(%({"ok":true,"id":"scr-3","list":"Reading","name":"read the RFC"})) do |sock, channel|
+      result = run_binary(
+        [binary, "scratch", "add", "--text", "read the RFC", "--list", "Reading"],
+        env: {"ASSIST_ANT_SOCKET" => sock},
+      )
+      result[:status].success?.should be_true
+      # Printed from the ack's list, not from the flag, so the summary reports
+      # the grouping the app kept rather than the one this command asked for.
+      result[:stdout].should contain "list Reading"
+
+      detail = JSON.parse(channel.receive)["detail_data"]
+      # `list`, not `list_name`: the scratch envelope names each field after the
+      # flag that sets it, the same way convert's link is `url`.
+      detail["list"].should eq "Reading"
+      detail["text"].should eq "read the RFC"
+    end
+  end
+
+  it "omits list from the envelope when --list is not given" do
+    with_task_reply_server(%({"ok":true,"id":"scr-4","name":"ungrouped note"})) do |sock, channel|
+      result = run_binary(
+        [binary, "scratch", "add", "--text", "ungrouped note"],
+        env: {"ASSIST_ANT_SOCKET" => sock},
+      )
+      result[:status].success?.should be_true
+
+      # Absent, not empty: an absent key parks the note ungrouped, while an
+      # empty string would name a list called "" — a different instruction, and
+      # one the store would faithfully carry into the item on conversion.
+      JSON.parse(channel.receive)["detail_data"]["list"]?.should be_nil
+    end
+  end
+
+  it "treats an empty --list as no list at all" do
+    with_task_reply_server(%({"ok":true,"id":"scr-5","name":"still ungrouped"})) do |sock, channel|
+      result = run_binary(
+        [binary, "scratch", "add", "--text", "still ungrouped", "--list", ""],
+        env: {"ASSIST_ANT_SOCKET" => sock},
+      )
+      result[:status].success?.should be_true
+
+      # The `unless l.empty?` guard is the only thing standing between an
+      # operator passing nothing and a list named "" reaching the store.
+      JSON.parse(channel.receive)["detail_data"]["list"]?.should be_nil
+    end
+  end
+
   it "rejects --text and --text-file together (before any request)" do
     note = File.tempfile("aa-scratch-note", ".md")
     note.print("from the file\n")

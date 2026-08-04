@@ -79,7 +79,8 @@ module AssistAnt
                                         list/url/icebox/trash).
           actionable-item remove <id>   Soft-delete a manual item (→ Trash).
           scratch add                   Park one note in the Scratch feed (text
-                                        or --text-file for multi-line markdown).
+                                        or --text-file for multi-line markdown,
+                                        --list to park it grouped).
           scratch list                  List notes with their ids (JSON;
                                         --state open|completed).
           scratch convert               Promote one note into a to-do / reminder
