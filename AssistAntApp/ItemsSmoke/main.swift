@@ -2491,7 +2491,9 @@ func catalogCandidates() -> [KeystrokeSearch.Candidate] {
         return KeystrokeSearch.Candidate(
             label: entry.label, keys: keys,
             section: entry.section.title,
-            condition: entry.availability.conditionText)
+            condition: entry.availability.conditionText,
+            // Composed the same way the sheet composes it.
+            aliases: entry.aliases + " " + KeystrokeGlyphs.spelled(keys))
     }
 }
 
@@ -2513,9 +2515,65 @@ check("sheet search: a word query stays narrow over the real catalog") {
     let hits = KeystrokeSearch.hits(candidates, query: "del")
     let kept = zip(candidates, hits).compactMap { $1 == nil ? nil : $0 }
     return !kept.isEmpty && kept.allSatisfy { candidate in
-        [candidate.label, candidate.keys, candidate.section, candidate.condition]
+        [candidate.label, candidate.keys, candidate.section,
+         candidate.condition, candidate.aliases]
             .contains { $0.lowercased().contains("del") }
     }
+}
+
+// Glyphs spell themselves out, because none of them can be typed. ⌫ is
+// deliberately "backspace" and not "delete", though the key is printed Delete:
+// the only two rows carrying it are Clear and Compact session, and pulling those
+// into every search for "delete" is the opposite of grouping a concept.
+check("glyphs: modifiers spell out, and the backspace key is not delete") {
+    let chord = KeystrokeGlyphs.spelled("⇧⌘⌫")
+    return ["shift", "command", "cmd", "backspace"].allSatisfy(chord.contains)
+        && !chord.contains("delete")
+        && KeystrokeGlyphs.spelled("esc").contains("escape")
+        && KeystrokeGlyphs.spelled("⌘←").contains("left arrow")
+        && KeystrokeGlyphs.spelled("⌘=").contains("plus")
+        // A bare letter chord has no glyphs to spell.
+        && KeystrokeGlyphs.spelled("a d").isEmpty
+}
+
+// Every row carries synonyms. A gate rather than a nicety: a row added without
+// them is invisible to every word its label does not happen to use, and nothing
+// else would notice.
+check("catalog: every entry carries search aliases") {
+    KeystrokeCatalog.all.allSatisfy {
+        !$0.aliases.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+// Asking about a place answers with the whole round trip, not the one row whose
+// label happens to name it. Before aliases, "trash" found only the row that
+// empties it — never the one that moves an item there, nor the one that takes it
+// back out.
+check("catalog: a place answers with both directions") {
+    let trash = Set(catalogMatches("trash"))
+    let icebox = Set(catalogMatches("icebox"))
+    return trash.isSuperset(of: [
+        "Delete permanently",   // empties it
+        "Delete",               // moves an item in
+        "Put back",             // takes one back out
+    ])
+    && icebox.isSuperset(of: ["Move to Icebox", "Remove from Icebox"])
+    && Set(catalogMatches("later")).contains("Move to Icebox")
+}
+
+// A concept reaches its rows under the word a reader actually uses for it.
+check("catalog: concepts answer to the words readers use") {
+    Set(catalogMatches("zoom")) == [
+        "Default terminal font size",
+        "Bigger terminal font size",
+        "Smaller terminal font size",
+    ]
+    // "view" is this app's word; "tab" is everyone else's.
+    && Set(catalogMatches("tab")) == ["Previous view", "Next view"]
+    && Set(catalogMatches("prefs")) == ["Settings"]
+    && Set(catalogMatches("cheat sheet")) == ["Keyboard shortcuts"]
+    && Set(catalogMatches("backspace")) == ["Clear session", "Compact session"]
+    && !Set(catalogMatches("delete")).contains("Clear session")
 }
 
 // The font-size trio answers to every word in it. This is the whole reason those

@@ -265,7 +265,11 @@ struct KeystrokeSheetView: View {
                     label: entry.label,
                     keys: keys,
                     section: entry.section.title,
-                    condition: entry.availability.conditionText)
+                    condition: entry.availability.conditionText,
+                    // The authored synonyms plus the keystroke's glyphs spelled
+                    // out, since none of "⌘⇧⌫" can be typed into the field.
+                    aliases: entry.aliases + " "
+                        + KeystrokeGlyphs.spelled(keys))
             },
             query: query)
 

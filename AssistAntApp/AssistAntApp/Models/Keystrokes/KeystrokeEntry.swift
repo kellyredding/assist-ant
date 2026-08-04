@@ -165,4 +165,20 @@ struct KeystrokeEntry: Equatable {
     let label: String
     let section: KeystrokeSection
     let availability: KeystrokeAvailability
+    /// Other words for what this does — searched, never drawn.
+    ///
+    /// The sheet is asked about concepts rather than labels: a reader hunting
+    /// everything to do with the Trash means the command that moves an item
+    /// there, the one that empties it, and the one that takes an item back out,
+    /// and only one of those three says "Trash" in its label. These carry the
+    /// words the label cannot afford to.
+    ///
+    /// Not folded into the label because several labels are load-bearing
+    /// elsewhere — the reclassify rows match the ⋮ menu's titles exactly, and
+    /// the font rows the menu's heading — and because a row has to stay short
+    /// enough to scan a hundred of them.
+    ///
+    /// Written as natural phrases, not keywords: matching is ordered, so "move
+    /// to trash" answers a reader typing that where "trash move" would not.
+    var aliases: String = ""
 }

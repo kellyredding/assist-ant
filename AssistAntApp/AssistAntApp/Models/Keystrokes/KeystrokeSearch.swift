@@ -21,6 +21,11 @@ enum KeystrokeSearch {
         let keys: String
         let section: String
         let condition: String
+        /// Other words for the same thing, and the spelled-out names of the
+        /// keystroke's glyphs. Matched like the rest; drawn nowhere, so a row
+        /// kept for one of these shows no highlight — the section and the label
+        /// are what explain it.
+        var aliases: String = ""
     }
 
     /// Where a query landed, so a row can show why it matched. Per field,
@@ -59,10 +64,12 @@ enum KeystrokeSearch {
         let label = offsets(c.label)
         let keys = offsets(c.keys)
         let condition = offsets(c.condition)
-        // The section matches without highlighting — it is drawn once above a
-        // run of rows, so there is no per-row glyph to tint.
+        // Neither of these is highlighted: the section is drawn once above a run
+        // of rows, and the aliases are not drawn at all.
         let section = offsets(c.section)
-        guard label != nil || keys != nil || condition != nil || section != nil
+        let aliases = offsets(c.aliases)
+        guard label != nil || keys != nil || condition != nil
+                || section != nil || aliases != nil
         else { return nil }
         return Hit(
             labelOffsets: label ?? [],
