@@ -20,6 +20,10 @@ import AppKit
 /// bare-character match takes ⌘-combinations with it: the `l` leader would eat
 /// ⌘L, `a` would eat ⌘A, and `x` would eat ⌘X, each the instant a selection
 /// exists. Shift is deliberately still allowed, since `*` is ⇧8.
+/// A chord added here also needs a row in `KeystrokeCatalog`, or it will not
+/// appear in the ⌘/ cheat sheet — and nothing fails to say so. These chords are
+/// the half of the catalog that cannot be derived from anything, so the sheet
+/// only knows what someone wrote into it.
 @MainActor
 final class ActionableListChords {
     /// What the controller needs from the host pane, read per event so it

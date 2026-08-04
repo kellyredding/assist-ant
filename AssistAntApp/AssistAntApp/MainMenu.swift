@@ -10,6 +10,10 @@ import Galactic
 /// NSNotifications. AppDelegate observes those notifications and dispatches
 /// to the right subsystem. The indirection lets new menu items slot in
 /// without AppDelegate having to know about every menu wiring.
+///
+/// A binding added here also needs a row in `KeystrokeCatalog`, or it will not
+/// appear in the ⌘/ cheat sheet — and nothing fails to say so, because the
+/// catalog restates these facts rather than deriving them.
 final class MainMenu: NSObject {
     func install() {
         let mainMenu = NSMenu()

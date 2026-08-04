@@ -33,6 +33,10 @@ import AppKit
 /// open, the key window ours, and no *editable* text view holding focus. That
 /// last clause is why the composer must be blurred before the chords answer:
 /// while it holds focus the keystrokes are text, not commands.
+/// A chord added here also needs a row in `KeystrokeCatalog`, or it will not
+/// appear in the ⌘/ cheat sheet — and nothing fails to say so. These chords are
+/// the half of the catalog that cannot be derived from anything, so the sheet
+/// only knows what someone wrote into it.
 @MainActor
 final class ScratchListChords {
     /// What the controller needs from the pane, read per event so it always sees
