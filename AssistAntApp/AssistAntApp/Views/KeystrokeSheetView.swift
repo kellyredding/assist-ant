@@ -16,8 +16,12 @@ struct KeystrokeSheetView: View {
     @State private var query = ""
     @FocusState private var searchFocused: Bool
 
+    @State private var listContentHeight: CGFloat = 0
+
     private static let cardWidth: CGFloat = 660
     private static let inactiveOpacity: CGFloat = 0.45
+    /// How tall the rows may get before they scroll instead.
+    private static let listMaxHeight: CGFloat = 560
 
     var body: some View {
         ZStack {
@@ -51,7 +55,6 @@ struct KeystrokeSheetView: View {
             }
         }
         .frame(width: Self.cardWidth)
-        .frame(maxHeight: 620)
         .background(
             RoundedRectangle(cornerRadius: 14).fill(.regularMaterial)
         )
@@ -118,7 +121,21 @@ struct KeystrokeSheetView: View {
                     }
                 }
                 .padding(.bottom, 12)
+                // A scroll view takes whatever height it is offered, so the card
+                // stood at its cap however few rows were in it — and a stack with
+                // nothing flexible in it centres, which slid the search field to
+                // the middle of a mostly empty card. Measuring the rows lets the
+                // card end where they do, up to the cap.
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: ContentHeightKey.self,
+                            value: geometry.size.height)
+                    }
+                )
             }
+            .frame(height: listHeight)
+            .onPreferenceChange(ContentHeightKey.self) { listContentHeight = $0 }
             .onAppear {
                 // Open where the user already is. Only on first appear — doing
                 // it as the query changes would yank the list around mid-search.
@@ -126,6 +143,21 @@ struct KeystrokeSheetView: View {
                     KeystrokeSection.opening(for: model.context),
                     anchor: .top)
             }
+        }
+    }
+
+    /// The rows' own height, capped — and the cap itself until they have been
+    /// measured, so the first frame opens full-size rather than collapsed.
+    private var listHeight: CGFloat {
+        listContentHeight <= 0
+            ? Self.listMaxHeight
+            : min(listContentHeight, Self.listMaxHeight)
+    }
+
+    private struct ContentHeightKey: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
         }
     }
 
@@ -156,7 +188,9 @@ struct KeystrokeSheetView: View {
             Spacer(minLength: 8)
 
             if !row.entry.availability.conditionText.isEmpty {
-                Text(row.entry.availability.conditionText)
+                Text(highlighted(
+                    row.entry.availability.conditionText,
+                    row.hit.conditionOffsets))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -226,8 +260,12 @@ struct KeystrokeSheetView: View {
             KeystrokeBindingResolver.displayText(for: $0.binding)
         }
         let hits = KeystrokeSearch.hits(
-            zip(entries, keys).map {
-                KeystrokeSearch.Candidate(label: $0.label, keys: $1)
+            zip(entries, keys).map { entry, keys in
+                KeystrokeSearch.Candidate(
+                    label: entry.label,
+                    keys: keys,
+                    section: entry.section.title,
+                    condition: entry.availability.conditionText)
             },
             query: query)
 
