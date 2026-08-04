@@ -141,10 +141,12 @@ enum KeystrokeCatalog {
     /// the same act wherever you are — and diverges only partly on the actions.
     ///
     /// The `a` leader covers the toolbar glyphs. The `l` leader addresses the ⋮
-    /// menu, as it does on every surface that has one, and scratch's ⋮ holds
-    /// exactly the convert commands — so `l t` / `l r` / `l e` are here, bound to
-    /// the same letters the lists use for reclassify, and the rest of that
-    /// surface's `l` vocabulary is not (a note has no list and no day).
+    /// menu, as it does on every surface that has one, and scratch's ⋮ holds the
+    /// convert commands plus the list assignment — so `l t` / `l r` / `l e` are
+    /// here, bound to the same letters the lists use for reclassify, and `l l`
+    /// opens the same list editor those surfaces open. What is still absent is
+    /// the scheduled day (`l s`): a note is not work until it is converted into
+    /// some.
     ///
     /// The chords need the feed to own the keyboard, which the composer holds on
     /// arrival — Escape is what hands it over, so it leads the section.
@@ -164,7 +166,9 @@ enum KeystrokeCatalog {
               section: .scratch, availability: .tabs(scratchOnly)),
         .init(binding: .literal("⏎"), label: "Edit focused note in place",
               section: .scratch, availability: .tabs(scratchOnly)),
-        .init(binding: .literal("* a"), label: "Select all shown",
+        // Same wording as the Lists section's entry: the chord scopes to the
+        // focused row's group on both surfaces, so it must not read differently.
+        .init(binding: .literal("* a"), label: "Select all in group",
               section: .scratch, availability: .tabs(scratchOnly)),
         .init(binding: .literal("* n"), label: "Clear selection",
               section: .scratch, availability: .tabs(scratchOnly)),
@@ -189,6 +193,11 @@ enum KeystrokeCatalog {
               section: .scratch,
               availability: .tabsWithSelection(scratchOnly)),
         .init(binding: .literal("l e"), label: "Convert to Explore",
+              section: .scratch,
+              availability: .tabsWithSelection(scratchOnly)),
+        // The Lists section's label verbatim: it is the same editor on the same
+        // chord, so two sections must not name it two ways.
+        .init(binding: .literal("l l"), label: "Add or change list",
               section: .scratch,
               availability: .tabsWithSelection(scratchOnly)),
     ]

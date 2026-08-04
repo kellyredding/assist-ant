@@ -648,8 +648,9 @@ final class GRDBItemStore: ItemStore {
     }
 
     // Rewrite the actionable payload with a new list name, preserving the kind
-    // and external URL. A blank/whitespace name clears the list. Non-actionable
-    // items have no list and are left untouched.
+    // and external URL. A blank/whitespace name clears the list. Every other
+    // kind is left untouched — a scratch note's list lives in its own payload
+    // and is written by setScratchListName, so the two never contend for a row.
     func setListName(id: String, to listName: String?) throws {
         try dbQueue.write { db in
             guard var item = try Item.fetchOne(db, key: id) else { return }
@@ -665,6 +666,26 @@ final class GRDBItemStore: ItemStore {
             default:
                 return   // calendar / unknown have no list name
             }
+            item.updatedAt = Date()
+            item.pending = true
+            try item.update(db)
+        }
+        backup.itemsDidChange()
+    }
+
+    // Set or clear a note's list. A blank/whitespace name clears it; any other
+    // kind is left untouched (an actionable's list is setListName's).
+    //
+    // Mutates the payload in place rather than rebuilding it, unlike the
+    // actionable setters: ScratchData is the type a later note-only field lands
+    // on, and a rebuild would drop that field the first time one exists.
+    func setScratchListName(id: String, to listName: String?) throws {
+        try dbQueue.write { db in
+            guard var item = try Item.fetchOne(db, key: id) else { return }
+            guard case .scratch(var data) = item.typeData else { return }
+            let trimmed = listName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            data.listName = (trimmed?.isEmpty == false) ? trimmed : nil
+            item.typeData = .scratch(data)
             item.updatedAt = Date()
             item.pending = true
             try item.update(db)
@@ -735,10 +756,18 @@ final class GRDBItemStore: ItemStore {
             // names actually in use. Order in Swift via ActionableListSort so a
             // leading emoji/symbol is ignored, matching the list views; exact-case
             // variants remain distinct values (they are stored that way).
+            //
+            // Scratch joins the actionables because the names are ONE namespace:
+            // the same `$.data.listName` path in both payloads, so a name a note
+            // introduced suggests for a to-do and the reverse, and filing work
+            // beside the thought that started it is one word typed once. Named
+            // explicitly rather than widening the shared actionable list — every
+            // other predicate that reads it still means work only, the way
+            // fetchTrashed names it for its own reason.
             let names = try String.fetchAll(db, sql: """
                 SELECT DISTINCT json_extract(type_data, '$.data.listName') AS list
                 FROM items
-                WHERE type IN (\(ItemType.actionableSQLList))
+                WHERE type IN (\(ItemType.actionableSQLList), 'scratch')
                   AND deleted_at IS NULL
                   AND list IS NOT NULL AND TRIM(list) <> ''
                 """)
@@ -810,10 +839,15 @@ final class GRDBItemStore: ItemStore {
             guard item.deletedAt == nil else {
                 throw ItemStoreError.convertTrashedRefused
             }
-            // A fresh actionable payload carrying only the link the caller
-            // followed. A note has no list, and that is editable the moment it
-            // lands.
-            var data = ActionableData()
+            // The actionable payload the note becomes: the note's own list, plus
+            // the link the caller followed. The list transfers unconditionally,
+            // with nothing to pass to decline it — filing a thought under a list
+            // already said where the work belongs, and promoting it out of that
+            // group would scatter the set the notes were collected into. Read
+            // through scratchListName, so the name is the normalized one the feed
+            // grouped under, and read HERE: the switch below rewrites typeData,
+            // and after it the note's list is gone.
+            var data = ActionableData(listName: item.scratchListName)
             if let externalURL, !externalURL.isEmpty {
                 data.externalURL = externalURL
             }

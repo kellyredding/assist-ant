@@ -92,7 +92,10 @@ struct ActionableListSection: View {
 /// placeholder sitting where a named list shows its name. It reads as "the
 /// group with no name" without inventing a fake list label — nothing here is a
 /// real list name, so it never reaches the list pickers or the list-name CLI.
-private struct UnnamedGroupChip: View {
+///
+/// Internal rather than file-private: the scratch feed groups by list too, and
+/// two copies of this chip would be two different renderings of "no name".
+struct UnnamedGroupChip: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 5)
             .strokeBorder(

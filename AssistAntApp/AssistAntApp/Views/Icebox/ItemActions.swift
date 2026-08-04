@@ -245,7 +245,7 @@ enum ActionableKindMenu {
 /// so a SwiftUI-built popup menu needs no separate @objc coordinator.
 ///
 /// Internal rather than file-private: three surfaces build overflow menus now —
-/// this one, `TrashActions`, and `ScratchConvertMenu` — and the alternative to
+/// this one, `TrashActions`, and `ScratchRowMenu` — and the alternative to
 /// sharing it is three identical @objc trampolines.
 final class ClosureMenuItem: NSMenuItem {
     private let handler: () -> Void

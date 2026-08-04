@@ -1106,7 +1106,8 @@ check("ActionableListNavigation.step: clamps, nil/unknown → first/last") {
 }
 
 // 39. ActionableListNavigation.idsInGroup: the *a target — every id in the group holding
-//     the focused row; empty when nothing is focused.
+//     the focused row; empty when nothing is focused, and empty when that group is
+//     collapsed (the selection would render nowhere).
 check("ActionableListNavigation.idsInGroup: scopes to focused row's group") {
     func ice(_ list: String?, _ title: String) -> Item {
         newItem(type: .todo, typeData: .todo(ActionableData(listName: list)), title: title)
@@ -1115,8 +1116,16 @@ check("ActionableListNavigation.idsInGroup: scopes to focused row's group") {
     let groups = ActionableGrouping.groups(items: items)
     let alpha = groups.first { $0.listName == "alpha" }!
     let a1 = alpha.items.first { $0.title == "a1" }!
-    return Set(ActionableListNavigation.idsInGroup(of: a1.id, groups)) == Set(alpha.items.map { $0.id })
-        && ActionableListNavigation.idsInGroup(of: nil, groups).isEmpty
+    let alphaIDs = Set(alpha.items.map { $0.id })
+    return Set(ActionableListNavigation.idsInGroup(of: a1.id, groups, collapsed: [])) == alphaIDs
+        && ActionableListNavigation.idsInGroup(of: nil, groups, collapsed: []).isEmpty
+        // Focus inside a collapsed group selects nothing — *a may not seed a
+        // selection no row can show, the refusal `x` already makes.
+        && ActionableListNavigation.idsInGroup(
+            of: a1.id, groups, collapsed: ["alpha"]).isEmpty
+        // Some other group being collapsed is irrelevant to this one.
+        && Set(ActionableListNavigation.idsInGroup(
+            of: a1.id, groups, collapsed: ["Zeta"])) == alphaIDs
 }
 
 // 40. ScheduleAgenda.days: a day splits into time-sorted calendar events and
@@ -2470,16 +2479,181 @@ check("catalog: every capture kind is documented") {
 // MARK: - Scratch pad
 
 /// A scratch entry with `body` as the text and a derived title, matching what
-/// ScratchModel writes.
-func scratchItem(_ text: String) -> Item {
+/// ScratchModel writes. `list` is stored verbatim (no trimming) — this is the
+/// raw row builder, so a check can hand the accessors a value to normalize;
+/// `ScratchItem.make` is the path that normalizes on the way in.
+func scratchItem(_ text: String, list: String? = nil) -> Item {
     newItem(
-        type: .scratch, typeData: .scratch(ScratchData()),
+        type: .scratch, typeData: .scratch(ScratchData(listName: list)),
         title: ScratchTitle.derive(from: text), body: text)
+}
+
+/// Stands in for `ScratchModel.Row` — the model is not in this target, and the
+/// point of the grouping being generic is that it never needs to be.
+struct SmokeScratchRow {
+    let item: Item
+    let matchedOffsets: [Int]
 }
 
 /// Count the scratch feed straight from the store's public reader.
 func scratchCount(_ store: GRDBItemStore, resolved: Bool) throws -> Int {
     try store.fetchScratch(resolved: resolved).count
+}
+
+// A note stored before scratch carried a list reads back unfiled, and an
+// unfiled note writes no key at all — the payload is JSON in the shared
+// type_data column, so the field is a read-time default rather than a schema
+// change. This is the check standing in for the migration there isn't.
+check("ScratchData: an absent listName decodes unfiled and re-encodes absent") {
+    let json = #"{"kind":"scratch","data":{}}"#.data(using: .utf8)!
+    let decoded = try JSONDecoder().decode(ItemTypeData.self, from: json)
+    guard case .scratch(let d) = decoded, d.listName == nil else { return false }
+    let bare = String(data: try JSONEncoder().encode(decoded), encoding: .utf8) ?? ""
+    let listed = String(
+        data: try JSONEncoder().encode(ItemTypeData.scratch(
+            ScratchData(listName: "Dev"))),
+        encoding: .utf8) ?? ""
+    return !bare.contains("listName") && listed.contains("listName")
+}
+
+// The list survives a write and a read, filed or not.
+check("scratch: the list round-trips through the store, both ways") {
+    let (store, _) = try makeStore()
+    let listed = scratchItem("under a list", list: "Errands")
+    let bare = scratchItem("no list")
+    for i in [listed, bare] { try store.create(i) }
+    guard let l = try store.fetch(id: listed.id),
+          let b = try store.fetch(id: bare.id) else { return false }
+    return l.typeData == .scratch(ScratchData(listName: "Errands"))
+        && l.scratchListName == "Errands"
+        && b.typeData == .scratch(ScratchData())
+        && b.scratchListName == nil
+}
+
+// A note's list is read through its own accessor, and the actionable one stays
+// blind to it — which is what keeps Trash, the one surface that groups notes
+// and actionables together, filing every note under no list.
+check("Item.scratchListName: normalizes, and the two accessors stay apart") {
+    let padded = scratchItem("n", list: "  Errands  ")
+    let blank = scratchItem("n", list: "   ")
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData(listName: "Dev")))
+    return padded.scratchListName == "Errands"
+        && blank.scratchListName == nil
+        && padded.actionableListName == nil
+        && todo.scratchListName == nil
+        && ActionableGrouping.groups(items: [padded]).map { $0.listName } == [nil]
+}
+
+// The feed's sections: the unfiled group leads and is unnamed, named groups
+// follow in text order (a leading emoji ignored, as in the schedule), and
+// within a group the incoming order — capture time, or resolution time for the
+// completed feed — is preserved, since notes have no position to re-sort by.
+check("ScratchGrouping: unfiled first, named by text, incoming order kept") {
+    let notes = [
+        scratchItem("free-1"), scratchItem("z-1", list: "Zeta"),
+        scratchItem("a-1", list: "🐜 AAA"), scratchItem("free-2"),
+        scratchItem("z-2", list: "Zeta"),
+    ]
+    let groups = ScratchGrouping.groups(notes) { $0.scratchListName }
+    guard let zeta = groups.first(where: { $0.listName == "Zeta" })
+    else { return false }
+    return groups.map { $0.listName } == [nil, "🐜 AAA", "Zeta"]
+        && groups[0].entries.map { $0.title } == ["free-1", "free-2"]
+        && zeta.entries.map { $0.title } == ["z-1", "z-2"]
+        && !groups[0].isNamed && zeta.isNamed
+        && groups[0].id == ScratchGrouping.noListID && zeta.id == "Zeta"
+}
+
+// Grouping is over rows, not items: each row pairs a note with the offsets its
+// search matched, and those have to arrive in the group with it or the
+// highlight goes dark the moment a query narrows the feed.
+check("ScratchGrouping: a row's match offsets survive the grouping") {
+    let rows = [
+        SmokeScratchRow(item: scratchItem("alpha", list: "Dev"),
+                        matchedOffsets: [0, 1]),
+        SmokeScratchRow(item: scratchItem("beta"), matchedOffsets: [3]),
+    ]
+    let groups = ScratchGrouping.groups(rows) { $0.item.scratchListName }
+    return groups.map { $0.listName } == [nil, "Dev"]
+        && groups[0].entries.first?.matchedOffsets == [3]
+        && groups[1].entries.first?.matchedOffsets == [0, 1]
+}
+
+// One namespace of names: a name only a note uses suggests for a to-do and the
+// reverse, so filing work beside the thought that started it is one word typed
+// once. A discarded note's name drops off with it.
+check("knownListNames: includes scratch names, excludes deleted notes") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n", list: "Parked")
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData(listName: "Dev")))
+    let gone = scratchItem("g", list: "Archive")
+    let blank = scratchItem("b", list: "   ")
+    for i in [note, todo, gone, blank] { try store.create(i) }
+    try store.softDelete(id: gone.id)
+    return try store.knownListNames() == ["Dev", "Parked"]
+}
+
+// The two setters stay in their lanes — a note's list is setScratchListName's,
+// an actionable's is setListName's — and crossing them is a no-op rather than a
+// throw, so a batch spanning both kinds still writes the rows it can.
+check("setScratchListName: sets, blank clears, and the setters don't cross") {
+    let (store, _) = try makeStore()
+    let note = scratchItem("n")
+    let todo = newItem(type: .todo, typeData: .todo(ActionableData(listName: "Dev")))
+    for i in [note, todo] { try store.create(i) }
+    try store.setScratchListName(id: note.id, to: "  Parked  ")
+    try store.setListName(id: note.id, to: "Ignored")
+    try store.setScratchListName(id: todo.id, to: "Ignored")
+    guard let parked = try store.fetch(id: note.id),
+          let untouched = try store.fetch(id: todo.id) else { return false }
+    try store.setScratchListName(id: note.id, to: "   ")
+    guard let cleared = try store.fetch(id: note.id) else { return false }
+    return parked.scratchListName == "Parked"
+        && untouched.actionableListName == "Dev"
+        && untouched.scratchListName == nil
+        && cleared.scratchListName == nil
+}
+
+// The socket's list threads onto the note through the same maker the composer
+// uses, trimmed on the way in so a blank one parks the note unfiled instead of
+// storing a list nothing can display.
+check("ScratchItem.make: threads a list, trims it, blank parks unfiled") {
+    guard let listed = ScratchItem.make(
+              text: "park this", listName: "  Errands  ", workspaceID: "local"),
+          let bare = ScratchItem.make(text: "park this", workspaceID: "local"),
+          let blank = ScratchItem.make(
+              text: "park this", listName: "   ", workspaceID: "local")
+    else { return false }
+    return listed.typeData == .scratch(ScratchData(listName: "Errands"))
+        && bare.typeData == .scratch(ScratchData())
+        && blank.typeData == .scratch(ScratchData())
+}
+
+// Convert carries the note's list into the work it becomes — always, and with
+// nothing to pass to decline it: filing a thought under a list already said
+// where the work belongs. The name transfers normalized, so the promoted item
+// groups under the heading the note sat beneath.
+check("convertScratch: inherits the note's list into the actionable") {
+    let (store, _) = try makeStore()
+    let listed = scratchItem("ship the thing", list: "Dev")
+    let padded = scratchItem("and this", list: "  Dev  ")
+    let bare = scratchItem("some other thing")
+    for i in [listed, padded, bare] { try store.create(i) }
+    try store.convertScratch(id: listed.id, to: .todo, title: "Ship the thing",
+                             body: nil, externalURL: "https://x.test/1")
+    try store.convertScratch(id: padded.id, to: .explore, title: "And this",
+                             body: nil, externalURL: nil)
+    try store.convertScratch(id: bare.id, to: .reminder, title: "Some other thing",
+                             body: nil, externalURL: nil)
+    guard let l = try store.fetch(id: listed.id),
+          let p = try store.fetch(id: padded.id),
+          let b = try store.fetch(id: bare.id),
+          case .todo(let ld) = l.typeData,
+          case .reminder(let bd) = b.typeData else { return false }
+    let grouped = ActionableGrouping.groups(items: [l, p]).map { $0.listName }
+    return ld.listName == "Dev" && ld.externalURL == "https://x.test/1"
+        && p.actionableListName == "Dev" && bd.listName == nil
+        && grouped == ["Dev"]
 }
 
 // scratch: the kind round-trips through the store, payload and all.
@@ -2809,13 +2983,22 @@ check("convertScratch: refuses a non-actionable target") {
 // satisfied by the Lists section alone, so it would pass with these rows
 // missing — which is the drift that matters, since the two surfaces bind the
 // same three letters to different verbs.
-check("catalog: scratch documents the convert chords") {
+// The existing l-leader sweep is satisfied by the Lists section alone, so it
+// would pass with these rows missing — which is the drift that matters, since the
+// two surfaces share the letters and only `l l` means the same thing on both.
+check("catalog: scratch documents its l-leader chords") {
     let scratchKeys = Set(KeystrokeCatalog.all.compactMap { e -> String? in
         guard e.section == .scratch, case .literal(let k) = e.binding
         else { return nil }
         return k
     })
-    return ["l t", "l r", "l e"].allSatisfy { scratchKeys.contains($0) }
+    return ["l t", "l r", "l e", "l l"].allSatisfy { scratchKeys.contains($0) }
+        // `* a` narrows to the focused row's group now that the feed is grouped,
+        // so it must not still promise the whole feed.
+        && KeystrokeCatalog.all.contains {
+            $0.section == .scratch && $0.binding == .literal("* a")
+                && $0.label == "Select all in group"
+        }
 }
 
 // MARK: - Selection invariants

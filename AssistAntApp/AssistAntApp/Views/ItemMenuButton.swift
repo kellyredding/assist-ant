@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The ⋮ glyph that pops an AppKit menu — the shared chrome behind every
 /// item-level overflow menu (`ItemActions`, `TrashActions`,
-/// `ScratchConvertMenu`). The caller supplies only the items.
+/// `ScratchRowMenu`). The caller supplies only the items.
 ///
 /// A real pointer-button (hover highlight + hand cursor, like the copy and link
 /// glyphs) rather than a SwiftUI `Menu`. That is not a preference: `pointerButton`

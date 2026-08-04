@@ -225,6 +225,7 @@ struct ScratchPaneView: View {
         chords.install(.init(
             selection: selection,
             visibleIDs: { model.visibleIDs },
+            idsInFocusedGroup: { model.idsInFocusedGroup },
             selectedItems: {
                 // Fall back to the focused row when nothing is ticked, so a
                 // chord is useful before you have built a selection — the same
@@ -240,6 +241,7 @@ struct ScratchPaneView: View {
             delete: { $0.forEach { model.delete(id: $0.id) } },
             copy: { ItemClipboard.copy($0) },
             convert: { model.convert($0, to: $1) },
+            setListName: { model.setListName($0, to: $1) },
             edit: { model.beginEdit(id: $0.id) }
         ))
     }
@@ -258,6 +260,10 @@ struct ScratchPaneView: View {
             event in
             guard event.keyCode == 53,                       // Escape
                   tabs.selectedTab == .scratch,
+                  // While a sheet or an app-modal panel is key, Escape is that
+                  // window's to cancel — the list editor runs its own Escape
+                  // monitor, and without this gate both fire.
+                  NSApp.keyWindow is AssistAntWindow,
                   !isEditingRow
             else { return event }
 
@@ -283,7 +289,12 @@ struct ScratchPaneView: View {
         guard inputModeMonitor == nil else { return }
         inputModeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             event in
+            // The composer belongs to the main window, so a submit key pressed
+            // while a sheet or an app-modal panel is key is not ours — without
+            // this the monitor swallows Return from the list editor's Save and
+            // from the discard-changes sheet, and opens the composer behind them.
             guard tabs.selectedTab == .scratch,
+                  NSApp.keyWindow is AssistAntWindow,
                   !isInputMode, !isEditingRow, !searchFocused,
                   SettingsManager.shared.settings.textEntry
                       .action(for: Keystroke(event: event)) == .submit
@@ -385,7 +396,11 @@ struct ScratchPaneView: View {
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 64, alignment: .leading)
 
-            if selection.hasSelection {
+            // Gated on the acted-on set, not on `hasSelection`: a fold can hide
+            // every ticked note, and a bar over nothing offers buttons that
+            // cannot fire. The ticks survive the fold and the bar returns with
+            // the group.
+            if !model.selectedEntries.isEmpty {
                 batchToolbar
             }
 
@@ -435,11 +450,15 @@ struct ScratchPaneView: View {
     }
 
     private var batchToolbar: some View {
-        HStack(spacing: 6) {
-            Text("\(selection.selectedIDs.count) selected")
+        // Resolved once: the count and every control below must agree on what
+        // they are acting on, and the property recomputes the whole filtered feed
+        // on each read. `selectedIDs` would count notes a folded group is hiding.
+        let selected = model.selectedEntries
+        return HStack(spacing: 6) {
+            Text("\(selected.count) selected")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            CopyButton(text: ItemClipboard.serialize(model.selectedEntries))
+            CopyButton(text: ItemClipboard.serialize(selected))
             PointerIconButton(
                 systemName: model.filter == .completed
                     ? "arrow.uturn.backward" : "checkmark",
@@ -455,11 +474,14 @@ struct ScratchPaneView: View {
             PointerIconButton(systemName: "trash", help: "Delete selected") {
                 model.deleteSelected()
             }
-            // Mnemonics on: `l t` / `l r` / `l e` are live exactly when this bar
-            // is, so the menu underlines the letters that fire them. Sits before
-            // Clear selection, which stays last as the only meta action here.
-            ScratchConvertMenu(notes: model.selectedEntries,
-                               showsMnemonics: true) { model.convert($0, to: $1) }
+            // Mnemonics on: `l t` / `l r` / `l e` and `l l` are live exactly when
+            // this bar is, so the menu underlines the letters that fire them.
+            // Sits before Clear selection, which stays last as the only meta
+            // action here.
+            ScratchRowMenu(notes: selected,
+                           showsMnemonics: true,
+                           convert: { model.convert($0, to: $1) },
+                           setListName: { model.setListName($0, to: $1) })
             PointerIconButton(systemName: "xmark", help: "Clear selection") {
                 selection.clearSelection()
             }
@@ -490,23 +512,32 @@ struct ScratchPaneView: View {
 
     @ViewBuilder
     private var feed: some View {
-        if model.rows.isEmpty {
+        // Keyed on the groups rather than the rows: the groups are what the feed
+        // renders, and a group with no matching notes never exists — so "no
+        // groups" is exactly "nothing to show", with no bare headers possible.
+        if model.groups.isEmpty {
             emptyState
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.rows) { row in
-                            ScratchRow(row: row, model: model,
-                                       onInteract: { surrenderFields() })
-                                .id(row.id)
-                            Divider()
+                        ForEach(model.groups) { group in
+                            ScratchListSection(
+                                group: group,
+                                isCollapsed: model.isCollapsed(group.id),
+                                onToggle: { model.toggleCollapse($0) },
+                                model: model,
+                                onInteract: { surrenderFields() }
+                            )
                         }
                     }
                 }
                 .frame(maxHeight: .infinity)
                 // Keep the keyboard-focused row on screen as j/k walk past the
                 // viewport edge — the focus bar is useless if you cannot see it.
+                // A collapsed group renders no rows, so an id inside one resolves
+                // to nothing and this is a no-op; navigation never seats focus
+                // there, so the no-op case is unreachable by keystroke.
                 .onChange(of: selection.focusedItemID) { _, id in
                     guard let id else { return }
                     withAnimation(.easeOut(duration: 0.12)) {

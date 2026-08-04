@@ -150,6 +150,10 @@ protocol ItemStore {
     /// named only a title must not discard what it was composed from — while an
     /// explicit blank clears it.
     ///
+    /// The note's own list carries into the new item's payload, always and with
+    /// no parameter to refuse it: a note filed under a list has already said
+    /// where the work belongs. An unfiled note promotes unlisted.
+    ///
     /// The conversion `reclassify` refuses. Throws `convertRequiresScratch` for
     /// a non-note source, `convertTrashedRefused` for a discarded one, and
     /// `convertRequiresActionableTarget` for a non-actionable `kind`.
@@ -206,16 +210,24 @@ protocol ItemStore {
     func reopenActionable(id: String) throws
 
     /// Set or clear an actionable item's list name (nil or blank clears it),
-    /// preserving the kind and the external URL. No-op for a non-actionable
-    /// item.
+    /// preserving the kind and the external URL. Actionable-only: a note keeps
+    /// its list in its own payload, so this leaves a scratch row alone and
+    /// `setScratchListName` writes it. No-op for calendar and unknown kinds.
     func setListName(id: String, to listName: String?) throws
+
+    /// Set or clear a scratch note's list name (nil or blank clears it) — the
+    /// key the note feed groups by. No-op for every non-scratch kind, so a batch
+    /// spanning both worlds writes the rows each setter owns and skips the rest
+    /// instead of throwing.
+    func setScratchListName(id: String, to listName: String?) throws
 
     /// Set or clear an actionable item's external URL (nil or blank clears it),
     /// preserving the kind and the list name. No-op for a non-actionable item.
     func setExternalURL(id: String, to url: String?) throws
 
-    /// Distinct, non-empty list names currently in use by non-deleted
-    /// actionable items, sorted case-insensitively. Derived live (no stored
-    /// table) so a name with no remaining items drops off on its own.
+    /// Distinct, non-empty list names currently in use by non-deleted items that
+    /// carry one — the actionable kinds and scratch, which share a single
+    /// namespace of names — sorted case-insensitively. Derived live (no stored
+    /// table) so a name with nothing left under it drops off on its own.
     func knownListNames() throws -> [String]
 }

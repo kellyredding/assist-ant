@@ -24,11 +24,20 @@ struct ActionableData: Codable, Equatable, Sendable {
 
 /// Payload for a `scratch` item — an unshaped note.
 ///
-/// Empty today: the text lives in the shared `body` column and scratch carries
-/// no type-specific fields. Declared as a struct anyway so a later addition (a
-/// colour, a pin) is an additive change to this type rather than a new case in
-/// the payload enum.
-struct ScratchData: Codable, Equatable, Sendable {}
+/// The note's text lives in the shared `body` column; what is here is the list
+/// it is filed under, which is what lets the feed group parked notes the way the
+/// schedule groups work. Names come from one namespace with
+/// `ActionableData.listName` (see `knownListNames`), so a note and a to-do under
+/// "Dev" read as the same list — but the field is deliberately separate, because
+/// scratch shares no other actionable behavior and every `type IN (...)`
+/// predicate in the store depends on that.
+///
+/// Optional, and serialized inside the shared `type_data` JSON, so a note
+/// written before the field existed decodes with `listName == nil`. That is the
+/// whole reason a note can gain a list with no schema change and no backfill.
+struct ScratchData: Codable, Equatable, Sendable {
+    var listName: String?
+}
 
 /// The polymorphic payload stored in an item's `type_data` JSON column. Each
 /// case maps to an `ItemType`; `.unknown` preserves the raw payload of a kind

@@ -40,6 +40,9 @@ final class ScratchModel: ObservableObject {
             // came back blank and still focused.
             selection.clearSelection()
             cancelEdit()
+            // Collapse is deliberately NOT cleared: it is keyed by list name,
+            // which is the one thing the two feeds have in common, so a list you
+            // folded away stays folded when you flip between them.
             subscribe()
         }
     }
@@ -67,14 +70,29 @@ final class ScratchModel: ObservableObject {
             // Focus and selection are expressed against the *visible* rows, so
             // narrowing the feed can strand either on a row that is no longer
             // shown. Reconciling against the new visible set reseats focus on
-            // the first match and drops selections that filtered out.
-            let visible = rows.map(\.id)
-            selection.reconcile(visible: visible, present: Set(visible))
+            // the first match; `present` is every note the query matched —
+            // including the ones a collapsed group holds — so folding a group
+            // away does not quietly drop its ticks.
+            selection.reconcile(visible: visibleIDs, present: Set(rows.map(\.id)))
         }
     }
     /// Selection + keyboard focus, for the batch actions that arrive with the
     /// chords. Present now so the row views can read it from the start.
     let selection = ActionableSelection()
+
+    /// Collapsed groups, by group id — a list name, or the no-list group's
+    /// sentinel.
+    ///
+    /// One set across both feeds, the way Schedule's is one set across every day
+    /// — "applies across days", as `ScheduleAgendaModel` puts it. The Open and
+    /// Completed feeds hold disjoint notes, which is why a selection and an open
+    /// editor cannot survive the switch; a collapse is keyed by *list name*,
+    /// which is the one thing the two feeds share. Folding "Opex" away twice to
+    /// stop looking at it would be the surprise.
+    ///
+    /// In memory for the session, like every index surface's: it survives tab
+    /// switches (this is a singleton) but not a relaunch.
+    @Published private(set) var collapsedLists: Set<String> = []
 
     private let store: ItemStore
     private var feedObserver: AnyCancellable?
@@ -96,9 +114,12 @@ final class ScratchModel: ObservableObject {
                 // up over rows that are gone. Reconciled against the *visible*
                 // rows rather than everything fetched, so focus lands on a row
                 // the query actually shows.
-                let visible = self.visibleIDs
+                // `visible` skips collapsed groups so focus lands somewhere the
+                // feed actually draws; `present` is every matched note, so a
+                // fold does not drop its ticks.
                 self.selection.reconcile(
-                    visible: visible, present: Set(visible))
+                    visible: self.visibleIDs,
+                    present: Set(self.rows.map(\.id)))
             }
     }
 
@@ -128,19 +149,84 @@ final class ScratchModel: ObservableObject {
         }
     }
 
-    /// Visible ids in display order — what `j`/`k` step through and `*a` selects.
-    var visibleIDs: [String] { rows.map(\.id) }
+    /// The feed's groups as the pane renders them — spelled once, since a
+    /// generic instantiation in a view signature reads as noise.
+    typealias RowGroup = ScratchGroup<Row>
 
-    /// The selected entries, in feed order. Scoped to what is visible so a batch
-    /// action can never touch a row the query has hidden.
-    var selectedEntries: [Item] {
-        rows.map(\.item).filter { selection.selectedIDs.contains($0.id) }
+    /// The feed as sections: the unfiled notes first, then each list. Derived
+    /// from `rows`, so grouping sees exactly what the query left visible and the
+    /// match offsets ride along into the group they land in.
+    var groups: [RowGroup] {
+        ScratchGrouping.groups(rows) { $0.item.scratchListName }
     }
 
-    /// The row `j`/`k` focus currently sits on, if any.
+    /// Visible ids in display order — each group's notes top→bottom, skipping
+    /// the notes inside a collapsed group. What `j`/`k` step through, what `x`
+    /// will toggle, and the order a batch acts in.
+    var visibleIDs: [String] {
+        groups.flatMap { group -> [String] in
+            if collapsedLists.contains(group.id) { return [] }
+            return group.entries.map(\.id)
+        }
+    }
+
+    /// The ids of every note in the group holding keyboard focus — `* a`'s
+    /// target. Empty when focus sits nowhere visible, including inside a
+    /// collapsed group: a keystroke may not produce a selection that renders
+    /// nowhere. Same rule as `ActionableListNavigation.idsInGroup`, reproduced
+    /// rather than shared because that helper is typed on groups of `Item` and
+    /// these hold rows that carry their match offsets too.
+    var idsInFocusedGroup: [String] {
+        guard let focused = selection.focusedItemID,
+              let group = groups.first(where: { g in
+                  !collapsedLists.contains(g.id)
+                      && g.entries.contains { $0.id == focused }
+              })
+        else { return [] }
+        return group.entries.map(\.id)
+    }
+
+    /// The selected entries, in feed order. Scoped to the visible rows, so a
+    /// batch action can never touch a note the query has hidden or a collapsed
+    /// group holds — the same scoping
+    /// `ActionableSelection.selectedItems(in:collapsed:)` applies on the index
+    /// surfaces.
+    var selectedEntries: [Item] {
+        let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.item) })
+        return visibleIDs
+            .filter(selection.selectedIDs.contains)
+            .compactMap { byID[$0] }
+    }
+
+    /// The note `j`/`k` focus sits on, if it is actually on screen.
+    ///
+    /// Guarded on the visible set rather than merely on `rows`, because two
+    /// paths read it. The chords fall back to the focused note when nothing is
+    /// ticked, so `l l` or `a d` could act on a note that renders nowhere; and
+    /// bare Return opens the inline editor on it, which inside a folded group
+    /// puts the feed into an editing state with no editor on screen. The index
+    /// surfaces need neither guard — their Return opens the reader, which shows
+    /// what it acted on — so this is a guard for keystrokes they do not have.
+    /// Refusing is the same trade `toggleSelectedFocused` already makes.
     var focusedEntry: Item? {
-        guard let id = selection.focusedItemID else { return nil }
+        guard let id = selection.focusedItemID, visibleIDs.contains(id)
+        else { return nil }
         return rows.first { $0.id == id }?.item
+    }
+
+    /// Fold a group away, or unfold it. Keyed by group id so a named list and
+    /// the no-list group fold through one mechanism and the sentinel never
+    /// enters the real list-name space.
+    func toggleCollapse(_ groupID: String) {
+        if collapsedLists.contains(groupID) {
+            collapsedLists.remove(groupID)
+        } else {
+            collapsedLists.insert(groupID)
+        }
+    }
+
+    func isCollapsed(_ groupID: String) -> Bool {
+        collapsedLists.contains(groupID)
     }
 
     /// Make sure a visible row carries focus, so `j`/`k` and `x` have somewhere
@@ -211,6 +297,34 @@ final class ScratchModel: ObservableObject {
         let ids = selectedEntries.map(\.id)
         selection.clearSelection()
         for id in ids { delete(id: id) }
+    }
+
+    /// Set or clear the list on a set of notes, then drop the ones that moved
+    /// from the selection.
+    ///
+    /// No regroup and no reconcile here, unlike `ScheduleAgendaModel.setListName`:
+    /// that model holds a snapshot it has to re-bucket by hand, while this feed
+    /// is live — `observeScratch` re-emits and `subscribe`'s `reconcile` reseats
+    /// focus if a note landed in a group that is folded away. Deselecting is
+    /// still ours to do: the rows moved, and a list assignment that left them
+    /// ticked in their new group would read as unfinished.
+    ///
+    /// Only the notes actually written are deselected, matching Schedule — a note
+    /// whose write failed stays ticked, so the retry is one keystroke rather than
+    /// a hunt for which of a batch silently did not move. That is why this loops
+    /// by hand instead of going through `perform`, which cannot report per item.
+    func setListName(_ items: [Item], to listName: String?) {
+        var written: [String] = []
+        for item in items {
+            do {
+                try store.setScratchListName(id: item.id, to: listName)
+                written.append(item.id)
+            } catch {
+                AssistAntLog.info(
+                    "scratch: setListName failed for \(item.id) — \(error)")
+            }
+        }
+        selection.deselect(written)
     }
 
     // MARK: - Actions

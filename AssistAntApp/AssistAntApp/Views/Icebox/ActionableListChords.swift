@@ -128,7 +128,8 @@ final class ActionableListChords {
         switch (leader, key) {
         case ("*", "a"):
             ctx.selection.selectAll(in: ActionableListNavigation.idsInGroup(
-                of: ctx.selection.focusedItemID, ctx.groups()))
+                of: ctx.selection.focusedItemID, ctx.groups(),
+                collapsed: ctx.collapsed()))
         case ("*", "n"): ctx.selection.clearSelection()
         case ("a", "d") where ctx.tab == .trash:
             _ = ctx.actions.delete(selected.filter { !$0.isSynced })    // trash re-delete

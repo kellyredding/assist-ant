@@ -13,17 +13,22 @@ import Foundation
 ///
 /// Disposition: body-only. The text lands in `body`, and `title` is derived from
 /// it (`title` is NOT NULL and the shared Trash renders rows by title). The
-/// payload is empty, and every actionable column — schedule, icebox, resolution,
+/// payload carries only the list, when the caller named one — the composer never
+/// does, so a note typed into the pane lands unfiled and is grouped from the
+/// keyboard afterwards. Every actionable column — schedule, icebox, resolution,
 /// position — stays nil: a note is not work until it is converted into some.
 enum ScratchItem {
     /// Returns nil for blank text. The composer's submit keystroke is easy to
     /// hit twice and an empty `--text` is easy to pass, and neither should store
-    /// an empty note.
+    /// an empty note. A blank `listName` parks the note unfiled for the same
+    /// reason, so `--list ''` cannot store a list nothing can display.
     static func make(
-        text: String, workspaceID: String, now: Date = Date()
+        text: String, listName: String? = nil,
+        workspaceID: String, now: Date = Date()
     ) -> Item? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        let list = listName?.trimmingCharacters(in: .whitespacesAndNewlines)
         return Item(
             id: UUIDv7.generate(),
             workspaceID: workspaceID,
@@ -32,7 +37,8 @@ enum ScratchItem {
             body: trimmed,
             source: "manual",
             externalID: nil,
-            typeData: .scratch(ScratchData()),
+            typeData: .scratch(ScratchData(
+                listName: (list?.isEmpty == false) ? list : nil)),
             iceboxedAt: nil,
             deletedAt: nil,
             scheduledOn: nil,

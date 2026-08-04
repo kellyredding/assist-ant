@@ -28,12 +28,15 @@ struct ScheduleControlBar: View {
             )
             Text(monthYear)
                 .font(.headline)
-            if selection.hasSelection {
-                Text("\(selection.selectedIDs.count) selected")
+            // Counted from the acted-on set, not from `selection.selectedIDs`,
+            // which includes ids a collapsed list is hiding on every day at once
+            // — that count named rows the cluster then found nothing to act on.
+            if !selectedItems.isEmpty {
+                Text("\(selectedItems.count) selected")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
-            if selection.hasSelection {
+            if !selectedItems.isEmpty {
                 // The shared cluster, fed the selection — identical to the
                 // icebox; it acts on the whole selection across days.
                 ItemActions(items: selectedItems, actions: actions, showsMnemonics: true)

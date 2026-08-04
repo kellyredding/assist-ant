@@ -27,11 +27,17 @@ enum ActionableListNavigation {
     }
 
     /// The ids of every item in the group that contains `focused` — the `*a`
-    /// target. Empty when nothing is focused.
-    static func idsInGroup(of focused: String?, _ groups: [ActionableGroup]) -> [String] {
+    /// target. Empty when nothing is focused, and empty when focus sits inside a
+    /// collapsed group: `*a` may not seed a selection no row can show, which is
+    /// the refusal `ActionableSelection.toggleSelectedFocused` already makes for
+    /// `x`. Without it the count climbs over rows the batch cluster — which
+    /// scopes itself to visible rows — then finds nothing to act on.
+    static func idsInGroup(
+        of focused: String?, _ groups: [ActionableGroup], collapsed: Set<String>
+    ) -> [String] {
         guard let focused else { return [] }
         for group in groups where group.items.contains(where: { $0.id == focused }) {
-            return group.items.map { $0.id }
+            return collapsed.contains(group.id) ? [] : group.items.map { $0.id }
         }
         return []
     }

@@ -57,6 +57,10 @@ enum ActionableGrouping {
 extension Item {
     /// The actionable list name, normalized (trimmed; empty → nil). The
     /// grouping key. Non-actionable items have no list name.
+    ///
+    /// A scratch note carries its own list under `scratchListName`, and reading
+    /// it here would change how Trash — which groups notes and actionables
+    /// through this one key — sections its rows. The two stay separate.
     var actionableListName: String? {
         let raw: String?
         switch typeData {

@@ -3,10 +3,12 @@ import AppKit
 /// Keyboard chords for the scratch feed.
 ///
 /// A sibling of `ActionableListChords` rather than a mode on it: that controller
-/// works over `ActionableGroup`s, which the scratch feed is deliberately without
-/// — it is one flat chronological list. Navigation is shared verbatim
-/// (`j`/`k`/`x`, `*a`/`*n`), because moving around a list is the same act
-/// wherever you are.
+/// works over `ActionableGroup`s, and the scratch feed groups a row type of its
+/// own — a note carries the offsets its query matched at, which an
+/// `ActionableGroup`'s `Item`s have no room for. Navigation is shared verbatim
+/// (`j`/`k`/`x`, `*a`/`*n`), because moving around a grouped list is the same act
+/// wherever you are: `j`/`k` step past a folded group, and `*a` takes the focused
+/// row's group rather than the whole feed.
 ///
 /// The *actions* mostly diverge. Resolve, reopen, copy, and delete are on the
 /// `a` leader — `a r`, `a o`, `a c`, `a d` — one letter each for the glyphs in
@@ -17,9 +19,10 @@ import AppKit
 /// an explore. Those are the same three letters `ActionableListChords` binds to
 /// `reclassify`, deliberately — "make this row that kind" is one gesture whether
 /// the row is an actionable being re-kinded or a note being converted, and it
-/// should not cost two chords to remember. The rest of that surface's `l`
-/// vocabulary has no counterpart here: a note has no list (`l l`), no scheduled
-/// day (`l s`), and its delete is already `a d`.
+/// should not cost two chords to remember. `l l` opens the same list editor on
+/// the same chord, because a note's list is the same thing a to-do's list is.
+/// What is still absent is the scheduled day (`l s`) — a note is not work until
+/// it is converted into some — and delete, which is already `a d`.
 ///
 /// Both leaders arm only on an *unmodified* press: ⌘L is View ▸ Next view and
 /// ⌘A is Select all, and a local monitor sees a key before the menu bar does —
@@ -36,8 +39,13 @@ final class ScratchListChords {
     /// the current snapshot rather than a copy taken at install time.
     struct Context {
         let selection: ActionableSelection
-        /// Visible rows in display order — the query-filtered feed.
+        /// Visible rows in display order — the query-filtered feed, minus the
+        /// notes any collapsed group holds.
         let visibleIDs: () -> [String]
+        /// The ids of every note in the group holding focus — `* a`'s target. A
+        /// closure rather than the groups themselves, so this controller never
+        /// has to name the feed's group type.
+        let idsInFocusedGroup: () -> [String]
         let selectedItems: () -> [Item]
         let focusedItem: () -> Item?
         /// True while showing the completed feed, which flips `a d` from
@@ -51,6 +59,10 @@ final class ScratchListChords {
         /// menu's one command, reached from the keyboard by `l t`/`l r`/`l e`.
         /// Fire and forget: it returns nothing because nothing lands here.
         let convert: ([Item], ItemType) -> Void
+        /// Set or clear the list on the selection — the ⋮ menu's assign command,
+        /// reached from the keyboard by `l l`. Synchronous: the editor has closed
+        /// and the write has landed by the time it returns.
+        let setListName: ([Item], String?) -> Void
         /// Enter on the focused row: edit it in place, scratch's answer to the
         /// other lists opening a reader.
         let edit: (Item) -> Void
@@ -144,7 +156,11 @@ final class ScratchListChords {
     ) -> Bool {
         let selected = ctx.selectedItems()
         switch (leader, key) {
-        case ("*", "a"): ctx.selection.selectAll(in: ctx.visibleIDs())
+        // The focused row's group, not the whole feed: the same scoping the index
+        // surfaces apply, so `*a` means "this list" on every grouped surface.
+        // Empty when focus sits nowhere visible, which selects nothing rather
+        // than seeding a selection no row can show.
+        case ("*", "a"): ctx.selection.selectAll(in: ctx.idsInFocusedGroup())
         case ("*", "n"): ctx.selection.clearSelection()
         // On the completed feed the resolve key reopens instead. One letter, the
         // action that is actually available — mirroring how the row's own glyph
@@ -161,6 +177,15 @@ final class ScratchListChords {
         case ("l", "t"): ctx.convert(selected, .todo)
         case ("l", "r"): ctx.convert(selected, .reminder)
         case ("l", "e"): ctx.convert(selected, .explore)
+        // The same chord the index surfaces use for the same editor, because a
+        // note's list is the same thing a to-do's list is. The modal is safe from
+        // inside this monitor: while it runs, the key window is not an
+        // AssistAntWindow, so the gate above stands this controller down and the
+        // editor's own field and Escape monitor get every key.
+        case ("l", "l"):
+            ScratchListAssignment.present(for: selected) { notes, name in
+                ctx.setListName(notes, name)
+            }
         default: return false
         }
         return true
