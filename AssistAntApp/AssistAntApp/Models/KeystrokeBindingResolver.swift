@@ -15,21 +15,32 @@ enum KeystrokeBindingResolver {
     /// "not bound"; an empty cell reads as a rendering bug.
     static let unbound = "—"
 
-    static func displayText(for binding: KeystrokeBinding) -> String {
+    /// Every keystroke bound to `binding`, in the order Settings lists them: one
+    /// for a fixed key, as many as are configured for a rebindable one, and a
+    /// single dash when a rebindable one has nothing.
+    ///
+    /// All of them, which is where this parts company with the composer hints it
+    /// used to borrow. Those name only the first, and rightly — a placeholder
+    /// listing three chords has stopped being a hint. A reference that names one
+    /// of three is a different thing: the other two work, and the sheet was
+    /// denying they existed.
+    static func displayTexts(for binding: KeystrokeBinding) -> [String] {
         switch binding {
         case .literal(let text):
-            return text
+            return [text]
         case .capture(let kind):
-            return shortcutText(KeyboardShortcuts.Name.capture(for: kind))
+            return [shortcutText(KeyboardShortcuts.Name.capture(for: kind))]
         case .statusPopover:
-            return shortcutText(.statusPopover)
+            return [shortcutText(.statusPopover)]
         case .textEntryCommit:
-            return SettingsManager.shared.settings.textEntry.submitHint
-                ?? unbound
+            return labels(SettingsManager.shared.settings.textEntry.submit)
         case .textEntryNewline:
-            return SettingsManager.shared.settings.textEntry.newlineHint
-                ?? unbound
+            return labels(SettingsManager.shared.settings.textEntry.newline)
         }
+    }
+
+    private static func labels(_ keystrokes: [Keystroke]) -> [String] {
+        keystrokes.isEmpty ? [unbound] : keystrokes.map(\.displayLabel)
     }
 
     private static func shortcutText(_ name: KeyboardShortcuts.Name) -> String {

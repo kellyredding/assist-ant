@@ -40,18 +40,17 @@ struct KeystrokeSheetView: View {
     }
 
     private var card: some View {
-        // Resolved once. Every read rebuilds the whole list and re-resolves ~75
-        // keystrokes through user defaults, so asking twice per body pass was
+        // Resolved once. Every read rebuilds the whole list and re-resolves every
+        // keystroke through user defaults, so asking twice per body pass was
         // paying for the catalog four times over.
-        let sections = self.sections
-        let matched = sections.reduce(0) { $0 + $1.rows.count }
+        let listing = self.listing
         return VStack(spacing: 0) {
-            header(matched: matched)
+            header(matched: listing.matched, total: listing.total)
             Divider()
-            if sections.isEmpty {
+            if listing.sections.isEmpty {
                 emptyState
             } else {
-                list(sections)
+                list(listing.sections)
             }
         }
         .frame(width: Self.cardWidth)
@@ -65,7 +64,7 @@ struct KeystrokeSheetView: View {
         .shadow(radius: 30, y: 10)
     }
 
-    private func header(matched: Int) -> some View {
+    private func header(matched: Int, total: Int) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
@@ -80,7 +79,7 @@ struct KeystrokeSheetView: View {
                 // The matched count against the whole catalog, so a short list
                 // reads as "the query is narrow" rather than "the sheet is
                 // broken" — the same reassurance the scratch feed's count gives.
-                Text("\(matched) of \(KeystrokeCatalog.all.count)")
+                Text("\(matched) of \(total)")
                     .font(.system(size: 11))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -243,6 +242,23 @@ struct KeystrokeSheetView: View {
         let rows: [Row]
     }
 
+    /// One catalog entry paired with one of the keystrokes it answers to, before
+    /// the query has had its say.
+    private struct Pending {
+        let entry: KeystrokeEntry
+        let keys: String
+        let id: String
+    }
+
+    /// The whole sheet for the current query: its sections, how many rows the
+    /// query kept, and how many exist at all — so the count can say "N of M"
+    /// without resolving the catalog a second time to find M.
+    private struct Listing {
+        let sections: [Group]
+        let matched: Int
+        let total: Int
+    }
+
     /// Sections in catalog order, each holding its matching rows. A section
     /// with no matches is dropped so the sheet never shows a bare header.
     ///
@@ -254,42 +270,59 @@ struct KeystrokeSheetView: View {
     ///
     /// What a query may match is `KeystrokeSearch`'s to decide — the condition
     /// text and the section title are rendered here but never searched.
-    private var sections: [Group] {
-        let entries = KeystrokeCatalog.all
-        let keys = entries.map {
-            KeystrokeBindingResolver.displayText(for: $0.binding)
-        }
+    private var listing: Listing {
+        // A row is one keystroke, not one command. A rebindable binding can carry
+        // several — three keys inserting a newline is an ordinary thing to
+        // configure — and the catalog already writes ⌘H and ⌘← as two rows for
+        // one command, so listing each key on its own line is the shape that was
+        // already here. The alternative, stacking them into one cell, would blow
+        // out a column every other row is aligned to.
+        let pending: [Pending] = KeystrokeCatalog.all.enumerated()
+            .flatMap { index, entry -> [Pending] in
+                KeystrokeBindingResolver.displayTexts(for: entry.binding)
+                    .enumerated()
+                    .map { keyIndex, keys in
+                        // The catalog index and the key's place within its entry.
+                        // Either alone can repeat; together they cannot, so two
+                        // configured keystrokes that render alike still get their
+                        // own identity rather than colliding in one container.
+                        Pending(
+                            entry: entry, keys: keys,
+                            id: "\(index).\(keyIndex)"
+                                + "|\(entry.section.rawValue)|\(keys)")
+                    }
+            }
+
         let hits = KeystrokeSearch.hits(
-            zip(entries, keys).map { entry, keys in
+            pending.map { item in
                 KeystrokeSearch.Candidate(
-                    label: entry.label,
-                    keys: keys,
-                    section: entry.section.title,
-                    condition: entry.availability.conditionText,
-                    // The authored synonyms plus the keystroke's glyphs spelled
+                    label: item.entry.label,
+                    keys: item.keys,
+                    section: item.entry.section.title,
+                    condition: item.entry.availability.conditionText,
+                    // The authored synonyms plus this row's own glyphs spelled
                     // out, since none of "⌘⇧⌫" can be typed into the field.
-                    aliases: entry.aliases + " "
-                        + KeystrokeGlyphs.spelled(keys))
+                    aliases: item.entry.aliases + " "
+                        + KeystrokeGlyphs.spelled(item.keys))
             },
             query: query)
 
-        let rows = entries.indices.compactMap { index -> Row? in
-            guard let hit = hits[index] else { return nil }
-            let entry = entries[index]
-            // The catalog index makes this unique even where two rows
-            // share a section, a keystroke, and a label.
+        let rows = zip(pending, hits).compactMap { item, hit -> Row? in
+            guard let hit else { return nil }
             return Row(
-                id: "\(index)|\(entry.section.rawValue)|\(keys[index])",
-                entry: entry,
-                keys: keys[index],
+                id: item.id,
+                entry: item.entry,
+                keys: item.keys,
                 hit: hit,
-                isActive: entry.availability.isActive(in: model.context))
+                isActive: item.entry.availability.isActive(in: model.context))
         }
 
-        return KeystrokeSection.allCases.compactMap { section in
+        let sections = KeystrokeSection.allCases.compactMap { section -> Group? in
             let matching = rows.filter { $0.entry.section == section }
             return matching.isEmpty
                 ? nil : Group(section: section, rows: matching)
         }
+        return Listing(
+            sections: sections, matched: rows.count, total: pending.count)
     }
 }
