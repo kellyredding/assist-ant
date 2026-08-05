@@ -189,8 +189,14 @@ final class GRDBItemStore: ItemStore {
     /// Apply a Linear actionable sync in ONE transaction. Per row: create a new
     /// `todo` (backlog → iceboxed at creation; completed → resolved on the
     /// completion day) or update an existing item in place — refreshing only
-    /// title/body/externalURL, preserving type, schedule, icebox, list, and
-    /// position, and resolving it if it just completed but never unresolving.
+    /// title/body/externalURL, preserving type, schedule, list, and position,
+    /// and mirroring `completed_at` in both directions.
+    ///
+    /// Icebox membership is local EXCEPT at the two bucket edges sync owns: a
+    /// regression into backlog defers a row, and leaving backlog retracts the
+    /// placement the create branch derived. Everything between those edges is
+    /// left alone.
+    ///
     /// Then, when `reconcile` is set, soft-delete orphaned linear todos (active,
     /// unresolved, still `todo`, external_id not in `keep`), sparing resolved
     /// history and reclassified items.
@@ -291,6 +297,26 @@ final class GRDBItemStore: ItemStore {
                         // "remove from icebox" on a live backlog row from being
                         // undone on every sync.
                         if row.statusType == "backlog" { item.iceboxedAt = now }
+                    }
+                    // Leaving backlog is the mirror of the deferral above, and
+                    // the moment sync must retract what it derived. A row
+                    // created from a backlog issue was iceboxed by the create
+                    // branch, not by anyone here, so holding that placement
+                    // after the issue starts moving hid live work: it was
+                    // picked up in Linear yet absent from Today, the briefing,
+                    // and the priority widget, with no local decision to
+                    // justify the absence.
+                    //
+                    // This only ever CLEARS, and never on a backlog row, which
+                    // is what keeps the deliberate "remove from icebox" on a
+                    // live backlog row — and a regression's restored icebox —
+                    // untouched. The cost is that deliberately iceboxing a
+                    // started issue no longer survives a sync; telling that
+                    // apart from a sync-derived placement needs provenance the
+                    // row does not carry.
+                    if completedAt == nil, row.statusType != "backlog",
+                       item.iceboxedAt != nil {
+                        item.iceboxedAt = nil
                     }
                     item.deletedAt = nil   // resurrect if a prior reconcile retired it
                     item.updatedAt = now

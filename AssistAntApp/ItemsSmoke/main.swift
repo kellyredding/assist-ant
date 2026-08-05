@@ -837,6 +837,48 @@ check("actionable sync: an un-iceboxed live backlog row stays out of the icebox"
     return after.iceboxedAt == nil
 }
 
+// The FLEX-4774 shape: created from a backlog issue, so iceboxed by the create
+// branch, then picked up upstream. The icebox placement was derived by sync and
+// never chosen locally, so starting the work has to retract it — otherwise the
+// row is In Progress in Linear and invisible on Today, in the briefing, and in
+// the priority widget. Unwritable before: with the icebox rule gated on the
+// un-resolve, a live row could never leave the icebox at all.
+check("actionable sync: a row that leaves backlog comes out of the icebox") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("BL-2", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-2"], reconcile: false, allowEmptyKeep: false)
+    guard let created = try fetchByExt(queue, "BL-2"),
+          created.iceboxedAt != nil else { return false }   // iceboxed on create
+    try store.applyActionableSync(
+        rows: [lrow("BL-2", "started")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-2"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try store.fetch(id: created.id) else { return false }
+    let onActive = try store.fetchActive(type: .todo).contains { $0.id == after.id }
+    return after.iceboxedAt == nil && after.resolvedAt == nil && onActive
+}
+
+// The other side of that boundary: retraction is keyed on leaving backlog, not
+// on being synced. A row still sitting in backlog keeps its icebox, so the
+// clause above cannot quietly empty the icebox on every run.
+check("actionable sync: a live row still in backlog keeps its icebox") {
+    let (store, queue) = try makeStore()
+    try store.applyActionableSync(
+        rows: [lrow("BL-3", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-3"], reconcile: false, allowEmptyKeep: false)
+    guard let created = try fetchByExt(queue, "BL-3") else { return false }
+    try store.applyActionableSync(
+        rows: [lrow("BL-3", "backlog")],
+        workspaceID: "local", source: "linear",
+        keep: ["BL-3"], reconcile: false, allowEmptyKeep: false)
+    guard let after = try store.fetch(id: created.id) else { return false }
+    let hiddenFromActive = try store.fetchActive(type: .todo).isEmpty
+    return after.iceboxedAt != nil && hiddenFromActive
+}
+
 // The other direction is unchanged: a completion is never re-stamped.
 check("actionable sync: an already-resolved row keeps its completion day") {
     let (store, queue) = try makeStore()
