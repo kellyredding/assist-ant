@@ -117,9 +117,20 @@ struct SchedulePaneView: View {
                     }
                     DispatchQueue.main.async { model.scrollTarget = nil }
                 }
-                // Keep the keyboard-focused actionable row visible as J/K move it.
+                // Keep the keyboard-focused actionable row visible as J/K move it
+                // — but stand aside while a day jump is landing. `goTo(day:)`
+                // publishes the target day and the row it reseated together, and
+                // centering that row would scroll the day header the user just
+                // asked for off the top of the viewport. A pending `scrollTarget`
+                // is the correlation: it stays non-nil for exactly the one runloop
+                // turn the jump occupies, since the observer above clears it on
+                // the next tick — so this holds whichever order SwiftUI runs the
+                // two observers in. Nothing is lost by standing aside: the row a
+                // day jump seats is the first in the day it just put at the top.
+                // Sublist jumps and J/K set no scroll target, so they still
+                // scroll normally.
                 .onChange(of: selection.focusedItemID) { _, id in
-                    guard let id else { return }
+                    guard let id, model.scrollTarget == nil else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
                 }
             }

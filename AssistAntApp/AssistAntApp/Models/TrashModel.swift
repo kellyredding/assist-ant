@@ -67,6 +67,17 @@ final class TrashModel: ObservableObject {
         collapsedLists.contains(listName)
     }
 
+    /// Jump focus to the previous / next unfolded sublist. `fetchTrashed` hands
+    /// this surface notes and actionables alike, both keyed by their actionable
+    /// list name, so the jump needs no special case for either.
+    func focusPreviousGroup() {
+        selection.moveFocusToGroup(by: -1, in: groups, collapsed: collapsedLists)
+    }
+
+    func focusNextGroup() {
+        selection.moveFocusToGroup(by: 1, in: groups, collapsed: collapsedLists)
+    }
+
     // MARK: - Shared action API (bound to the snapshot mutations below)
 
     /// The cluster's actions, bound to this model's in-place snapshot mutations,

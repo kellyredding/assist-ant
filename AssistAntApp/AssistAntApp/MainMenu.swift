@@ -14,7 +14,13 @@ import Galactic
 /// A binding added here also needs a row in `KeystrokeCatalog`, or it will not
 /// appear in the ⌘/ cheat sheet — and nothing fails to say so, because the
 /// catalog restates these facts rather than deriving them.
-final class MainMenu: NSObject {
+final class MainMenu: NSObject, NSMenuDelegate {
+    /// The View menu, held because two of its titles are answers about the
+    /// current tab and something has to re-ask. Nothing else here is held: every
+    /// other menu names fixed things, so a delegate on it would rebuild per open
+    /// for no answer that can change.
+    private var viewMenu: NSMenu?
+
     func install() {
         let mainMenu = NSMenu()
 
@@ -49,14 +55,18 @@ final class MainMenu: NSObject {
         mainMenu.addItem(editMenuItem)
         buildEditMenu(editMenu)
 
-        // View menu — switches the main window's right-pane tab. Mirrors
-        // Galaxy's View ▸ Previous/Next view (⌘H/⌘← and ⌘L/⌘→).
+        // View menu — the whole vertical navigation ladder: the right-pane tab
+        // switch, the sublist rung, and the Schedule's day rung. Carries a
+        // delegate because the sublist pair is titled from
+        // `verticalNavDescriptor`, which answers differently per tab.
         let viewMenu = NSMenu(title: "View")
+        viewMenu.delegate = self
         let viewMenuItem = NSMenuItem(
             title: "View", action: nil, keyEquivalent: ""
         )
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
+        self.viewMenu = viewMenu
         buildViewMenu(viewMenu)
 
         // Terminal menu — terminal font zoom plus the session-acting Clear /
@@ -97,6 +107,32 @@ final class MainMenu: NSObject {
         buildHelpMenu(helpMenu)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - NSMenuDelegate
+
+    /// Rebuild the View menu just before it is drawn, because two of its titles
+    /// are answers about the surface showing.
+    ///
+    /// `install()` runs once, at launch, against whatever tab the last quit
+    /// persisted. A menu built there and left alone offers "Focus Session Pane"
+    /// over the Icebox, or "Previous sublist" over the Terminal, for the rest of
+    /// the process's life. Nothing fails; the menu simply describes a surface the
+    /// user is not on, which is the one failure a menu cannot recover from by
+    /// working anyway.
+    ///
+    /// Titles only. Enable state does NOT come from here, and that is not an
+    /// oversight: this fires on a visual open and not reliably when macOS matches
+    /// a key equivalent, so a rebuild carrying `isEnabled` would answer for the
+    /// tab that was showing the last time someone opened the menu with a mouse.
+    /// `validateMenuItem` is asked on both paths, which is why it owns the gate —
+    /// and why this needs none of the Combine plumbing Galaxy's equivalent has,
+    /// which exists there because its enable state is built into the items.
+    ///
+    /// `NSMenu.delegate` is unowned and AppDelegate holds this object for the life
+    /// of the process, so there is nothing here to dangle.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === viewMenu { buildViewMenu(menu) }
     }
 
     // MARK: - Help menu
@@ -230,12 +266,44 @@ final class MainMenu: NSObject {
 
     // MARK: - View menu
 
-    /// Previous/Next view switch the main window's right-pane tab. Each has a
-    /// letter binding (⇧⌘H/⇧⌘L) plus a hidden arrow alternate (⇧⌘←/⇧⌘→),
-    /// matching Galaxy. Shifted because a view is one level out from the
-    /// content inside it: unshifted belongs to the innermost thing you are
-    /// in. Enable state is gated dynamically by validateMenuItem.
+    /// A navigation ladder, three tiers deep, and the tiers are the containers a
+    /// row sits inside: a row is inside a sublist, a sublist is inside a day, a
+    /// day is inside a view. Each modifier steps one container out — bare j/k move
+    /// the row (the list chords own those, not this menu), ⌘ moves the sublist,
+    /// ⇧⌘ moves the day — and the letter pair picks the axis: K/J down the
+    /// surface, H/L across it.
+    ///
+    /// ⇧⌘ therefore carries two meanings, told apart by axis, and that is the
+    /// honest reading rather than a shortage of keys: a view is not something you
+    /// scroll to, it is somewhere you go, so it takes the horizontal pair at the
+    /// same depth the day takes the vertical one. ⌘H / ⌘L stay unbound because
+    /// this app has no inner horizontal tabs to move between; they are the rung
+    /// reserved for one, not spare keys.
+    ///
+    /// The tiers read in keystroke order rather than containment order — H/L, then
+    /// ⌘K/J, then ⇧⌘K/J — so the modifier column climbs as the eye goes down.
+    ///
+    /// Each tier is ONE pair of items with a hidden arrow twin, never two pairs.
+    /// Two menu items claiming one key equivalent do not both stay bound — AppKit
+    /// unbinds the loser silently, with nothing in the source to read — so a
+    /// surface that wants ⌘K for its own thing adds a branch inside
+    /// `verticalNavDescriptor` rather than a second claimant. That rule is why the
+    /// sublist pair lives here and not in the Terminal menu, where its first
+    /// meaning was born: the keys mean "the thing above / below on this surface"
+    /// everywhere, and the Terminal's panes are one answer to that, not the
+    /// question. The launch-time `MenuKeyEquivalentAudit` catches a second
+    /// claimant if anyone forgets; the descriptor is what makes forgetting
+    /// unnecessary.
+    ///
+    /// The ⇧⌘ pair's titles are fixed, deliberately: only the Schedule has days,
+    /// and one claimant behind a tab gate is not a collision.
+    ///
+    /// Enable state for all six actions is `validateMenuItem`'s, not this
+    /// method's — see `menuNeedsUpdate` for why a build-time `isEnabled` goes
+    /// stale.
     private func buildViewMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+
         let prev = NSMenuItem(
             title: "Previous view",
             action: #selector(MenuActions.previousView(_:)),
@@ -273,6 +341,93 @@ final class MainMenu: NSObject {
         nextArrow.keyEquivalentModifierMask = [.command, .shift]
         nextArrow.isAlternate = true
         menu.addItem(nextArrow)
+
+        menu.addItem(.separator())
+
+        // The sublist rung, moved here from the Terminal menu. Same four bindings
+        // pane focus has answered to since the modifier hierarchy was inverted,
+        // same one pair of items, and the titles now come from the descriptor on
+        // every open — so the Terminal reads "Focus Session Pane" and a grouped
+        // list reads "Previous sublist" without a second claimant on ⌘K.
+        let vertical = MenuActions.verticalNavDescriptor()
+        let subListPrev = NSMenuItem(
+            title: vertical.previous,
+            action: #selector(MenuActions.verticalNavPrevious(_:)),
+            keyEquivalent: "k"
+        )
+        subListPrev.target = MenuActions.shared
+        menu.addItem(subListPrev)
+
+        let subListPrevArrow = NSMenuItem(
+            title: vertical.previous,
+            action: #selector(MenuActions.verticalNavPrevious(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        subListPrevArrow.target = MenuActions.shared
+        subListPrevArrow.keyEquivalentModifierMask = .command
+        subListPrevArrow.isAlternate = true
+        menu.addItem(subListPrevArrow)
+
+        let subListNext = NSMenuItem(
+            title: vertical.next,
+            action: #selector(MenuActions.verticalNavNext(_:)),
+            keyEquivalent: "j"
+        )
+        subListNext.target = MenuActions.shared
+        menu.addItem(subListNext)
+
+        let subListNextArrow = NSMenuItem(
+            title: vertical.next,
+            action: #selector(MenuActions.verticalNavNext(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        subListNextArrow.target = MenuActions.shared
+        subListNextArrow.keyEquivalentModifierMask = .command
+        subListNextArrow.isAlternate = true
+        menu.addItem(subListNextArrow)
+
+        menu.addItem(.separator())
+
+        // The day rung. Schedule only, and it presses exactly what the control
+        // bar's chevrons press — one definition of "a day back", reached two ways,
+        // so a keystroke and a click cannot drift apart.
+        let prevDay = NSMenuItem(
+            title: "Previous day",
+            action: #selector(MenuActions.previousDay(_:)),
+            keyEquivalent: "k"
+        )
+        prevDay.target = MenuActions.shared
+        prevDay.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(prevDay)
+
+        let prevDayArrow = NSMenuItem(
+            title: "Previous day",
+            action: #selector(MenuActions.previousDay(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        prevDayArrow.target = MenuActions.shared
+        prevDayArrow.keyEquivalentModifierMask = [.command, .shift]
+        prevDayArrow.isAlternate = true
+        menu.addItem(prevDayArrow)
+
+        let nextDay = NSMenuItem(
+            title: "Next day",
+            action: #selector(MenuActions.nextDay(_:)),
+            keyEquivalent: "j"
+        )
+        nextDay.target = MenuActions.shared
+        nextDay.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(nextDay)
+
+        let nextDayArrow = NSMenuItem(
+            title: "Next day",
+            action: #selector(MenuActions.nextDay(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        nextDayArrow.target = MenuActions.shared
+        nextDayArrow.keyEquivalentModifierMask = [.command, .shift]
+        nextDayArrow.isAlternate = true
+        menu.addItem(nextDayArrow)
     }
 
     // MARK: - Agent menu
@@ -331,10 +486,16 @@ final class MainMenu: NSObject {
 
         menu.addItem(.separator())
 
-        // Pane commands, directional rather than mnemonic: the panes are
-        // stacked, so K is up to the session and J is down to the shell.
-        // ⌘O opens a login shell below, or focuses one already open.
-        // Bindings match Galaxy's Sessions menu.
+        // ⌘O opens a login shell below the session, or focuses one already open.
+        // Binding matches Galaxy's Sessions menu.
+        //
+        // The pane-focus pair that used to sit here — ⌘K / ⌘J and their arrow
+        // twins — now lives in the View menu. Those keys mean "the thing above and
+        // below on this surface" on every tab, and the panes are one answer to
+        // that; keeping them here would have meant either a second claimant when
+        // the grouped lists wanted the same question answered, or a Terminal menu
+        // item that fires on the Icebox. The whole vertical ladder is in one menu
+        // now, which is also where a reader looks for it.
         //
         // ⌘T and ⇧⌘T carried the first two and are deliberately left
         // unbound — a file picker wants ⌘T and every editor agrees.
@@ -342,43 +503,6 @@ final class MainMenu: NSObject {
         // ⌘W is not a menu item — the File menu keeps it as Close Window,
         // and a local event monitor consumes it only while a shell holds
         // focus.
-        let vertical = MenuActions.verticalNavDescriptor()
-        let focusSessionItem = NSMenuItem(
-            title: vertical.previous,
-            action: #selector(MenuActions.verticalNavPrevious(_:)),
-            keyEquivalent: "k"
-        )
-        focusSessionItem.target = MenuActions.shared
-        menu.addItem(focusSessionItem)
-
-        let focusSessionArrowItem = NSMenuItem(
-            title: vertical.previous,
-            action: #selector(MenuActions.verticalNavPrevious(_:)),
-            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
-        )
-        focusSessionArrowItem.target = MenuActions.shared
-        focusSessionArrowItem.keyEquivalentModifierMask = .command
-        focusSessionArrowItem.isAlternate = true
-        menu.addItem(focusSessionArrowItem)
-
-        let focusShellItem = NSMenuItem(
-            title: vertical.next,
-            action: #selector(MenuActions.verticalNavNext(_:)),
-            keyEquivalent: "j"
-        )
-        focusShellItem.target = MenuActions.shared
-        menu.addItem(focusShellItem)
-
-        let focusShellArrowItem = NSMenuItem(
-            title: vertical.next,
-            action: #selector(MenuActions.verticalNavNext(_:)),
-            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
-        )
-        focusShellArrowItem.target = MenuActions.shared
-        focusShellArrowItem.keyEquivalentModifierMask = .command
-        focusShellArrowItem.isAlternate = true
-        menu.addItem(focusShellArrowItem)
-
         let openShellItem = NSMenuItem(
             title: "Open Shell Pane",
             action: #selector(MenuActions.openShellPane(_:)),
@@ -570,11 +694,18 @@ final class MenuActions: NSObject {
     }
 
     /// Whether the key window's first responder is an *editable* text view —
-    /// e.g. the actionable reader's title field editor or its body editor.
-    /// Read-only text (the rendered body: selectable but not editable) returns
-    /// false, so View ▸ Previous/Next view stays enabled while merely viewing.
-    /// Used to surrender ⌘←/→ and ⌘H/⌘L to the focused editor so its native
-    /// line navigation — including ⌘⇧←/→ selection and ⌥-word motion — works.
+    /// e.g. the actionable reader's title field editor or its body editor, the
+    /// Scratch composer, or an inline note edit. Read-only text (the rendered
+    /// body: selectable but not editable) returns false, so the ladder stays live
+    /// while merely viewing.
+    ///
+    /// Surrenders the six chords this app's menus claim that AppKit also binds in
+    /// a text view: ⇧⌘←/→ (extend selection to line bounds, View ▸ Previous/Next
+    /// view), ⌘↑/↓ (move to document bounds, the sublist rung), and ⇧⌘↑/↓ (extend
+    /// selection to document bounds, the day rung). A menu key equivalent is
+    /// matched ahead of the responder chain, so each of those is a keystroke
+    /// stolen from an editor unless the item stands down — and the editor's own
+    /// line navigation, including ⌥-word motion, goes on working.
     static func editableTextIsFocused() -> Bool {
         guard let responder = NSApp.keyWindow?.firstResponder as? NSTextView
         else { return false }
@@ -598,32 +729,168 @@ final class MenuActions: NSObject {
     }
 
     /// Terminal ▸ Focus Session Pane (⌘T).
-    /// ⌘K — the previous thing on this surface. Today that is always the
-    /// session pane; the Files tab will make it the tab row above.
-    @objc func verticalNavPrevious(_ sender: Any?) {
-        TerminalTabCommands.shared.focusSession.send(nil)
-    }
-
-    /// Titles for the ⌘K / ⌘J pair.
+    /// View ▸ ⌘K — the previous thing on the surface showing: the pane above on
+    /// the Terminal, the sublist above on a grouped list.
     ///
-    /// One pair of menu items rather than one per meaning, and a
-    /// descriptor rather than literal titles, even though there is only
-    /// one meaning today. Two items sharing a key equivalent do not both
-    /// stay bound — AppKit unbinds one silently — so the Files tab has to
-    /// add a branch here rather than a second claimant. Building the seam
-    /// now is the difference between a branch and a bug.
-    static func verticalNavDescriptor() -> (
-        previous: String, next: String
-    ) {
-        ("Focus Session Pane", "Focus Shell Pane")
+    /// One selector for both meanings because one menu item carries both
+    /// bindings; `verticalNavDescriptor` is where that stops being negotiable.
+    ///
+    /// The list surfaces are called straight, with no bus and no published action
+    /// to route through: all four models are singletons their panes observe, so
+    /// moving focus on the model IS the update and nothing has to be told about
+    /// it. Galaxy needs `SessionManager.listNavAction` here only because its list
+    /// state is per-session and its menu cannot name which session's list is on
+    /// screen. Ours can, because there is one of each.
+    @objc func verticalNavPrevious(_ sender: Any?) {
+        if MainTabNavigator.shared.selectedTab == .terminal {
+            TerminalTabCommands.shared.focusSession.send(nil)
+        } else {
+            // `assumeIsolated`, not a hop: AppKit dispatches menu actions on the
+            // main thread already, and a hop would land the focus change a
+            // runloop turn after the keystroke that asked for it — long enough
+            // for a refresh to reseat focus underneath it.
+            MainActor.assumeIsolated { Self.subListNav()?.previous() }
+        }
     }
 
-    /// Terminal ▸ Focus Shell Pane (⌘J / ⌘↓). Declines when no shell
-    /// is open — opening one is `openShellPane`.
-    /// ⌘J — the next thing on this surface. Declines to open a shell that
-    /// is not there; that is `openShellPane`.
+    /// View ▸ ⌘J — the next thing on the surface showing. On the Terminal it
+    /// declines to open a shell that is not there; that is `openShellPane`.
     @objc func verticalNavNext(_ sender: Any?) {
-        TerminalTabCommands.shared.focusShell.send(nil)
+        if MainTabNavigator.shared.selectedTab == .terminal {
+            TerminalTabCommands.shared.focusShell.send(nil)
+        } else {
+            MainActor.assumeIsolated { Self.subListNav()?.next() }
+        }
+    }
+
+    /// Titles and the enable gate for the ⌘K / ⌘J pair.
+    ///
+    /// One pair of menu items rather than one per meaning, and a descriptor
+    /// rather than literal titles. Two items sharing a key equivalent do not both
+    /// stay bound — AppKit unbinds one silently — so a surface that wants this
+    /// pair adds a branch here rather than a second claimant. The Terminal wanted
+    /// it first and the grouped lists want it now; this is the branch the seam was
+    /// built for, and the reason it was built before there was anything to put
+    /// through it.
+    ///
+    /// Words and gate come out together: `buildViewMenu` reads the titles,
+    /// `validateMenuItem` reads `enabled`, so the menu cannot offer a command the
+    /// dispatch refuses or refuse one it would have run.
+    ///
+    /// Exhaustive over `MainTab` with no `default`. The next tab added has to say
+    /// here what the pair means on it, and a compile error is a kinder way to be
+    /// asked than a menu item reading "Previous sublist" over a surface with no
+    /// sublists.
+    ///
+    /// "Sublist", not "list": the tab is itself a list, and so is the Today
+    /// sidebar beside it, so "Next list" would name three things. A sublist is the
+    /// named group inside the list — what `ActionableGrouping` builds and what a
+    /// section header draws — and it reads the same way on the Scratch feed, whose
+    /// groups are the same named lists holding notes instead of to-dos. The
+    /// Terminal's two titles stay in the pane vocabulary they were written in,
+    /// because on that surface the pair names a destination rather than a step.
+    static func verticalNavDescriptor() -> (
+        previous: String, next: String, enabled: Bool
+    ) {
+        switch MainTabNavigator.shared.selectedTab {
+        case .terminal:
+            // Gated on the tab alone, as it has been since the pair was bound:
+            // these move focus INTO the panes, so they stay live while the find
+            // bar, the cheat sheet, or nothing at all holds first responder.
+            // `KeystrokeAvailability.terminalTab` states the same rule.
+            return ("Focus Session Pane", "Focus Shell Pane", true)
+        case .schedule, .icebox, .trash, .scratch:
+            return ("Previous sublist", "Next sublist", listOwnsKeyboard())
+        case .tasks:
+            // The Tasks table is one flat list with nothing to step between, so
+            // the pair says what it would have done and stays grey saying it.
+            return ("Previous sublist", "Next sublist", false)
+        }
+    }
+
+    /// Whether a list surface owns the keyboard, in the sense the ⌘-modified list
+    /// commands need.
+    ///
+    /// These four clauses are `ActionableListChords`' own guard minus the tab test
+    /// the caller already made, and the copy is the point rather than the cost:
+    /// ⌘K/⌘J are the sublist rung of the ladder whose row rung is bare j/k, and a
+    /// ladder whose rungs stand down under different conditions is two ladders
+    /// wearing one name. Concretely — the reader has its own j/k and must not have
+    /// the list move out from under it; an app-modal editor owns the keyboard
+    /// while it is up; the cheat sheet's search field is typing, not commanding;
+    /// and ⌘↑ / ⌘↓ are AppKit's move-to-document-bounds in any editable text view,
+    /// which is why the Scratch composer keeps them until Escape hands the feed
+    /// the keyboard.
+    ///
+    /// `KeystrokeAvailability.tabs` answers the same question for the ⌘/ sheet
+    /// with the same clauses, so a row dims exactly when the item disables.
+    /// Neither derives from the other — that is the catalog's stated bargain — but
+    /// they can be read side by side.
+    ///
+    /// `assumeIsolated` rather than a hop, for the reason `showKeystrokeSheet`
+    /// gives: AppKit asks this on the main thread, on key-equivalent dispatch as
+    /// well as on menu open, and an answer computed a runloop turn later is an
+    /// answer about a different moment.
+    static func listOwnsKeyboard() -> Bool {
+        MainActor.assumeIsolated {
+            ItemViewerModel.shared.openItem == nil
+                && NSApp.keyWindow is AssistAntWindow
+                && !CheatSheetPresenter.isClaimingKeyboard
+                && !editableTextIsFocused()
+        }
+    }
+
+    /// The sublist steps for the surface showing, or nil where ⌘K / ⌘J mean
+    /// something else (the Terminal's panes) or nothing (Tasks, one flat table).
+    ///
+    /// A pair of closures rather than a protocol the four models conform to: the
+    /// models share no supertype today, and the two facts a reader checks here —
+    /// that each tab reaches its own model, and that Tasks reaches none — read
+    /// better as one table than as four conformances in four files.
+    /// `ItemViewerModel.sourceList()` routes the reader's j/k the same way.
+    ///
+    /// The second exhaustive switch on `MainTab` in this file, and deliberately
+    /// not folded into the descriptor's: adding a tab has to decide both what the
+    /// item says and what it does, so the compiler asks twice. A `Set.contains`
+    /// test would answer "not mine" for a new tab in silence.
+    @MainActor
+    private static func subListNav()
+        -> (previous: () -> Void, next: () -> Void)? {
+        switch MainTabNavigator.shared.selectedTab {
+        case .schedule:
+            let m = ScheduleAgendaModel.shared
+            return ({ m.focusPreviousGroup() }, { m.focusNextGroup() })
+        case .icebox:
+            let m = IceboxModel.shared
+            return ({ m.focusPreviousGroup() }, { m.focusNextGroup() })
+        case .trash:
+            let m = TrashModel.shared
+            return ({ m.focusPreviousGroup() }, { m.focusNextGroup() })
+        case .scratch:
+            let m = ScratchModel.shared
+            return ({ m.focusPreviousGroup() }, { m.focusNextGroup() })
+        case .terminal, .tasks:
+            return nil
+        }
+    }
+
+    /// View ▸ Previous / Next day (⇧⌘K / ⇧⌘J, and their arrow twins).
+    ///
+    /// The Schedule control bar's chevrons press the same two methods, so the
+    /// keystroke and the click cannot drift: there is one definition of what "a
+    /// day back" means — including which day it counts from, the topmost visible
+    /// one — and both routes press it.
+    ///
+    /// No clamp, and nothing to disable at an edge: the agenda is an infinite
+    /// scroll that grows its own window at whichever edge you walk toward, so
+    /// there is no last day to stop at. `validateMenuItem` gates on the tab, not
+    /// on a range.
+    @objc func previousDay(_ sender: Any?) {
+        MainActor.assumeIsolated { ScheduleAgendaModel.shared.goBack() }
+    }
+
+    @objc func nextDay(_ sender: Any?) {
+        MainActor.assumeIsolated { ScheduleAgendaModel.shared.goForward() }
     }
 
     /// Terminal ▸ Open Shell Pane (⌘O). Opens the split, or focuses the
@@ -690,7 +957,8 @@ extension MenuActions {
 
 // MARK: - Menu validation
 
-/// Dynamic enable/disable for the View ▸ font-size shortcuts. AppKit calls
+/// Dynamic enable/disable for the View menu's navigation ladder and the Terminal
+/// menu's pane, buffer, font and session commands. AppKit calls
 /// validateMenuItem both on visual menu open and on key-equivalent
 /// dispatch, so the keyboard shortcut and the visible menu state stay in
 /// lockstep without a reactive rebuild. Mirrors Galaxy's MainMenu
@@ -701,8 +969,11 @@ extension MenuActions: NSMenuItemValidation {
         let controller = AgentSessionController.shared
         switch menuItem.action {
         case #selector(previousView(_:)), #selector(nextView(_:)):
-            // Surrender ⌘←/→ and ⌘H/⌘L to a focused text editor so its native
-            // line navigation (incl. ⌘⇧←/→ selection) wins over tab switching.
+            // Surrender ⇧⌘←/→ and ⇧⌘H/L to a focused text editor. Those arrows
+            // are AppKit's extend-selection-to-line-bounds, and a menu key
+            // equivalent is matched before the responder chain sees the event —
+            // so without standing down, a selection the user meant to make
+            // becomes a tab switch instead.
             return MainTab.allCases.count > 1 && !Self.editableTextIsFocused()
         case #selector(defaultTerminalFontSize(_:)):
             return Self.targetTerminalPane() != nil
@@ -733,13 +1004,24 @@ extension MenuActions: NSMenuItemValidation {
             // claim its key equivalent.
             return Self.targetTerminalPane() != nil
         case #selector(verticalNavPrevious(_:)),
-             #selector(verticalNavNext(_:)),
-             #selector(openShellPane(_:)):
-            // Gate on the tab, not on focus: both commands are about moving
-            // focus into the Terminal tab's panes, so they stay live while
-            // the tab is showing but something else holds first responder.
-            // Without the gate, the split stays mounted behind another tab
-            // and would take a shell — or focus — out of sight.
+             #selector(verticalNavNext(_:)):
+            // One line because the descriptor is the whole answer: whichever
+            // surface owns ⌘K decides both when it is live and what the menu
+            // calls it, and both come from this call.
+            return Self.verticalNavDescriptor().enabled
+        case #selector(previousDay(_:)), #selector(nextDay(_:)):
+            // The Schedule is the one surface with days. It stands down under the
+            // same conditions the sublist rung does — ⇧⌘↑ / ⇧⌘↓ are AppKit's
+            // extend-selection-to-document-bounds, so an editor with the caret
+            // keeps them, exactly as ⇧⌘←/→ above.
+            return MainTabNavigator.shared.selectedTab == .schedule
+                && Self.listOwnsKeyboard()
+        case #selector(openShellPane(_:)):
+            // Gate on the tab, not on focus: this opens a pane inside the
+            // Terminal tab, so it stays live while the tab is showing but
+            // something else holds first responder. Without the gate, the split
+            // stays mounted behind another tab and would take a shell out of
+            // sight.
             return MainTabNavigator.shared.selectedTab == .terminal
         default:
             return menuItem.isEnabled

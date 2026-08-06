@@ -62,6 +62,29 @@ final class ActionableSelection: ObservableObject {
         focusedItemID = ActionableListNavigation.step(from: focusedItemID, by: delta, in: order)
     }
 
+    /// ⌘J/⌘K — focus the first row of the sublist below/above the one focus sits
+    /// in. Takes the groups, because `moveFocus(by:order:)` cannot express this:
+    /// it walks a flat `[String]` from which every group boundary has already
+    /// been erased. Generic over `ListGroup`, so the scratch feed jumps through
+    /// this too, and the groups arrive as an argument because this type owns no
+    /// snapshot.
+    ///
+    /// Assigns only when there is a row to land on, which is the one way it
+    /// differs from `moveFocus`. A nil answer means every group on the surface is
+    /// folded away (or there are none), and writing that nil would discard the
+    /// row the user was standing on — a fold toggle reseats no focus, so
+    /// unfolding brings it straight back. `moveFocus` may write nil because an
+    /// empty flat order is a list with no rows at all, where nil is the honest
+    /// answer; a folded-shut list still has rows, just none showing.
+    func moveFocusToGroup<G: ListGroup>(
+        by delta: Int, in groups: [G], collapsed: Set<String>
+    ) {
+        guard let id = ActionableListNavigation.stepGroup(
+            from: focusedItemID, by: delta, groups, collapsed: collapsed)
+        else { return }
+        focusedItemID = id
+    }
+
     /// Seat focus on a visible row: leave it alone when it already sits on one,
     /// otherwise take the first (nil when there are no rows at all).
     ///

@@ -65,6 +65,17 @@ final class IceboxModel: ObservableObject {
         collapsedLists.contains(listName)
     }
 
+    /// Jump focus to the previous / next unfolded sublist. The snapshot is
+    /// `groups` + `collapsedLists`, the same pair `load`'s reconcile reads — the
+    /// rule itself lives on `ActionableSelection.moveFocusToGroup`.
+    func focusPreviousGroup() {
+        selection.moveFocusToGroup(by: -1, in: groups, collapsed: collapsedLists)
+    }
+
+    func focusNextGroup() {
+        selection.moveFocusToGroup(by: 1, in: groups, collapsed: collapsedLists)
+    }
+
     // MARK: - Shared action API (bound to the snapshot mutations below)
 
     /// The cluster's actions, bound to this model's in-place snapshot

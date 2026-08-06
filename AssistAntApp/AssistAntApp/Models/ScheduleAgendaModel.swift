@@ -108,7 +108,7 @@ final class ScheduleAgendaModel: ObservableObject {
             windowStart = target
             load(spinner: false)   // extends the rendered range into the past
         }
-        scrollTarget = target
+        goTo(day: target)
     }
 
     /// Forward chevron: the day below the top day. Extends the forward edge
@@ -117,11 +117,49 @@ final class ScheduleAgendaModel: ObservableObject {
     func goForward() {
         let target = topVisibleDay.adding(days: 1)
         extendForwardIfNeeded(toShow: target)
-        scrollTarget = min(target, days.last?.date ?? target)
+        goTo(day: min(target, days.last?.date ?? target))
     }
 
     func goToToday() {
-        scrollTarget = .today
+        goTo(day: .today)
+    }
+
+    /// Land the agenda on `day`: put it at the top of the viewport and, when it
+    /// has a row that can hold focus, reseat focus on its first one.
+    ///
+    /// The single path every day change goes through — both chevrons, the Today
+    /// capsule, and the menu bar's day commands. Worth commonizing the moment
+    /// there was a second trigger: the affordances used to set `scrollTarget` and
+    /// nothing else, and a keystroke that scrolled without moving focus leaves
+    /// j/k walking a day that is no longer on screen — a focus bar nobody can
+    /// see, answering keys, on rows nobody is looking at.
+    ///
+    /// Focus moves only when the target day has somewhere to put it. A day with
+    /// no actionables — or one whose only sublist is folded away, since
+    /// `collapsedLists` applies across every day at once — draws no rows, and
+    /// seating focus on a row that renders nowhere is the failure
+    /// `ActionableSelection` refuses throughout. So focus is left exactly where it
+    /// was. Stepping across a run of empty days keeps the focus bar on the row you
+    /// started from until you reach a day that has one, which is the only rule
+    /// that never costs the user their place to look at an empty day.
+    ///
+    /// Must be called AFTER any window growth the caller did, and synchronously
+    /// with it: `load(spinner:)` fetches and re-buckets inline, so by the time
+    /// `extendForwardIfNeeded` returns, `days` already covers `day`. Running after
+    /// `load` also settles the order against its trailing `selection.reconcile`,
+    /// whose `ensureFocus` would otherwise be the last writer — it reseats to the
+    /// earliest loaded day when the focused row vanished, and on a day change
+    /// nothing vanished, because the window only ever grows.
+    ///
+    /// Deliberately NOT reached from `updateTopVisibleDay`. That fires
+    /// continuously under the scroll wheel; reseating from there would snatch
+    /// focus away mid-gesture at every day boundary the user rolls past.
+    private func goTo(day: CivilDate) {
+        scrollTarget = day
+        let visible = ActionableListNavigation.visibleIDs(
+            days.first { $0.date == day }?.actionableGroups ?? [],
+            collapsed: collapsedLists)
+        if let first = visible.first { selection.focus(first) }
     }
 
     /// Called by the agenda's scroll tracker with the topmost-visible day.
@@ -168,6 +206,25 @@ final class ScheduleAgendaModel: ObservableObject {
     /// The selected actionables in visible (top→bottom across days) order.
     var selectedItems: [Item] {
         selection.selectedItems(in: allGroups, collapsed: collapsedLists)
+    }
+
+    /// Jump focus to the previous / next unfolded sublist, over `allGroups` — so
+    /// on this surface a jump crosses days when it runs out of sublists on the
+    /// current one. That is the right feed and not a compromise: it is the one
+    /// j/k already walks, and a day with no actionables contributes no groups, so
+    /// the jump steps over empty days without being told about them.
+    ///
+    /// Not to be confused with the day jump, which moves the viewport and may
+    /// grow the loaded window. This one never grows it — `allGroups` derives from
+    /// `days`, so it is bounded by what is already loaded and stops at the edge.
+    func focusPreviousGroup() {
+        selection.moveFocusToGroup(
+            by: -1, in: allGroups, collapsed: collapsedLists)
+    }
+
+    func focusNextGroup() {
+        selection.moveFocusToGroup(
+            by: 1, in: allGroups, collapsed: collapsedLists)
     }
 
     /// The cluster's actions, bound to this model's in-place day-snapshot

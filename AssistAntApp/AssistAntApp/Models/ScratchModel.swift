@@ -232,6 +232,17 @@ final class ScratchModel: ObservableObject {
     /// `x` — a selection with no row to show it.
     func ensureFocus() { selection.ensureFocus(in: visibleIDs) }
 
+    /// Jump focus to the previous / next unfolded sublist. Over `groups`, which
+    /// derives from `rows`, so the jump sees exactly what the query left visible —
+    /// a list the search emptied is not a list you can land on.
+    func focusPreviousGroup() {
+        selection.moveFocusToGroup(by: -1, in: groups, collapsed: collapsedLists)
+    }
+
+    func focusNextGroup() {
+        selection.moveFocusToGroup(by: 1, in: groups, collapsed: collapsedLists)
+    }
+
     // MARK: - Inline editing
 
     /// True when the open editor holds text differing from what is stored — the

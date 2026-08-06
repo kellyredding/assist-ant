@@ -17,9 +17,19 @@ enum KeystrokeCatalog {
 
     /// The surfaces that install `ActionableListChords`. Terminal and Tasks do
     /// not, so their chords genuinely do not exist there.
+    ///
+    /// Also the three surfaces the ⌘ sublist rungs walk — the same members for a
+    /// different reason, since those are menu key equivalents rather than chords.
+    /// One set rather than a second holding the same value: the value is what a
+    /// row renders as ("in Schedule, Icebox, Trash"), and two sets spelling one
+    /// place is how the sheet ends up naming two. Scratch stays out deliberately —
+    /// it installs `ScratchListChords`, so widening this would hand it twenty
+    /// `a`/`l` rows it does not implement.
     static let listTabs: Set<MainTab> = [.schedule, .icebox, .trash]
     private static let nonTrashLists: Set<MainTab> = [.schedule, .icebox]
     private static let trashOnly: Set<MainTab> = [.trash]
+    /// Days exist on one surface, so the ⇧⌘ day rungs are scoped to it.
+    private static let scheduleOnly: Set<MainTab> = [.schedule]
 
     /// Built by appending rather than one `+` chain: eight concatenated array
     /// literals push the type-checker past its budget and fail to compile.
@@ -113,6 +123,59 @@ enum KeystrokeCatalog {
         .init(binding: .literal("k"), label: "Focus previous item",
               section: .lists, availability: .tabs(listTabs),
               aliases: "up, move up, previous row, navigate"),
+        // The ladder: a bare letter steps a row, ⌘ steps a sublist, ⇧⌘ steps a
+        // day. Authored next to j/k rather than after `* n` so the three rungs
+        // read in order and the modifier hierarchy is legible from the keys
+        // column alone.
+        //
+        // Four rows per rung, not two. The arrow forms are hidden `isAlternate`
+        // menu items — they appear in no menu a reader can open — so this sheet
+        // is the only place they are written down at all, the same reason ⇧⌘H
+        // and ⇧⌘← are two rows in Window & Views.
+        .init(binding: .literal("⌘K"), label: "Focus previous sublist",
+              section: .lists, availability: .tabs(listTabs),
+              aliases: "jump to the previous sublist, skip to the previous "
+                  + "group, move up to the list above, move to the earlier "
+                  + "section, focus the first row of the group above"),
+        .init(binding: .literal("⌘↑"), label: "Focus previous sublist",
+              section: .lists, availability: .tabs(listTabs),
+              aliases: "jump to the previous sublist, skip to the previous "
+                  + "group, move up to the list above, move to the earlier "
+                  + "section, focus the first row of the group above"),
+        .init(binding: .literal("⌘J"), label: "Focus next sublist",
+              section: .lists, availability: .tabs(listTabs),
+              aliases: "jump to the next sublist, skip to the next group, "
+                  + "move down to the list below, move to the following "
+                  + "section, focus the first row of the group below"),
+        .init(binding: .literal("⌘↓"), label: "Focus next sublist",
+              section: .lists, availability: .tabs(listTabs),
+              aliases: "jump to the next sublist, skip to the next group, "
+                  + "move down to the list below, move to the following "
+                  + "section, focus the first row of the group below"),
+        // Schedule alone, because Schedule is the only surface with days. The
+        // `.tabs` case is load-bearing rather than incidental: ⇧⌘↑/⇧⌘↓ are
+        // AppKit's extend-selection-to-document chords, so the rung has to stand
+        // down to a focused editor — which is what `.tabs` says.
+        .init(binding: .literal("⇧⌘K"), label: "Focus previous day",
+              section: .lists, availability: .tabs(scheduleOnly),
+              aliases: "jump to the previous day, skip back to the previous "
+                  + "day, yesterday, the day before, change the day shown, "
+                  + "scroll up to the earlier date"),
+        .init(binding: .literal("⇧⌘↑"), label: "Focus previous day",
+              section: .lists, availability: .tabs(scheduleOnly),
+              aliases: "jump to the previous day, skip back to the previous "
+                  + "day, yesterday, the day before, change the day shown, "
+                  + "scroll up to the earlier date"),
+        .init(binding: .literal("⇧⌘J"), label: "Focus next day",
+              section: .lists, availability: .tabs(scheduleOnly),
+              aliases: "jump to the next day, skip forward to the next day, "
+                  + "tomorrow, the day after, change the day shown, "
+                  + "scroll down to the following date"),
+        .init(binding: .literal("⇧⌘↓"), label: "Focus next day",
+              section: .lists, availability: .tabs(scheduleOnly),
+              aliases: "jump to the next day, skip forward to the next day, "
+                  + "tomorrow, the day after, change the day shown, "
+                  + "scroll down to the following date"),
         .init(binding: .literal("x"), label: "Toggle selection on focused item",
               section: .lists, availability: .tabs(listTabs),
               aliases: "tick, check, mark, select, unselect"),
@@ -209,6 +272,35 @@ enum KeystrokeCatalog {
         .init(binding: .literal("k"), label: "Focus previous note",
               section: .scratch, availability: .tabs(scratchOnly),
               aliases: "up, move up, previous row, navigate"),
+        // The Lists section's two ⌘ rungs, worded identically. The chord walks the
+        // same object on both surfaces — a named list of rows — whether the rows
+        // are actionables or notes, exactly as `* a` below does, so it must not
+        // read differently. Scratch says "note" where the *rows* are the subject;
+        // a sublist is not a note, and that is where the line holds.
+        //
+        // Its own rows rather than the Lists rows widened onto `.scratch`, because
+        // `listTabs` names the surfaces installing `ActionableListChords`. No day
+        // rung here — the feed has no days.
+        .init(binding: .literal("⌘K"), label: "Focus previous sublist",
+              section: .scratch, availability: .tabs(scratchOnly),
+              aliases: "jump to the previous sublist, skip to the previous "
+                  + "group, move up to the list above, move to the earlier "
+                  + "section, focus the first row of the group above"),
+        .init(binding: .literal("⌘↑"), label: "Focus previous sublist",
+              section: .scratch, availability: .tabs(scratchOnly),
+              aliases: "jump to the previous sublist, skip to the previous "
+                  + "group, move up to the list above, move to the earlier "
+                  + "section, focus the first row of the group above"),
+        .init(binding: .literal("⌘J"), label: "Focus next sublist",
+              section: .scratch, availability: .tabs(scratchOnly),
+              aliases: "jump to the next sublist, skip to the next group, "
+                  + "move down to the list below, move to the following "
+                  + "section, focus the first row of the group below"),
+        .init(binding: .literal("⌘↓"), label: "Focus next sublist",
+              section: .scratch, availability: .tabs(scratchOnly),
+              aliases: "jump to the next sublist, skip to the next group, "
+                  + "move down to the list below, move to the following "
+                  + "section, focus the first row of the group below"),
         .init(binding: .literal("x"), label: "Toggle selection on focused note",
               section: .scratch, availability: .tabs(scratchOnly),
               aliases: "tick, check, mark, select, unselect"),
@@ -328,7 +420,23 @@ enum KeystrokeCatalog {
               section: .terminal, availability: .terminalTab,
               aliases: "agent, claude, jump to agent, session, "
                   + "go up a pane"),
+        // The hidden `isAlternate` twin, bound when the pane commands were named
+        // directionally and never given a row — so the sheet has been denying a
+        // key that works. Same label, same aliases, same availability: it is the
+        // same command, and a second wording would read as a second one.
+        //
+        // `.terminalTab`, not `.tabs([.terminal])`, for the reason that case's own
+        // doc gives: these resolve a pane from the focus memory, so neither a
+        // caret in the find bar nor an open reader stops them.
+        .init(binding: .literal("⌘↑"), label: "Focus session pane",
+              section: .terminal, availability: .terminalTab,
+              aliases: "agent, claude, jump to agent, session, "
+                  + "go up a pane"),
         .init(binding: .literal("⌘J"), label: "Focus shell pane",
+              section: .terminal, availability: .terminalTab,
+              aliases: "go to the shell, command line, go down a pane, "
+                  + "switch to bash"),
+        .init(binding: .literal("⌘↓"), label: "Focus shell pane",
               section: .terminal, availability: .terminalTab,
               aliases: "go to the shell, command line, go down a pane, "
                   + "switch to bash"),

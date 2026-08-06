@@ -1171,6 +1171,154 @@ check("ActionableListNavigation.idsInGroup: scopes to focused row's group") {
             of: a1.id, groups, collapsed: ["Zeta"])) == alphaIDs
 }
 
+/// A listed to-do for the group-jump checks. Built through the real grouping in
+/// each check rather than hand-assembled, so the group order under test is the
+/// order the surfaces render.
+func listedTodo(_ list: String?, _ title: String) -> Item {
+    newItem(type: .todo, typeData: .todo(ActionableData(listName: list)),
+            title: title)
+}
+
+// 39b. ActionableListNavigation.stepGroup: ⌘J/⌘K — the FIRST row of the sublist
+//      below/above the focused row's own, clamped at both ends like `step` (no
+//      wrap, the house rule). First row in both directions, so ⌘K then ⌘J returns
+//      to where it started; a clamp hands back the focused row untouched rather
+//      than sliding focus to the top of its own group, which at the bottom of the
+//      list would answer a downward keystroke by moving up.
+check("ActionableListNavigation.stepGroup: next/prev group's first row, clamps") {
+    let groups = ActionableGrouping.groups(items: [
+        listedTodo(nil, "free1"), listedTodo(nil, "free2"),
+        listedTodo("alpha", "a1"), listedTodo("alpha", "a2"),
+        listedTodo("Zeta", "z1")])
+    guard groups.map(\.listName) == [nil, "alpha", "Zeta"] else { return false }
+    let free = groups[0].memberIDs
+    let alpha = groups[1].memberIDs
+    let zeta = groups[2].memberIDs
+    func jump(_ from: String?, _ delta: Int,
+              _ collapsed: Set<String> = []) -> String? {
+        ActionableListNavigation.stepGroup(
+            from: from, by: delta, groups, collapsed: collapsed)
+    }
+    return jump(free[1], 1) == alpha[0]        // down from a mid-group row → first
+        && jump(alpha[1], -1) == free[0]       // up lands on the first row too
+        && jump(alpha[0], 1) == zeta[0]
+        && jump(zeta[0], -1) == alpha[0]
+        && jump(zeta[0], 1) == zeta[0]         // clamp at the last group
+        && jump(free[1], -1) == free[1]        // clamp at the first, focus untouched
+}
+
+// 39c. A folded group is no destination: it renders a header and zero rows, so
+//      there is nothing to focus there and the jump steps past it. That is also
+//      what lets a jump rescue focus OUT of a fold — reachable today, since no
+//      collapse toggle reseats focus. With nothing focused (or a stale focus no
+//      group holds) it falls to the near end in the direction of travel, the same
+//      fall `step` makes, landing on that group's FIRST row. With every group
+//      folded there is nowhere at all and the answer is nil.
+check("ActionableListNavigation.stepGroup: steps past folds, rescues stranded focus") {
+    let groups = ActionableGrouping.groups(items: [
+        listedTodo(nil, "free1"), listedTodo("alpha", "a1"),
+        listedTodo("Zeta", "z1")])
+    guard groups.map(\.listName) == [nil, "alpha", "Zeta"] else { return false }
+    let noList = groups[0].id
+    let free = groups[0].memberIDs
+    let alpha = groups[1].memberIDs
+    let zeta = groups[2].memberIDs
+    func jump(_ from: String?, _ delta: Int,
+              _ collapsed: Set<String> = []) -> String? {
+        ActionableListNavigation.stepGroup(
+            from: from, by: delta, groups, collapsed: collapsed)
+    }
+    return jump(free[0], 1, ["alpha"]) == zeta[0]      // straight past the fold
+        && jump(zeta[0], -1, ["alpha"]) == free[0]
+        // Focus stranded inside a folded group leaves it in the direction pressed.
+        && jump(alpha[0], 1, ["alpha"]) == zeta[0]
+        && jump(alpha[0], -1, ["alpha"]) == free[0]
+        // Nothing focused → the near end; up is the LAST group's FIRST row.
+        && jump(nil, 1) == free[0]
+        && jump(nil, -1) == zeta[0]
+        && jump(nil, -1, ["Zeta"]) == alpha[0]         // …skipping a folded end
+        // A focus no group holds is the same state: no current group, no neighbour.
+        && jump("gone", 1) == free[0]
+        && jump("gone", -1) == zeta[0]
+        // Every group folded → nowhere to land, whatever is focused.
+        && jump(free[0], 1, [noList, "alpha", "Zeta"]) == nil
+        && jump(nil, 1, [noList, "alpha", "Zeta"]) == nil
+}
+
+// 39d. THE Schedule case. `allGroups` flattens every day into one array and a
+//      group's id is its list name, so "Opex" is a DIFFERENT group on every day
+//      that carries an Opex item. The jump must find the current group by
+//      POSITION: keyed by id, a jump from the second day's Opex resolves to the
+//      first day's and walks off from there — up to the wrong sublist, down into a
+//      day it had already left. Crossing the day boundary (the last sublist of one
+//      day to the first of the next) is the intended behaviour; landing on the
+//      wrong day is the bug this pins. Positional identification is exact because
+//      a row id occurs in at most one group — the same invariant `idsInGroup`
+//      already rests on.
+check("ActionableListNavigation.stepGroup: duplicate group ids across days") {
+    let d1 = CivilDate(year: 2026, month: 6, day: 15)
+    let d2 = d1.adding(days: 1)
+    func onDay(_ list: String, _ title: String, _ day: CivilDate) -> Item {
+        newItem(type: .todo, typeData: .todo(ActionableData(listName: list)),
+                title: title, scheduledOn: day)
+    }
+    let days = ScheduleAgenda.days(
+        items: [onDay("Opex", "o1", d1), onDay("Zeta", "z1", d1),
+                onDay("Opex", "o2a", d2), onDay("Opex", "o2b", d2)],
+        from: d1, through: d2, today: d1)
+    let groups = days.flatMap(\.actionableGroups)   // ScheduleAgendaModel.allGroups
+    // The shape the whole check turns on: id "Opex" twice, on different days.
+    guard groups.map(\.id) == ["Opex", "Zeta", "Opex"] else { return false }
+    let o1 = groups[0].memberIDs[0]
+    let z1 = groups[1].memberIDs[0]
+    let opex2 = groups[2].memberIDs
+    func jump(_ from: String, _ delta: Int) -> String? {
+        ActionableListNavigation.stepGroup(
+            from: from, by: delta, groups, collapsed: [])
+    }
+    return jump(o1, 1) == z1
+        && jump(z1, 1) == opex2[0]        // crosses into the next day, as intended
+        && jump(z1, -1) == o1
+        // From the second day's Opex, up is the sublist ABOVE it — day one's Zeta
+        // — not day one's Opex, which is what an id lookup finds first.
+        && jump(opex2[1], -1) == z1
+        // …and down clamps, nothing following the last group. An id lookup would
+        // resolve to group 0 and hand back day one's Zeta instead.
+        && jump(opex2[0], 1) == opex2[0]
+        && jump(opex2[1], 1) == opex2[1]  // clamp keeps the focused row
+        // Folding by list name folds every day's copy — collapse IS keyed by id,
+        // and that is correct precisely because the id repeats.
+        && ActionableListNavigation.stepGroup(
+            from: o1, by: 1, groups, collapsed: ["Opex"]) == z1
+        && ActionableListNavigation.stepGroup(
+            from: z1, by: 1, groups, collapsed: ["Opex"]) == z1
+}
+
+// 39e. Degenerate surfaces. One sublist has nowhere to jump, so both directions
+//      clamp onto the focused row — what keeps ⌘J from looking broken on an Icebox
+//      with a single list. An empty feed answers nil, as `step` does for an empty
+//      order. A group with no rows is as unlandable as a folded one: no grouping
+//      here emits one, but the type allows it and admitting it would make the jump
+//      answer "nowhere" instead of stepping past it.
+check("ActionableListNavigation.stepGroup: single group clamps, empty feed → nil") {
+    let one = ActionableGrouping.groups(items: [
+        listedTodo(nil, "a"), listedTodo(nil, "b")])
+    let ids = one[0].memberIDs
+    func jump(_ from: String?, _ delta: Int,
+              _ groups: [ActionableGroup]) -> String? {
+        ActionableListNavigation.stepGroup(
+            from: from, by: delta, groups, collapsed: [])
+    }
+    return jump(ids[1], 1, one) == ids[1]
+        && jump(ids[1], -1, one) == ids[1]
+        && jump(nil, 1, one) == ids[0]
+        && jump(nil, -1, one) == ids[0]   // one group: both ends are that group
+        && jump("x", 1, []) == nil        // empty feed
+        && jump(nil, -1, []) == nil
+        && jump(nil, 1, [ActionableGroup(listName: nil, items: []), one[0]])
+            == ids[0]
+}
+
 // 40. ScheduleAgenda.days: a day splits into time-sorted calendar events and
 //     actionables grouped into sublists (no-list first, then named); calendar
 //     events never enter the groups.
@@ -2463,6 +2611,202 @@ check("catalog: no duplicate literal binding within a section and context") {
     return true
 }
 
+/// The literal keystrokes one section documents under one label.
+///
+/// Keyed by label rather than by binding, because the ladder's shape is one
+/// command answering to several keys: a check that names a binding can only
+/// confirm the row it already knows about, and the arrow twins are exactly the
+/// rows that went missing.
+func ksKeys(section: KeystrokeSection, label: String) -> Set<String> {
+    Set(KeystrokeCatalog.all.compactMap { e -> String? in
+        guard e.section == section, e.label == label,
+              case .literal(let keys) = e.binding
+        else { return nil }
+        return keys
+    })
+}
+
+/// The labels one section puts on one literal keystroke — the other way round,
+/// for asserting that two sections name a shared chord the same way.
+func ksLabels(section: KeystrokeSection, keys: String) -> Set<String> {
+    Set(KeystrokeCatalog.all
+        .filter { $0.section == section && $0.binding == .literal(keys) }
+        .map(\.label))
+}
+
+// Catalog: every rung of the ⌘ / ⇧⌘ ladder carries its letter form AND its arrow
+// twin. The arrows are hidden `isAlternate` menu items — they appear in no menu a
+// reader can open — so a missing row here is the only evidence that would ever
+// surface. That is how ⌘↑/⌘↓ stayed undocumented on the Terminal pane commands
+// after the commit that bound them: the keys worked perfectly and the sheet denied
+// they existed.
+check("catalog: the vertical ladder documents letters and arrows alike") {
+    ksKeys(section: .terminal, label: "Focus session pane") == ["⌘K", "⌘↑"]
+        && ksKeys(section: .terminal, label: "Focus shell pane") == ["⌘J", "⌘↓"]
+        && ksKeys(section: .lists, label: "Focus previous sublist")
+            == ["⌘K", "⌘↑"]
+        && ksKeys(section: .lists, label: "Focus next sublist") == ["⌘J", "⌘↓"]
+        && ksKeys(section: .scratch, label: "Focus previous sublist")
+            == ["⌘K", "⌘↑"]
+        && ksKeys(section: .scratch, label: "Focus next sublist") == ["⌘J", "⌘↓"]
+        && ksKeys(section: .lists, label: "Focus previous day")
+            == ["⇧⌘K", "⇧⌘↑"]
+        && ksKeys(section: .lists, label: "Focus next day") == ["⇧⌘J", "⇧⌘↓"]
+}
+
+// Catalog: one keystroke, three meanings, and no surface lights two of them.
+//
+// The duplicate check above keys on section AND availability rather than on the
+// keystroke alone, so it tolerates ⌘K/⌘J appearing three times by construction.
+// This is the check that says the tolerance was earned rather than assumed: the
+// three claims are scoped apart, and every tab lights exactly one — except Tasks,
+// which is flat and lights none. A reader on Icebox must not see "Focus shell
+// pane" lit, and a reader on Terminal must not see "Focus next sublist" lit; a
+// wrong condition misleads worse than a missing row does.
+check("catalog: each ladder key is claimed three times and lights once") {
+    ["⌘K", "⌘↑", "⌘J", "⌘↓"].allSatisfy { keys in
+        let rows = KeystrokeCatalog.all.filter { $0.binding == .literal(keys) }
+        let scopes = Set(rows.map {
+            "\($0.section.rawValue)|\(ksAvailabilityKey($0.availability))"
+        })
+        return rows.count == 3 && scopes.count == 3
+            && MainTab.allCases.allSatisfy { tab in
+                rows.filter { $0.availability.isActive(in: ksCtx(tab: tab)) }
+                    .count == (tab == .tasks ? 0 : 1)
+            }
+    }
+}
+
+// Catalog: and the two sublist claims read identically. The chord walks the same
+// object on both surfaces — a named list of rows — whether the rows are
+// actionables or notes, exactly as `* a` does, so it must not read differently.
+// Scratch says "note" where the *rows* are the subject ("Focus next note"); a
+// sublist is not a note, and this is where that line has to hold.
+check("catalog: the sublist rungs read the same on the lists and on scratch") {
+    ["⌘K", "⌘↑"].allSatisfy { keys in
+        ksLabels(section: .lists, keys: keys)
+            == ksLabels(section: .scratch, keys: keys)
+            && ksLabels(section: .lists, keys: keys) == ["Focus previous sublist"]
+    } && ["⌘J", "⌘↓"].allSatisfy { keys in
+        ksLabels(section: .lists, keys: keys)
+            == ksLabels(section: .scratch, keys: keys)
+            && ksLabels(section: .lists, keys: keys) == ["Focus next sublist"]
+    }
+}
+
+// Availability: what a reader actually sees lit, tab by tab. ⌘J is three commands
+// now, and the dimming is the only thing distinguishing them — so it is asserted
+// through the rows themselves rather than through the availability cases, which is
+// where a right case sitting on a wrong row would hide.
+check("availability: ⌘J lights the pane row on Terminal, the sublist row on a list") {
+    func lit(_ tab: MainTab) -> Set<String> {
+        Set(KeystrokeCatalog.all
+            .filter {
+                $0.binding == .literal("⌘J")
+                    && $0.availability.isActive(in: ksCtx(tab: tab))
+            }
+            .map(\.label))
+    }
+    return lit(.terminal) == ["Focus shell pane"]
+        && lit(.schedule) == ["Focus next sublist"]
+        && lit(.icebox) == ["Focus next sublist"]
+        && lit(.trash) == ["Focus next sublist"]
+        && lit(.scratch) == ["Focus next sublist"]
+        // Tasks is flat — no sublists — and is not the Terminal, so ⌘J means
+        // nothing there and no row may claim it does.
+        && lit(.tasks).isEmpty
+}
+
+// Availability: every rung on a list surface is a `.tabs` rung, and that is
+// load-bearing rather than incidental. `.tabs` resolves to tab match AND no reader
+// AND no focused editor — the same three gates `ActionableListChords` and
+// `ScratchListChords` already apply, and the same three `MenuActions
+// .listOwnsKeyboard` applies — which is why the ladder added no new availability
+// case: one spelling the same predicate a second way is how the two would drift.
+//
+// Asserted as the case, not as a predicate. `.terminalTab` also answers true on
+// its tab and false off it, and it is precisely the mistake available here, since
+// the Terminal rows next door carry it for a reason that does not transfer: ⌘↑/⌘↓
+// are AppKit's move-to-document chords and ⇧⌘↑/⇧⌘↓ its extend-selection ones, so a
+// rung still live inside an editor steals them.
+check("availability: the ladder's list rungs are tab-scoped") {
+    let rungs: Set<String> = [
+        "Focus previous sublist", "Focus next sublist",
+        "Focus previous day", "Focus next day",
+    ]
+    let rows = KeystrokeCatalog.all.filter { rungs.contains($0.label) }
+    return rows.count == 12 && rows.allSatisfy { row in
+        guard case .tabs(let tabs) = row.availability else { return false }
+        return !tabs.contains(.terminal) && !tabs.contains(.tasks)
+            && tabs.allSatisfy { tab in
+                row.availability.isActive(in: ksCtx(tab: tab))
+                    && !row.availability
+                        .isActive(in: ksCtx(tab: tab, readerOpen: true))
+                    && !row.availability.isActive(
+                        in: ksCtx(tab: tab, editableTextFocused: true))
+            }
+    }
+}
+
+// Availability: and the Terminal twins keep the view-scoped case their letter
+// forms carry. Those commands resolve their pane from the focus memory, so neither
+// a caret in the find bar nor an open reader stops them — a twin that quietly took
+// `.tabs([.terminal])` instead would dim in exactly the moments they still work.
+check("availability: the terminal pane twins stay view-scoped") {
+    let twins = KeystrokeCatalog.all.filter {
+        $0.section == .terminal
+            && ["Focus session pane", "Focus shell pane"].contains($0.label)
+    }
+    return twins.count == 4
+        && twins.allSatisfy { $0.availability == .terminalTab }
+}
+
+// The sublist rungs answer to every word for the thing they walk, and only to
+// their own direction. Three tiers ride one pair of letters, so search is the only
+// way a reader tells the sublist rung from the day rung — and "previous sublist"
+// turning up the row that goes the other way would be the sheet lying about which
+// key does what, which is worse than the row not being there.
+check("catalog: the sublist rungs answer to list, group and section") {
+    let next: Set<String> = ["Focus next sublist"]
+    let previous: Set<String> = ["Focus previous sublist"]
+    return ["next list", "next sublist", "next group", "next section",
+            "jump to next section", "skip to next group"]
+        .allSatisfy { next.isSubset(of: Set(catalogMatches($0))) }
+        && ["previous list", "previous sublist", "previous group",
+            "previous section", "jump to previous section",
+            "skip to previous group"]
+        .allSatisfy { previous.isSubset(of: Set(catalogMatches($0))) }
+        && !Set(catalogMatches("next sublist")).contains("Focus previous sublist")
+        && !Set(catalogMatches("previous sublist")).contains("Focus next sublist")
+}
+
+// The day rungs answer to the words a calendar makes people reach for, and the
+// same direction rule holds.
+check("catalog: the day rungs answer to tomorrow, yesterday and change day") {
+    Set(catalogMatches("tomorrow")) == ["Focus next day"]
+        && Set(catalogMatches("yesterday")) == ["Focus previous day"]
+        && Set(catalogMatches("next day")).contains("Focus next day")
+        && !Set(catalogMatches("next day")).contains("Focus previous day")
+        && Set(catalogMatches("previous day")).contains("Focus previous day")
+        && !Set(catalogMatches("previous day")).contains("Focus next day")
+        && Set(catalogMatches("change day"))
+            .isSuperset(of: ["Focus previous day", "Focus next day"])
+}
+
+// Search: the arrow twins are reachable by typing the arrow's name. None of
+// ⌘ ⇧ ↑ ↓ can be typed into the search field, so the spelled-out glyph names are
+// the only thing that gets a reader to an arrow row at all — and the twins are
+// exactly the rows nobody thinks to alias, because they duplicate a letter row
+// that already reads fine.
+check("search: the ladder's arrows answer to up arrow and down arrow") {
+    Set(catalogMatches("up arrow")).isSuperset(of: [
+        "Focus session pane", "Focus previous sublist", "Focus previous day",
+    ])
+    && Set(catalogMatches("down arrow")).isSuperset(of: [
+        "Focus shell pane", "Focus next sublist", "Focus next day",
+    ])
+}
+
 // Catalog: every section the sheet can render has content, so no bare headers.
 check("catalog: every section has at least one entry") {
     KeystrokeSection.allCases.allSatisfy { section in
@@ -2639,6 +2983,17 @@ check("ListGroup: the shared navigation walks a scratch group") {
         // …and nothing at all when that group is folded away.
         && ActionableListNavigation.idsInGroup(
             of: rows[1].id, groups, collapsed: ["Dev"]).isEmpty
+        // ⌘J/⌘K walk the same groups through the same helper: the FIRST row of
+        // the sublist below/above, clamped at the ends, and a folded group is no
+        // destination — one traversal, two row types.
+        && ActionableListNavigation.stepGroup(
+            from: rows[0].id, by: 1, groups, collapsed: []) == devIDs[0]
+        && ActionableListNavigation.stepGroup(
+            from: devIDs[1], by: -1, groups, collapsed: []) == rows[0].id
+        && ActionableListNavigation.stepGroup(
+            from: devIDs[0], by: 1, groups, collapsed: []) == devIDs[0]
+        && ActionableListNavigation.stepGroup(
+            from: rows[0].id, by: 1, groups, collapsed: ["Dev"]) == rows[0].id
         // The scratch sentinel and the actionable one stay distinct, so folding
         // the unfiled notes cannot fold the unfiled work.
         && ScratchGrouping.noListID != ActionableGroup(
@@ -3132,6 +3487,31 @@ checkMainActor("selection: reconcile prunes departed rows and reseats focus") {
     selection.focus("c")
     selection.reconcile(visible: ["a", "b"], present: ["a", "b"])
     return selection.selectedIDs == ["a", "b"] && selection.focusedItemID == "a"
+}
+
+// The group jump writes a focus only when there is a row to land on — the one way
+// it differs from `moveFocus`, which may write nil because an empty flat order is
+// a list with no rows at all. Nil from a group jump means every group is folded
+// shut, and clearing focus there would throw away the row the user was standing
+// on, which unfolding brings straight back (a fold toggle reseats nothing).
+checkMainActor("selection: group jump takes the next sublist's first row") {
+    let groups = ActionableGrouping.groups(items: [
+        listedTodo(nil, "free"), listedTodo("alpha", "a1"),
+        listedTodo("alpha", "a2")])
+    let selection = ActionableSelection()
+    selection.focus(groups[0].memberIDs[0])
+    selection.moveFocusToGroup(by: 1, in: groups, collapsed: [])
+    guard selection.focusedItemID == groups[1].memberIDs.first else { return false }
+    selection.moveFocusToGroup(by: 1, in: groups, collapsed: [])   // clamped
+    return selection.focusedItemID == groups[1].memberIDs.first
+}
+
+checkMainActor("selection: a group jump with nowhere to land leaves focus alone") {
+    let groups = ActionableGrouping.groups(items: [listedTodo("alpha", "a1")])
+    let selection = ActionableSelection()
+    selection.focus(groups[0].memberIDs[0])
+    selection.moveFocusToGroup(by: 1, in: groups, collapsed: ["alpha"])
+    return selection.focusedItemID == groups[0].memberIDs[0]
 }
 
 print(failures == 0
