@@ -333,7 +333,7 @@ final class MainMenu: NSObject {
 
         // Pane commands, directional rather than mnemonic: the panes are
         // stacked, so K is up to the session and J is down to the shell.
-        // ⇧⌘O opens a login shell below, or focuses one already open.
+        // ⌘O opens a login shell below, or focuses one already open.
         // Bindings match Galaxy's Sessions menu.
         //
         // ⌘T and ⇧⌘T carried the first two and are deliberately left
@@ -598,13 +598,13 @@ final class MenuActions: NSObject {
     }
 
     /// Terminal ▸ Focus Session Pane (⌘T).
-    /// ⇧⌘K — the previous thing on this surface. Today that is always the
+    /// ⌘K — the previous thing on this surface. Today that is always the
     /// session pane; the Files tab will make it the tab row above.
     @objc func verticalNavPrevious(_ sender: Any?) {
         TerminalTabCommands.shared.focusSession.send(nil)
     }
 
-    /// Titles for the ⇧⌘K / ⇧⌘J pair.
+    /// Titles for the ⌘K / ⌘J pair.
     ///
     /// One pair of menu items rather than one per meaning, and a
     /// descriptor rather than literal titles, even though there is only
@@ -618,15 +618,15 @@ final class MenuActions: NSObject {
         ("Focus Session Pane", "Focus Shell Pane")
     }
 
-    /// Terminal ▸ Focus Shell Pane (⇧⌘J / ⇧⌘↓). Declines when no shell
+    /// Terminal ▸ Focus Shell Pane (⌘J / ⌘↓). Declines when no shell
     /// is open — opening one is `openShellPane`.
-    /// ⇧⌘J — the next thing on this surface. Declines to open a shell that
+    /// ⌘J — the next thing on this surface. Declines to open a shell that
     /// is not there; that is `openShellPane`.
     @objc func verticalNavNext(_ sender: Any?) {
         TerminalTabCommands.shared.focusShell.send(nil)
     }
 
-    /// Terminal ▸ Open Shell Pane (⇧⌘O). Opens the split, or focuses the
+    /// Terminal ▸ Open Shell Pane (⌘O). Opens the split, or focuses the
     /// shell when one is already open.
     @objc func openShellPane(_ sender: Any?) {
         TerminalTabCommands.shared.openShell.send(nil)
