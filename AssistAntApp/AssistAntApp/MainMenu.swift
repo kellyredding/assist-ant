@@ -231,8 +231,10 @@ final class MainMenu: NSObject {
     // MARK: - View menu
 
     /// Previous/Next view switch the main window's right-pane tab. Each has a
-    /// letter binding (⌘H/⌘L) plus a hidden arrow alternate (⌘←/⌘→), matching
-    /// Galaxy. Enable state is gated dynamically by validateMenuItem.
+    /// letter binding (⇧⌘H/⇧⌘L) plus a hidden arrow alternate (⇧⌘←/⇧⌘→),
+    /// matching Galaxy. Shifted because a view is one level out from the
+    /// content inside it: unshifted belongs to the innermost thing you are
+    /// in. Enable state is gated dynamically by validateMenuItem.
     private func buildViewMenu(_ menu: NSMenu) {
         let prev = NSMenuItem(
             title: "Previous view",
@@ -240,6 +242,7 @@ final class MainMenu: NSObject {
             keyEquivalent: "h"
         )
         prev.target = MenuActions.shared
+        prev.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(prev)
 
         let prevArrow = NSMenuItem(
@@ -248,7 +251,7 @@ final class MainMenu: NSObject {
             keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!)
         )
         prevArrow.target = MenuActions.shared
-        prevArrow.keyEquivalentModifierMask = .command
+        prevArrow.keyEquivalentModifierMask = [.command, .shift]
         prevArrow.isAlternate = true
         menu.addItem(prevArrow)
 
@@ -258,6 +261,7 @@ final class MainMenu: NSObject {
             keyEquivalent: "l"
         )
         next.target = MenuActions.shared
+        next.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(next)
 
         let nextArrow = NSMenuItem(
@@ -266,7 +270,7 @@ final class MainMenu: NSObject {
             keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!)
         )
         nextArrow.target = MenuActions.shared
-        nextArrow.keyEquivalentModifierMask = .command
+        nextArrow.keyEquivalentModifierMask = [.command, .shift]
         nextArrow.isAlternate = true
         menu.addItem(nextArrow)
     }
@@ -327,26 +331,60 @@ final class MainMenu: NSObject {
 
         menu.addItem(.separator())
 
-        // Pane commands. ⌘T focuses the session terminal; ⌘⇧T opens a login
-        // shell below it, or focuses the shell if one is already open.
-        // Bindings match Galaxy's Sessions menu. ⌘W is not a menu item — the
-        // File menu keeps it as Close Window, and a local event monitor in
-        // TerminalTabCommands consumes it only while a shell holds focus.
+        // Pane commands, directional rather than mnemonic: the panes are
+        // stacked, so K is up to the session and J is down to the shell.
+        // ⇧⌘O opens a login shell below, or focuses one already open.
+        // Bindings match Galaxy's Sessions menu.
+        //
+        // ⌘T and ⇧⌘T carried the first two and are deliberately left
+        // unbound — a file picker wants ⌘T and every editor agrees.
+        //
+        // ⌘W is not a menu item — the File menu keeps it as Close Window,
+        // and a local event monitor consumes it only while a shell holds
+        // focus.
+        let vertical = MenuActions.verticalNavDescriptor()
         let focusSessionItem = NSMenuItem(
-            title: "Focus Session Pane",
-            action: #selector(MenuActions.focusSessionPane(_:)),
-            keyEquivalent: "t"
+            title: vertical.previous,
+            action: #selector(MenuActions.verticalNavPrevious(_:)),
+            keyEquivalent: "k"
         )
         focusSessionItem.target = MenuActions.shared
         menu.addItem(focusSessionItem)
 
+        let focusSessionArrowItem = NSMenuItem(
+            title: vertical.previous,
+            action: #selector(MenuActions.verticalNavPrevious(_:)),
+            keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        )
+        focusSessionArrowItem.target = MenuActions.shared
+        focusSessionArrowItem.keyEquivalentModifierMask = .command
+        focusSessionArrowItem.isAlternate = true
+        menu.addItem(focusSessionArrowItem)
+
+        let focusShellItem = NSMenuItem(
+            title: vertical.next,
+            action: #selector(MenuActions.verticalNavNext(_:)),
+            keyEquivalent: "j"
+        )
+        focusShellItem.target = MenuActions.shared
+        menu.addItem(focusShellItem)
+
+        let focusShellArrowItem = NSMenuItem(
+            title: vertical.next,
+            action: #selector(MenuActions.verticalNavNext(_:)),
+            keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        )
+        focusShellArrowItem.target = MenuActions.shared
+        focusShellArrowItem.keyEquivalentModifierMask = .command
+        focusShellArrowItem.isAlternate = true
+        menu.addItem(focusShellArrowItem)
+
         let openShellItem = NSMenuItem(
             title: "Open Shell Pane",
             action: #selector(MenuActions.openShellPane(_:)),
-            keyEquivalent: "t"
+            keyEquivalent: "o"
         )
         openShellItem.target = MenuActions.shared
-        openShellItem.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(openShellItem)
 
         menu.addItem(.separator())
@@ -560,11 +598,35 @@ final class MenuActions: NSObject {
     }
 
     /// Terminal ▸ Focus Session Pane (⌘T).
-    @objc func focusSessionPane(_ sender: Any?) {
+    /// ⇧⌘K — the previous thing on this surface. Today that is always the
+    /// session pane; the Files tab will make it the tab row above.
+    @objc func verticalNavPrevious(_ sender: Any?) {
         TerminalTabCommands.shared.focusSession.send(nil)
     }
 
-    /// Terminal ▸ Open Shell Pane (⌘⇧T). Opens the split, or focuses the
+    /// Titles for the ⇧⌘K / ⇧⌘J pair.
+    ///
+    /// One pair of menu items rather than one per meaning, and a
+    /// descriptor rather than literal titles, even though there is only
+    /// one meaning today. Two items sharing a key equivalent do not both
+    /// stay bound — AppKit unbinds one silently — so the Files tab has to
+    /// add a branch here rather than a second claimant. Building the seam
+    /// now is the difference between a branch and a bug.
+    static func verticalNavDescriptor() -> (
+        previous: String, next: String
+    ) {
+        ("Focus Session Pane", "Focus Shell Pane")
+    }
+
+    /// Terminal ▸ Focus Shell Pane (⇧⌘J / ⇧⌘↓). Declines when no shell
+    /// is open — opening one is `openShellPane`.
+    /// ⇧⌘J — the next thing on this surface. Declines to open a shell that
+    /// is not there; that is `openShellPane`.
+    @objc func verticalNavNext(_ sender: Any?) {
+        TerminalTabCommands.shared.focusShell.send(nil)
+    }
+
+    /// Terminal ▸ Open Shell Pane (⇧⌘O). Opens the split, or focuses the
     /// shell when one is already open.
     @objc func openShellPane(_ sender: Any?) {
         TerminalTabCommands.shared.openShell.send(nil)
@@ -670,7 +732,8 @@ extension MenuActions: NSMenuItemValidation {
             // while its action would have worked, and a disabled item does not
             // claim its key equivalent.
             return Self.targetTerminalPane() != nil
-        case #selector(focusSessionPane(_:)),
+        case #selector(verticalNavPrevious(_:)),
+             #selector(verticalNavNext(_:)),
              #selector(openShellPane(_:)):
             // Gate on the tab, not on focus: both commands are about moving
             // focus into the Terminal tab's panes, so they stay live while

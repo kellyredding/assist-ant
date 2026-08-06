@@ -67,16 +67,16 @@ enum KeystrokeCatalog {
     /// A view is a tab everywhere except in this app's own vocabulary, so every
     /// row that switches one carries the other word.
     private static let windowAndViews: [KeystrokeEntry] = [
-        .init(binding: .literal("⌘H"), label: "Previous view",
+        .init(binding: .literal("⇧⌘H"), label: "Previous view",
               section: .windowAndViews, availability: .viewSwitch,
               aliases: "previous tab, switch tab, change view, back, go left"),
-        .init(binding: .literal("⌘←"), label: "Previous view",
+        .init(binding: .literal("⇧⌘←"), label: "Previous view",
               section: .windowAndViews, availability: .viewSwitch,
               aliases: "previous tab, switch tab, change view, back, go left"),
-        .init(binding: .literal("⌘L"), label: "Next view",
+        .init(binding: .literal("⇧⌘L"), label: "Next view",
               section: .windowAndViews, availability: .viewSwitch,
               aliases: "next tab, switch tab, change view, forward, go right"),
-        .init(binding: .literal("⌘→"), label: "Next view",
+        .init(binding: .literal("⇧⌘→"), label: "Next view",
               section: .windowAndViews, availability: .viewSwitch,
               aliases: "next tab, switch tab, change view, forward, go right"),
         .init(binding: .literal("⌘,"), label: "Settings",
@@ -324,11 +324,16 @@ enum KeystrokeCatalog {
     // MARK: - Terminal & agent
 
     private static let terminal: [KeystrokeEntry] = [
-        .init(binding: .literal("⌘T"), label: "Focus session pane",
-              section: .terminal, availability: .app,
-              aliases: "agent, claude, jump to agent, session"),
-        .init(binding: .literal("⇧⌘T"), label: "Open shell pane",
-              section: .terminal, availability: .app,
+        .init(binding: .literal("⌘K"), label: "Focus session pane",
+              section: .terminal, availability: .terminalTab,
+              aliases: "agent, claude, jump to agent, session, "
+                  + "go up a pane"),
+        .init(binding: .literal("⌘J"), label: "Focus shell pane",
+              section: .terminal, availability: .terminalTab,
+              aliases: "go to the shell, command line, go down a pane, "
+                  + "switch to bash"),
+        .init(binding: .literal("⌘O"), label: "Open shell pane",
+              section: .terminal, availability: .terminalTab,
               aliases: "new shell, split, bash, zsh, login shell"),
         .init(binding: .literal("⌘W"), label: "Close shell pane",
               section: .terminal, availability: .terminalPane,

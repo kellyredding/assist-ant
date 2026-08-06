@@ -206,6 +206,15 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: tabs.selectedTab) { _, newTab in
             viewer.tabChanged(to: newTab)
+            // Let the terminal go when it stops being the surface the user
+            // is on. Every pane stays mounted behind an opacity switch, so
+            // without this the caret stays in a terminal that is no longer
+            // visible — and a key equivalent carrying no modifier loses to
+            // whatever holds first responder, which sends it there as
+            // input. Each pane decides whether it actually holds focus.
+            if newTab != .terminal {
+                TerminalPanes.shared.resignPaneFocus()
+            }
         }
         .onAppear { viewer.restoreIfNeeded() }
     }

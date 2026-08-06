@@ -94,6 +94,13 @@ struct TerminalTabSplitView: View {
             // live terminal hidden behind the overlay.
             TerminalPanes.shared.restoreFocus(kind: .session)
         }
+        .onReceive(TerminalTabCommands.shared.focusShell) { _ in
+            // Declines rather than opens when there is no shell: a
+            // directional key means the pane that is there. Opening one is
+            // `openShell`, and it has its own keystroke.
+            guard state.shellPane != nil else { return }
+            TerminalPanes.shared.restoreFocus(kind: .shell)
+        }
         .onReceive(TerminalTabCommands.shared.closeFocusedShell) { _ in
             guard let pane = state.shellPane else { return }
             // Gate the close on a confirmation when the shell's scrollback

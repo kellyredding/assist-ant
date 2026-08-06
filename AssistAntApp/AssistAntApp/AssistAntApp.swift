@@ -78,6 +78,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when AppKit starts honoring key equivalents.
         mainMenu = MainMenu()
         mainMenu.install()
+
+        // Two items sharing a key equivalent leave one of them silently
+        // unbound — no build error, no runtime warning, and a menu that
+        // still looks right. Galaxy lost ⌘K to this for a day. This says
+        // so at launch instead, and matters most here because the Files
+        // tab will want ⌘J/K that pane focus already holds.
+        if let menu = NSApp.mainMenu {
+            MenuKeyEquivalentAudit.report(menu) {
+                AssistAntLog.dbg("menu-audit", $0)
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
